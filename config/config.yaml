@@ -1,0 +1,37 @@
+# AI Chatbot Configuration
+
+# Model settings
+model:
+  name: "deepseek-ai/deepseek-coder-6.7b-instruct"  # 6.7B params - fits in 16GB VRAM
+  # Other options that work on your GPU:
+  # "deepseek-ai/deepseek-llm-7b-chat" - General chat (7B)
+  # "microsoft/DialoGPT-medium" - Smaller conversational (355M)
+  # "meta-llama/Llama-2-7b-chat-hf" - Llama2 7B (requires HF token)
+  cache_dir: "./model_cache"
+  device: "cuda"  # auto, cpu, cuda - will use your GPU
+  token: null  # Hugging Face token (optional). Set via env var HUGGINGFACE_TOKEN or here
+  
+  # NOTE: DeepSeek-V3.2-Exp (671B params) requires 8+ GPUs and cannot run on consumer hardware
+
+# Generation parameters
+generation:
+  max_length: 1000
+  min_length: 10
+  temperature: 0.7
+  top_k: 50
+  top_p: 0.9
+  repetition_penalty: 1.2
+  do_sample: true
+  num_return_sequences: 1
+
+# Chat settings
+chat:
+  max_history: 5  # Number of conversation turns to remember
+  system_prompt: "You are a helpful AI assistant."
+  
+# Application settings
+app:
+  debug: false
+  log_level: "INFO"
+  save_history: true
+  history_file: "./chat_history.json"

@@ -1,0 +1,22 @@
+# Core dependencies
+transformers>=4.30.0
+torch>=2.0.0
+tokenizers>=0.13.0
+
+# Optional: For faster inference
+accelerate>=0.20.0
+
+# Web interface (optional - requires Rust compiler for pydantic-core)
+# gradio>=3.35.0
+# If you want to use the web interface, install gradio separately:
+# pip install gradio
+flask>=2.3.0
+
+# Utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# Development tools
+pytest>=7.3.0
+black>=23.3.0
+flake8>=6.0.0
