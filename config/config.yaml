@@ -8,19 +8,19 @@ model:
   # "microsoft/DialoGPT-medium" - Smaller conversational (355M)
   # "meta-llama/Llama-2-7b-chat-hf" - Llama2 7B (requires HF token)
   cache_dir: "./model_cache"
-  device: "cuda"  # auto, cpu, cuda - will use your GPU
+  device: "auto"  # auto = use GPU if available (RTX 5070 Ti with sm_120 support!)
   token: null  # Hugging Face token (optional). Set via env var HUGGINGFACE_TOKEN or here
   
   # NOTE: DeepSeek-V3.2-Exp (671B params) requires 8+ GPUs and cannot run on consumer hardware
 
 # Generation parameters
 generation:
-  max_length: 1000
+  max_length: 150  # Reduced from 1000 to avoid inf/nan errors
   min_length: 10
   temperature: 0.7
   top_k: 50
-  top_p: 0.9
-  repetition_penalty: 1.2
+  top_p: 0.95  # Increased slightly for better sampling
+  repetition_penalty: 1.1  # Reduced from 1.2 to be less restrictive
   do_sample: true
   num_return_sequences: 1
 

@@ -1,6 +1,9 @@
 """
 Web interface for the AI chatbot using Gradio.
 """
+# CRITICAL: Import DLL path fix BEFORE any torch imports
+import fix_dll_paths
+
 import sys
 import os
 
