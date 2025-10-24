@@ -49,6 +49,10 @@ logs/
 .coverage
 htmlcov/
 
+# Chat data and exports
+chat_history.db
+chat_*_Chat_-_*
+
 # OS
 .DS_Store
 Thumbs.db
