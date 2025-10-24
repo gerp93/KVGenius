@@ -34,45 +34,59 @@ AVAILABLE_MODELS = {
     "Nous-Hermes-2-Mistral-7B": {
         "id": "NousResearch/Nous-Hermes-2-Mistral-7B-DPO",
         "description": "🎭 Excellent roleplay & instruction-following",
+        "details": "Fine-tuned on DPO (Direct Preference Optimization) for superior instruction following and character roleplay. Best all-around choice for conversational AI and creative scenarios.",
+        "best_for": "Character roleplay, instruction following, general conversation",
         "params": "7B",
         "vram": "~14 GB"
     },
     "SynthIA-7B": {
         "id": "migtissera/SynthIA-7B-v2.0",
         "description": "🎪 Specialized for character roleplay",
+        "details": "Trained specifically for character impersonation and creative storytelling. Excels at maintaining consistent personalities and engaging in immersive roleplay scenarios.",
+        "best_for": "Character roleplay, creative writing, storytelling",
         "params": "7B",
         "vram": "~14 GB"
     },
     "Dark Champion MOE": {
         "id": "DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B",
         "description": "🔥 Uncensored creative writing (MOE)",
+        "details": "Mixture-of-Experts model with 8 expert networks (3B each). Uncensored and abliterated for maximum creative freedom. Most intelligent option but requires more VRAM.",
+        "best_for": "Creative writing, complex scenarios, unrestricted content",
         "params": "18.4B (8x3B)",
         "vram": "~16-20 GB"
     },
     "DeepSeek Coder 6.7B": {
         "id": "deepseek-ai/deepseek-coder-6.7b-instruct",
         "description": "💻 Code-focused model",
+        "details": "Specialized for programming tasks, code generation, debugging, and technical explanations. Trained on massive code repositories with strong understanding of multiple languages.",
+        "best_for": "Code generation, debugging, technical explanations, programming help",
         "params": "6.7B",
         "vram": "~13 GB"
     },
     "DeepSeek LLM 7B": {
         "id": "deepseek-ai/deepseek-llm-7b-chat",
-        "description": "� General conversation",
+        "description": "💬 General conversation",
+        "details": "Balanced general-purpose model good for everyday conversations, Q&A, and informational queries. Reliable for factual responses and casual chat.",
+        "best_for": "General conversation, Q&A, information retrieval",
         "params": "7B",
         "vram": "~14 GB"
     },
     "Wizard Vicuna 7B": {
         "id": "ehartford/Wizard-Vicuna-7B-Uncensored",
         "description": "🧙 Uncensored (not great for roleplay)",
+        "details": "Older uncensored model. Less consistent for roleplay compared to newer options but completely unrestricted. Consider using Nous-Hermes-2 or Dark Champion instead.",
+        "best_for": "Unrestricted content (older generation)",
         "params": "7B",
         "vram": "~14 GB"
     },
     "DialoGPT Medium": {
         "id": "microsoft/DialoGPT-medium",
         "description": "⚡ Fast & lightweight",
+        "details": "Smallest and fastest option. Good for quick responses and casual chat when VRAM is limited. Less capable for complex tasks or roleplay.",
+        "best_for": "Quick responses, low VRAM usage, casual chat",
         "params": "355M",
         "vram": "~2 GB"
-    },
+    }
 }
 
 
@@ -508,23 +522,33 @@ def load_conversation(conv_title):
 
 
 def export_conversation():
-    """Export current conversation as JSON."""
+    """Export current conversation as JSON file for download."""
     global current_conversation_id, db
     
     if current_conversation_id is None:
-        return "❌ No active conversation to export"
+        return None, "❌ No active conversation to export"
     
     try:
         import json
-        data = db.export_conversation(current_conversation_id)
-        filename = f"chat_{current_conversation_id}_{data['title'].replace(' ', '_')}.json"
+        import tempfile
+        import os
         
-        with open(filename, 'w', encoding='utf-8') as f:
+        data = db.export_conversation(current_conversation_id)
+        
+        # Create filename
+        safe_title = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in data['title'])
+        filename = f"chat_{current_conversation_id}_{safe_title}.json"
+        
+        # Save to temp file
+        temp_dir = tempfile.gettempdir()
+        filepath = os.path.join(temp_dir, filename)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         
-        return f"✅ Exported to {filename}"
+        return filepath, f"✅ Downloading {filename}"
     except Exception as e:
-        return f"❌ Export failed: {str(e)}"
+        return None, f"❌ Export failed: {str(e)}"
 
 
 def delete_conversation():
@@ -691,6 +715,207 @@ def list_user_personas():
     return "\n".join(output)
 
 
+def create_ai_character_tiles():
+    """Create tile/card layout for AI characters with clickable navigation."""
+    global db
+    
+    characters = db.get_all_ai_characters()
+    
+    # Generate tile HTML with direct Gradio integration instructions
+    tiles_html = """
+    <div style="padding: 10px;">
+        <p style="color: #aaa; font-size: 14px; margin-bottom: 15px;">
+            💡 <strong>To edit a character:</strong> Select it from the dropdown in the "Edit Character" tab
+        </p>
+    """
+    
+    tiles_html += """
+    <style>
+        .character-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            padding: 10px;
+        }
+        .character-tile {
+            border: 2px solid #444;
+            border-radius: 12px;
+            padding: 15px;
+            transition: all 0.3s ease;
+            background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+        }
+        .character-tile:hover {
+            border-color: #00a8ff;
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0, 168, 255, 0.3);
+        }
+        .character-tile.create-new {
+            border: 2px dashed #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 180px;
+            background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%);
+        }
+        .character-tile.create-new:hover {
+            border-color: #00ff00;
+            box-shadow: 0 5px 20px rgba(0, 255, 0, 0.2);
+        }
+        .tile-avatar {
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .tile-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #fff;
+            text-align: center;
+        }
+        .tile-desc {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 10px;
+            text-align: center;
+            min-height: 40px;
+        }
+        .tile-params {
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+            border-top: 1px solid #444;
+            padding-top: 8px;
+            margin-top: 8px;
+        }
+        .create-icon {
+            font-size: 64px;
+            color: #666;
+            text-align: center;
+        }
+        .create-text {
+            font-size: 18px;
+            color: #888;
+            text-align: center;
+            margin-top: 10px;
+        }
+    </style>
+    <div class="character-grid">
+    """
+    
+    # Create New tile
+    tiles_html += """
+        <div class="character-tile create-new">
+            <div>
+                <div class="create-icon">➕</div>
+                <div class="create-text">Create New Character</div>
+                <div style="font-size: 12px; color: #666; margin-top: 8px;">Go to Edit Character tab →</div>
+            </div>
+        </div>
+    """
+    
+    for char in characters:
+        desc = char['description'] if char['description'] else "No description"
+        tiles_html += f"""
+        <div class="character-tile">
+            <div class="tile-avatar">{char['avatar']}</div>
+            <div class="tile-name">{char['name']}</div>
+            <div class="tile-desc">{desc}</div>
+            <div class="tile-params">
+                🌡️ {char['temperature']} | 🎯 P:{char['top_p']} K:{char['top_k']}
+            </div>
+        </div>
+        """
+    
+    tiles_html += """
+    </div>
+    </div>
+    """
+    
+    return tiles_html
+
+
+def create_user_persona_tiles():
+    """Create tile/card layout for user personas."""
+    global db
+    
+    personas = db.get_all_user_personas()
+    
+    tiles_html = """
+    <div style="padding: 10px;">
+        <p style="color: #aaa; font-size: 14px; margin-bottom: 15px;">
+            💡 <strong>To edit a persona:</strong> Select it from the dropdown in the "Edit Persona" tab
+        </p>
+    """
+    
+    tiles_html += """
+    <style>
+        .persona-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            padding: 10px;
+        }
+        .persona-tile {
+            border: 2px solid #444;
+            border-radius: 12px;
+            padding: 15px;
+            transition: all 0.3s ease;
+            background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+        }
+        .persona-tile:hover {
+            border-color: #ff6b6b;
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(255, 107, 107, 0.3);
+        }
+        .persona-tile.create-new {
+            border: 2px dashed #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 180px;
+            background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%);
+        }
+        .persona-tile.create-new:hover {
+            border-color: #00ff00;
+            box-shadow: 0 5px 20px rgba(0, 255, 0, 0.2);
+        }
+    </style>
+    <div class="persona-grid">
+    """
+    
+    # Create New tile
+    tiles_html += """
+        <div class="persona-tile create-new">
+            <div>
+                <div class="create-icon">➕</div>
+                <div class="create-text">Create New Persona</div>
+                <div style="font-size: 12px; color: #666; margin-top: 8px;">Go to Edit Persona tab →</div>
+            </div>
+        </div>
+    """
+    
+    for persona in personas:
+        desc = persona['description'] if persona['description'] else "No description"
+        bg_preview = persona['background'][:80] + "..." if persona['background'] and len(persona['background']) > 80 else (persona['background'] or "No background")
+        tiles_html += f"""
+        <div class="persona-tile">
+            <div class="tile-avatar">{persona['avatar']}</div>
+            <div class="tile-name">{persona['name']}</div>
+            <div class="tile-desc">{desc}</div>
+            <div class="tile-params" style="font-size: 11px;">{bg_preview}</div>
+        </div>
+        """
+    
+    tiles_html += """
+    </div>
+    </div>
+    """
+    
+    return tiles_html
+
+
+
 def refresh_dropdowns():
     """Refresh AI character and user persona dropdowns."""
     global db
@@ -754,7 +979,7 @@ def save_ai_character(char_id, name, system_prompt, description, temperature, to
     global db
     
     if not name.strip():
-        return "❌ Name is required", list_ai_characters()
+        return "❌ Name is required"
     
     try:
         if char_id and char_id.strip():
@@ -769,7 +994,7 @@ def save_ai_character(char_id, name, system_prompt, description, temperature, to
                 top_k=top_k,
                 avatar=avatar
             )
-            return f"✅ Updated AI character: {name}", list_ai_characters()
+            return f"✅ Updated AI character: {name}"
         else:
             # Create new character
             db.create_ai_character(
@@ -781,9 +1006,9 @@ def save_ai_character(char_id, name, system_prompt, description, temperature, to
                 top_k=top_k,
                 avatar=avatar
             )
-            return f"✅ Created AI character: {name}", list_ai_characters()
+            return f"✅ Created AI character: {name}"
     except Exception as e:
-        return f"❌ Error: {str(e)}", list_ai_characters()
+        return f"❌ Error: {str(e)}"
 
 
 def save_user_persona(persona_id, name, description, background, avatar):
@@ -791,6 +1016,30 @@ def save_user_persona(persona_id, name, description, background, avatar):
     global db
     
     if not name.strip():
+        return "❌ Name is required"
+    
+    try:
+        if persona_id and persona_id.strip():
+            # Update existing persona
+            db.update_user_persona(
+                int(persona_id),
+                name=name,
+                description=description,
+                background=background,
+                avatar=avatar
+            )
+            return f"✅ Updated user persona: {name}"
+        else:
+            # Create new persona
+            db.create_user_persona(
+                name=name,
+                description=description,
+                background=background,
+                avatar=avatar
+            )
+            return f"✅ Created user persona: {name}"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
         return "❌ Name is required", list_user_personas()
     
     try:
@@ -822,13 +1071,13 @@ def delete_ai_character_by_name(char_id, char_name):
     global db
     
     if not char_id or not char_id.strip():
-        return "❌ Please select a character to delete", list_ai_characters()
+        return "❌ Please select a character to delete"
     
     try:
         db.delete_ai_character(int(char_id))
-        return f"✅ Deleted AI character: {char_name}", list_ai_characters()
+        return f"✅ Deleted AI character: {char_name}"
     except Exception as e:
-        return f"❌ Error: {str(e)}", list_ai_characters()
+        return f"❌ Error: {str(e)}"
 
 
 def delete_user_persona_by_name(persona_id, persona_name):
@@ -836,13 +1085,13 @@ def delete_user_persona_by_name(persona_id, persona_name):
     global db
     
     if not persona_id or not persona_id.strip():
-        return "❌ Please select a persona to delete", list_user_personas()
+        return "❌ Please select a persona to delete"
     
     try:
         db.delete_user_persona(int(persona_id))
-        return f"✅ Deleted user persona: {persona_name}", list_user_personas()
+        return f"✅ Deleted user persona: {persona_name}"
     except Exception as e:
-        return f"❌ Error: {str(e)}", list_user_personas()
+        return f"❌ Error: {str(e)}"
 
 
 def handle_create_ai_character(name, system_prompt, description, temperature, top_p, top_k, avatar):
@@ -892,9 +1141,91 @@ def create_ui():
     conv_choices = {f"{c['title']} ({c['model']})": c['id'] for c in recent_convs}
     
     with gr.Blocks(title="KVGenius Multi-Model Chat", theme=gr.themes.Soft(), css="""
-        .gradio-container {height: 98vh !important; max-height: 98vh !important; overflow: auto;}
-        .main {height: 100% !important; display: flex; flex-direction: column;}
-        #chatbot {flex-grow: 1 !important; min-height: 500px !important; max-height: calc(100vh - 350px) !important;}
+        /* Chat area - larger height */
+        #chatbot {
+            height: 600px !important;
+            overflow-y: auto !important;
+        }
+        
+        /* Side panel scrollable */
+        .side-panel {
+            overflow-y: auto !important;
+            max-height: 700px !important;
+        }
+        
+        /* Tile-style radio buttons */
+        .tile-radio label {
+            display: grid !important;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important;
+            gap: 15px !important;
+            padding: 10px !important;
+        }
+        
+        .tile-radio input[type="radio"] {
+            display: none !important;
+        }
+        
+        .tile-radio label > span {
+            border: 2px solid #444 !important;
+            border-radius: 12px !important;
+            padding: 20px !important;
+            cursor: pointer !important;
+            transition: all 0.3s ease !important;
+            background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%) !important;
+            text-align: center !important;
+            font-size: 16px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-height: 100px !important;
+        }
+        
+        /* Style Create New tile with orange color - MUST come after general style */
+        .tile-radio label:first-of-type > span {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%) !important;
+            border-color: #ff6b35 !important;
+        }
+        
+        .tile-radio label > span:hover {
+            border-color: #00a8ff !important;
+            transform: translateY(-5px) !important;
+            box-shadow: 0 5px 20px rgba(0, 168, 255, 0.3) !important;
+        }
+        
+        /* Keep Create New orange even on hover */
+        .tile-radio label:first-of-type > span:hover {
+            border-color: #ff8555 !important;
+            box-shadow: 0 5px 20px rgba(255, 107, 53, 0.5) !important;
+            background: linear-gradient(135deg, #ff8555 0%, #ffa03e 100%) !important;
+        }
+        
+        .tile-radio input[type="radio"]:checked + span {
+            border-color: #00ff00 !important;
+            background: linear-gradient(135deg, #1e3e1e 0%, #2a4a2a 100%) !important;
+            box-shadow: 0 5px 20px rgba(0, 255, 0, 0.4) !important;
+        }
+        
+        /* Keep Create New orange even when selected */
+        .tile-radio input[type="radio"]:first-of-type:checked + span,
+        .tile-radio label:first-of-type input[type="radio"]:checked + span {
+            border-color: #ff6b35 !important;
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%) !important;
+            box-shadow: 0 5px 20px rgba(255, 107, 53, 0.6) !important;
+        }
+        
+        /* Style Create New buttons with distinctive color */
+        .create-new-btn {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%) !important;
+            color: white !important;
+            border: 2px solid #ff6b35 !important;
+            font-weight: bold !important;
+        }
+        
+        .create-new-btn:hover {
+            background: linear-gradient(135deg, #ff8555 0%, #ffa03e 100%) !important;
+            border-color: #ff8555 !important;
+            transform: scale(1.05) !important;
+        }
     """) as demo:
         
         gr.Markdown("# 🤖 KVGenius - Multi-Model AI Chat\n### RTX 5070 Ti (sm_120 Blackwell)")
@@ -932,7 +1263,7 @@ def create_ui():
                 
                 with gr.Row():
                     with gr.Column(scale=3):
-                        chatbot_ui = gr.Chatbot(label="Chat", height=600, show_copy_button=True, elem_id="chatbot")
+                        chatbot_ui = gr.Chatbot(label="Chat", show_copy_button=True, elem_id="chatbot", type="tuples")
                         
                         with gr.Row():
                             msg = gr.Textbox(
@@ -948,8 +1279,11 @@ def create_ui():
                         with gr.Row():
                             export_btn = gr.Button("📥 Export Chat", size="sm")
                             delete_btn = gr.Button("🗑️ Delete Chat", size="sm", variant="stop")
+                        
+                        # Hidden file output for export downloads
+                        export_file = gr.File(label="Download", visible=False)
                             
-                    with gr.Column(scale=1):
+                    with gr.Column(scale=1, elem_classes="side-panel"):
                         gr.Markdown("### 🎛️ Model")
                         
                         model_info = gr.Markdown()
@@ -1003,75 +1337,94 @@ def create_ui():
 - ✅ History saved in database
                     """)
             
-            with gr.TabItem("🎭 AI Characters", id="ai_char_tab"):
-                gr.Markdown("## AI Character Management\nAI Characters define **how the AI behaves** - personality, speaking style, and generation parameters.")
-                
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        gr.Markdown("### Create / Edit AI Character")
-                        
-                        # Dropdown to select existing character for editing
-                        edit_ai_dropdown = gr.Dropdown(
-                            choices=["[Create New]"] + ai_char_names[1:],  # Exclude "None"
-                            value="[Create New]",
-                            label="Select Character to Edit",
-                            interactive=True
-                        )
-                        
-                        ai_char_id_hidden = gr.Textbox(visible=False, value="")  # Store ID for updates
-                        
-                        new_ai_name = gr.Textbox(label="Name", placeholder="e.g., Friendly Tutor")
-                        new_ai_system = gr.Textbox(label="System Prompt", placeholder="You are a helpful tutor who explains things clearly...", lines=5)
-                        new_ai_desc = gr.Textbox(label="Description", placeholder="Brief description for the dropdown")
-                        with gr.Row():
-                            new_ai_temp = gr.Slider(0.1, 1.5, value=0.7, label="Temperature", info="Creativity level")
-                            new_ai_topp = gr.Slider(0.1, 1.0, value=0.95, label="Top P")
-                            new_ai_topk = gr.Slider(1, 100, value=50, step=1, label="Top K")
-                        new_ai_avatar = gr.Textbox(label="Avatar Emoji", value="🤖", max_lines=1)
-                        
-                        with gr.Row():
-                            save_ai_btn = gr.Button("💾 Save Character", variant="primary", size="lg")
-                            delete_ai_btn = gr.Button("🗑️ Delete Character", variant="stop", size="lg")
-                        
-                        ai_create_status = gr.Markdown()
+            with gr.TabItem("🎭 Characters", id="char_tab"):
+                # Browse view
+                with gr.Column(visible=True) as char_browse_view:
+                    gr.Markdown("## 🎴 Your AI Characters\nClick any character tile to edit it.")
                     
-                    with gr.Column(scale=1):
-                        gr.Markdown("### 📋 All AI Characters")
-                        ai_char_list = gr.Markdown()
-                        refresh_ai_btn = gr.Button("🔄 Refresh List", size="sm")
+                    # Get character names for radio buttons
+                    char_display_names = ["➕ Create New"] + [f"{char['avatar']} {char['name']}" for char in db.get_all_ai_characters()]
+                    char_actual_names = ["[Create New]"] + [char['name'] for char in db.get_all_ai_characters()]
+                    
+                    ai_char_selector = gr.Radio(
+                        choices=char_display_names,
+                        label="Select Character",
+                        elem_classes="tile-radio",
+                        container=False
+                    )
+                    
+                    refresh_ai_tiles_btn = gr.Button("🔄 Refresh Gallery", size="sm")
+                
+                # Edit view (hidden by default)
+                with gr.Column(visible=False) as char_edit_view:
+                    gr.Markdown("## Edit AI Character\nModify character personality, system prompt, and generation parameters.")
+                    
+                    back_to_browse_ai_btn = gr.Button("← Back to Gallery", size="sm", variant="secondary")
+                    
+                    ai_char_id_hidden = gr.Textbox(visible=False, value="")
+                    
+                    new_ai_name = gr.Textbox(label="Character Name", placeholder="e.g., Friendly Tutor")
+                    new_ai_desc = gr.Textbox(label="Short Description", placeholder="Brief description for the dropdown")
+                    new_ai_system = gr.Textbox(
+                        label="System Prompt (Personality)", 
+                        placeholder="You are a helpful tutor who explains things clearly...", 
+                        lines=8
+                    )
+                    
+                    gr.Markdown("### Generation Parameters")
+                    with gr.Row():
+                        new_ai_temp = gr.Slider(0.1, 1.5, value=0.7, label="Temperature", info="Creativity (higher = more random)")
+                        new_ai_topp = gr.Slider(0.1, 1.0, value=0.95, label="Top P", info="Nucleus sampling")
+                        new_ai_topk = gr.Slider(1, 100, value=50, step=1, label="Top K", info="Token diversity")
+                    
+                    new_ai_avatar = gr.Textbox(label="Avatar Emoji", value="🤖", max_lines=1)
+                    
+                    with gr.Row():
+                        save_ai_btn = gr.Button("💾 Save Character", variant="primary", size="lg")
+                        delete_ai_btn = gr.Button("🗑️ Delete Character", variant="stop", size="lg")
+                    
+                    ai_create_status = gr.Markdown()
             
-            with gr.TabItem("👤 User Personas", id="user_persona_tab"):
-                gr.Markdown("## User Persona Management\nUser Personas define **who you are** in the roleplay - your character, background, and context.")
-                
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        gr.Markdown("### Create / Edit User Persona")
-                        
-                        # Dropdown to select existing persona for editing
-                        edit_user_dropdown = gr.Dropdown(
-                            choices=["[Create New]"] + user_persona_names[1:],  # Exclude "None"
-                            value="[Create New]",
-                            label="Select Persona to Edit",
-                            interactive=True
-                        )
-                        
-                        user_persona_id_hidden = gr.Textbox(visible=False, value="")  # Store ID for updates
-                        
-                        new_user_name = gr.Textbox(label="Name", placeholder="e.g., Space Explorer")
-                        new_user_desc = gr.Textbox(label="Description", placeholder="Brief description (e.g., 'A brave starship captain')")
-                        new_user_bg = gr.Textbox(label="Background/Context", placeholder="Detailed roleplay background: You are Captain Sarah Chen, commanding the starship Odyssey...", lines=5)
-                        new_user_avatar = gr.Textbox(label="Avatar Emoji", value="👤", max_lines=1)
-                        
-                        with gr.Row():
-                            save_user_btn = gr.Button("💾 Save Persona", variant="primary", size="lg")
-                            delete_user_btn = gr.Button("🗑️ Delete Persona", variant="stop", size="lg")
-                        
-                        user_create_status = gr.Markdown()
+            with gr.TabItem("👤 Personas", id="persona_tab"):
+                # Browse view
+                with gr.Column(visible=True) as persona_browse_view:
+                    gr.Markdown("## 🎴 Your User Personas\nClick any persona tile to edit it.")
                     
-                    with gr.Column(scale=1):
-                        gr.Markdown("### 📋 All User Personas")
-                        user_persona_list = gr.Markdown()
-                        refresh_user_btn = gr.Button("🔄 Refresh List", size="sm")
+                    # Get persona names for radio buttons
+                    persona_display_names = ["➕ Create New"] + [f"{p['avatar']} {p['name']}" for p in db.get_all_user_personas()]
+                    persona_actual_names = ["[Create New]"] + [p['name'] for p in db.get_all_user_personas()]
+                    
+                    user_persona_selector = gr.Radio(
+                        choices=persona_display_names,
+                        label="Select Persona",
+                        elem_classes="tile-radio",
+                        container=False
+                    )
+                    
+                    refresh_user_tiles_btn = gr.Button("🔄 Refresh Gallery", size="sm")
+                
+                # Edit view (hidden by default)
+                with gr.Column(visible=False) as persona_edit_view:
+                    gr.Markdown("## Edit User Persona\nModify who you are in the roleplay.")
+                    
+                    back_to_browse_user_btn = gr.Button("← Back to Gallery", size="sm", variant="secondary")
+                    
+                    user_persona_id_hidden = gr.Textbox(visible=False, value="")
+                    
+                    new_user_name = gr.Textbox(label="Persona Name", placeholder="e.g., Space Explorer")
+                    new_user_desc = gr.Textbox(label="Short Description", placeholder="Brief description (e.g., 'A brave starship captain')")
+                    new_user_bg = gr.Textbox(
+                        label="Background/Context", 
+                        placeholder="Detailed roleplay background: You are Captain Sarah Chen, commanding the starship Odyssey...", 
+                        lines=8
+                    )
+                    new_user_avatar = gr.Textbox(label="Avatar Emoji", value="👤", max_lines=1)
+                    
+                    with gr.Row():
+                        save_user_btn = gr.Button("💾 Save Persona", variant="primary", size="lg")
+                        delete_user_btn = gr.Button("🗑️ Delete Persona", variant="stop", size="lg")
+                    
+                    user_create_status = gr.Markdown()
         
         # Chat Events
         msg.submit(chat, [msg, chatbot_ui, model_dropdown, ai_char_dropdown, user_persona_dropdown], chatbot_ui).then(
@@ -1087,86 +1440,168 @@ def create_ui():
         
         load_conv_dropdown.change(load_conversation, load_conv_dropdown, [chatbot_ui, status])
         
-        export_btn.click(export_conversation, outputs=status)
+        export_btn.click(export_conversation, outputs=[export_file, status])
         delete_btn.click(delete_conversation, outputs=[chatbot_ui, status])
         
         refresh.click(get_status, outputs=status)
         unload_btn.click(unload, model_dropdown, status)
         cancel_btn.click(cancel_download, outputs=status).then(get_status, outputs=status)
         
-        # AI Character Management Events
-        # Load character data when dropdown changes
-        edit_ai_dropdown.change(
-            load_ai_character_for_edit,
-            edit_ai_dropdown,
-            [ai_char_id_hidden, new_ai_name, new_ai_system, new_ai_desc, new_ai_temp, new_ai_topp, new_ai_topk, new_ai_avatar]
-        )
+        # Define helper functions for character/persona management
+        def refresh_char_selector():
+            chars = db.get_all_ai_characters()
+            display_names = ["➕ Create New"] + [f"{char['avatar']} {char['name']}" for char in chars]
+            return gr.update(choices=display_names)
         
+        def refresh_persona_selector():
+            personas = db.get_all_user_personas()
+            display_names = ["➕ Create New"] + [f"{p['avatar']} {p['name']}" for p in personas]
+            return gr.update(choices=display_names)
+        
+        def open_char_editor(display_name):
+            if display_name is None:
+                return gr.update(visible=True), gr.update(visible=False), "", "", "", "", 0.7, 0.95, 50, "🤖"
+            # Extract actual name from display format "🤖 Name"
+            if display_name.startswith("➕"):
+                # Return empty form for new character
+                return gr.update(visible=False), gr.update(visible=True), "", "", "", "", 0.7, 0.95, 50, "🤖"
+            else:
+                actual_name = display_name.split(" ", 1)[1] if " " in display_name else display_name
+                # Load existing character data
+                ai_characters = db.get_all_ai_characters()
+                for char in ai_characters:
+                    if char['name'] == actual_name:
+                        return (
+                            gr.update(visible=False),  # hide browse
+                            gr.update(visible=True),  # show edit
+                            str(char['id']),  # hidden id
+                            char['name'],
+                            char['system_prompt'] or "",
+                            char['description'] or "",
+                            char['temperature'],
+                            char['top_p'],
+                            char['top_k'],
+                            char['avatar'] or "🤖"
+                        )
+                # If not found, return empty
+                return gr.update(visible=False), gr.update(visible=True), "", actual_name, "", "", 0.7, 0.95, 50, "🤖"
+        
+        def open_persona_editor(display_name):
+            if display_name is None:
+                return gr.update(visible=True), gr.update(visible=False), "", "", "", "", "👤"
+            # Extract actual name from display format "👤 Name"
+            if display_name.startswith("➕"):
+                # Return empty form for new persona
+                return gr.update(visible=False), gr.update(visible=True), "", "", "", "", "👤"
+            else:
+                actual_name = display_name.split(" ", 1)[1] if " " in display_name else display_name
+                # Load existing persona data
+                personas = db.get_all_user_personas()
+                for persona in personas:
+                    if persona['name'] == actual_name:
+                        return (
+                            gr.update(visible=False),  # hide browse
+                            gr.update(visible=True),  # show edit
+                            str(persona['id']),  # hidden id
+                            persona['name'],
+                            persona['description'] or "",
+                            persona['background'] or "",
+                            persona['avatar'] or "👤"
+                        )
+                # If not found, return empty
+                return gr.update(visible=False), gr.update(visible=True), "", actual_name, "", "", "👤"
+        
+        # AI Character Management Events
         # Save (create or update) character
         save_ai_btn.click(
             save_ai_character,
             [ai_char_id_hidden, new_ai_name, new_ai_system, new_ai_desc, new_ai_temp, new_ai_topp, new_ai_topk, new_ai_avatar],
-            [ai_create_status, ai_char_list]
+            [ai_create_status]
         ).then(
             refresh_dropdowns,
             outputs=[ai_char_dropdown, user_persona_dropdown]
         ).then(
-            lambda: gr.update(choices=["[Create New]"] + [c['name'] for c in db.get_all_ai_characters()], value="[Create New]"),
-            outputs=edit_ai_dropdown
+            refresh_char_selector,
+            outputs=ai_char_selector
         )
         
         # Delete character
         delete_ai_btn.click(
             delete_ai_character_by_name,
             [ai_char_id_hidden, new_ai_name],
-            [ai_create_status, ai_char_list]
+            [ai_create_status]
         ).then(
             refresh_dropdowns,
             outputs=[ai_char_dropdown, user_persona_dropdown]
         ).then(
-            lambda: ("", "", "", "", 0.7, 0.95, 50, "🤖", gr.update(choices=["[Create New]"] + [c['name'] for c in db.get_all_ai_characters()], value="[Create New]")),
-            outputs=[ai_char_id_hidden, new_ai_name, new_ai_system, new_ai_desc, new_ai_temp, new_ai_topp, new_ai_topk, new_ai_avatar, edit_ai_dropdown]
+            lambda: ("", "", "", "", 0.7, 0.95, 50, "🤖"),
+            outputs=[ai_char_id_hidden, new_ai_name, new_ai_system, new_ai_desc, new_ai_temp, new_ai_topp, new_ai_topk, new_ai_avatar]
+        ).then(
+            refresh_char_selector,
+            outputs=ai_char_selector
         )
         
-        refresh_ai_btn.click(list_ai_characters, outputs=ai_char_list)
-        demo.load(list_ai_characters, outputs=ai_char_list)
+        # Tab navigation buttons for characters
+        back_to_browse_ai_btn.click(
+            lambda: (gr.update(visible=True), gr.update(visible=False), None),
+            outputs=[char_browse_view, char_edit_view, ai_char_selector]
+        )
+        
+        # Auto-navigate on tile selection
+        ai_char_selector.change(
+            open_char_editor,
+            inputs=ai_char_selector,
+            outputs=[char_browse_view, char_edit_view, ai_char_id_hidden, new_ai_name, new_ai_system, new_ai_desc, new_ai_temp, new_ai_topp, new_ai_topk, new_ai_avatar]
+        )
+        
+        # Refresh character selector
+        refresh_ai_tiles_btn.click(refresh_char_selector, outputs=ai_char_selector)
         
         # User Persona Management Events
-        # Load persona data when dropdown changes
-        edit_user_dropdown.change(
-            load_user_persona_for_edit,
-            edit_user_dropdown,
-            [user_persona_id_hidden, new_user_name, new_user_desc, new_user_bg, new_user_avatar]
-        )
-        
         # Save (create or update) persona
         save_user_btn.click(
             save_user_persona,
             [user_persona_id_hidden, new_user_name, new_user_desc, new_user_bg, new_user_avatar],
-            [user_create_status, user_persona_list]
+            [user_create_status]
         ).then(
             refresh_dropdowns,
             outputs=[ai_char_dropdown, user_persona_dropdown]
         ).then(
-            lambda: gr.update(choices=["[Create New]"] + [p['name'] for p in db.get_all_user_personas()], value="[Create New]"),
-            outputs=edit_user_dropdown
+            refresh_persona_selector,
+            outputs=user_persona_selector
         )
         
         # Delete persona
         delete_user_btn.click(
             delete_user_persona_by_name,
             [user_persona_id_hidden, new_user_name],
-            [user_create_status, user_persona_list]
+            [user_create_status]
         ).then(
             refresh_dropdowns,
             outputs=[ai_char_dropdown, user_persona_dropdown]
         ).then(
-            lambda: ("", "", "", "", "👤", gr.update(choices=["[Create New]"] + [p['name'] for p in db.get_all_user_personas()], value="[Create New]")),
-            outputs=[user_persona_id_hidden, new_user_name, new_user_desc, new_user_bg, new_user_avatar, edit_user_dropdown]
+            lambda: ("", "", "", "", "👤"),
+            outputs=[user_persona_id_hidden, new_user_name, new_user_desc, new_user_bg, new_user_avatar]
+        ).then(
+            refresh_persona_selector,
+            outputs=user_persona_selector
         )
         
-        refresh_user_btn.click(list_user_personas, outputs=user_persona_list)
-        demo.load(list_user_personas, outputs=user_persona_list)
+        # Tab navigation buttons for personas
+        back_to_browse_user_btn.click(
+            lambda: (gr.update(visible=True), gr.update(visible=False), None),
+            outputs=[persona_browse_view, persona_edit_view, user_persona_selector]
+        )
+        
+        # Auto-navigate on tile selection
+        user_persona_selector.change(
+            open_persona_editor,
+            inputs=user_persona_selector,
+            outputs=[persona_browse_view, persona_edit_view, user_persona_id_hidden, new_user_name, new_user_desc, new_user_bg, new_user_avatar]
+        )
+        
+        # Refresh persona selector
+        refresh_user_tiles_btn.click(refresh_persona_selector, outputs=user_persona_selector)
     
     return demo
 
