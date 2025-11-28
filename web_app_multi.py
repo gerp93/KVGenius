@@ -8,6 +8,7 @@ import sys
 import os
 import time
 import yaml
+import json
 
 # Force unbuffered output for conda run
 sys.stdout.reconfigure(line_buffering=True)
@@ -156,8 +157,20 @@ def format_image_metadata(metadata):
 
 
 def load_image_model_presets():
-    """Load image model presets from config file."""
-    presets_path = os.path.join(os.path.dirname(__file__), "config", "image_model_presets.yaml")
+    """Load image model presets from config file.
+    
+    If user config doesn't exist, copies from example template.
+    """
+    config_dir = os.path.join(os.path.dirname(__file__), "config")
+    presets_path = os.path.join(config_dir, "image_model_presets.yaml")
+    example_path = os.path.join(config_dir, "image_model_presets.example.yaml")
+    
+    # If user config doesn't exist, copy from example
+    if not os.path.exists(presets_path) and os.path.exists(example_path):
+        import shutil
+        shutil.copy(example_path, presets_path)
+        logger.info(f"Created image_model_presets.yaml from example template")
+    
     try:
         with open(presets_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
@@ -726,13 +739,52 @@ def load_image_model(model_name, progress=gr.Progress()):
         progress(0.3, desc="Downloading/loading pipeline...")
         
         # Load appropriate pipeline based on model
-        if "sdxl" in model_id.lower() or "turbo" in model_key.lower():
-            image_model = AutoPipelineForText2Image.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,
-                cache_dir=cache_dir,
-                variant="fp16" if "turbo" not in model_id.lower() else None,
-            )
+        # Check for SDXL models by name hints, or auto-detect from model config
+        is_sdxl = "sdxl" in model_id.lower() or "xl" in model_id.lower() or "turbo" in model_key.lower()
+        
+        # Also check if model has SDXL structure (text_encoder_2 folder)
+        if not is_sdxl:
+            try:
+                from huggingface_hub import hf_hub_download
+                import json
+                config_path = hf_hub_download(model_id, "model_index.json", cache_dir=cache_dir)
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                if config.get('_class_name') == 'StableDiffusionXLPipeline' or 'text_encoder_2' in config:
+                    is_sdxl = True
+                    logger.info(f"Auto-detected SDXL model from config: {model_id}")
+            except:
+                pass  # Fall back to name-based detection
+        
+        if is_sdxl:
+            # Try StableDiffusionXLPipeline first for proper SDXL support
+            try:
+                from diffusers import EulerDiscreteScheduler
+                
+                image_model = StableDiffusionXLPipeline.from_pretrained(
+                    model_id,
+                    torch_dtype=torch.float16,
+                    cache_dir=cache_dir,
+                    use_safetensors=True,
+                )
+                
+                # Some models use EDM schedulers that may cause noise output
+                # Replace with a standard Euler scheduler for compatibility
+                scheduler_type = type(image_model.scheduler).__name__
+                if "EDM" in scheduler_type:
+                    logger.info(f"Replacing {scheduler_type} with EulerDiscreteScheduler for compatibility")
+                    image_model.scheduler = EulerDiscreteScheduler.from_config(
+                        image_model.scheduler.config,
+                        timestep_spacing="trailing",
+                    )
+                
+            except Exception as e:
+                logger.warning(f"SDXL pipeline failed, trying AutoPipeline: {e}")
+                image_model = AutoPipelineForText2Image.from_pretrained(
+                    model_id,
+                    torch_dtype=torch.float16,
+                    cache_dir=cache_dir,
+                )
         else:
             image_model = StableDiffusionPipeline.from_pretrained(
                 model_id,
@@ -824,12 +876,21 @@ def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, he
         image_gen_cancel_event = False
         image_gen_in_progress = True
 
-        def _generation_callback(step: int, timestep: int, latents=None):
-            # This callback is called during generation when callback_steps is set
+        def _generation_callback(pipe, step: int, timestep: int, callback_kwargs):
+            """Callback for step-by-step progress updates during generation."""
+            # Check for cancellation
             if image_gen_cancel_event:
                 raise Exception("Generation cancelled by user")
+            
+            # Calculate progress: reserve 0.2-0.90 range for generation steps
+            # (0-0.2 is prep, 0.90-1.0 is VAE decode + saving)
+            step_progress = 0.2 + (step / num_steps) * 0.70
+            progress(step_progress, desc=f"Generating... step {step}/{num_steps}")
+            
+            return callback_kwargs
 
-        # Generate image (pass callback to allow cancellation)
+        # Generate image (pass callback to allow cancellation and progress tracking)
+        progress(0.2, desc="Starting generation...")
         result = image_model(
             prompt=prompt,
             negative_prompt=negative_prompt if negative_prompt.strip() else None,
@@ -838,21 +899,24 @@ def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, he
             width=width,
             height=height,
             generator=generator,
-            callback=_generation_callback,
-            callback_steps=1,
+            callback_on_step_end=_generation_callback,
         )
+        
+        # VAE decoding happens inside the pipeline call, so we're already past it
+        progress(0.92, desc="Processing image...")
         
         gen_time = time.time() - gen_start
         
         # Unload LoRA after generation to keep model clean for next generation
         if lora_loaded:
+            progress(0.94, desc="Unloading LoRA...")
             try:
                 image_model.unfuse_lora()
                 image_model.unload_lora_weights()
             except Exception as e:
                 logger.warning(f"Failed to unload LoRA: {e}")
         
-        progress(1.0, desc="Done!")
+        progress(0.96, desc="Saving image...")
         
         image = result.images[0]
         
@@ -877,6 +941,8 @@ def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, he
         metadata.add_text("generated_at", timestamp)
         
         image.save(filename, pnginfo=metadata)
+        
+        progress(1.0, desc="Complete!")
         
         status = f"✅ Generated in **{gen_time:.1f}s** | Saved to `{filename}`"
         if lora_name and lora_name != "None":
@@ -1570,6 +1636,89 @@ def delete_lora(lora_name):
     lm.delete_lora(lora_name)
     
     return f"✅ Deleted LoRA: {lora_name}", gr.update(choices=get_lora_choices(), value=None)
+
+
+def import_lora(file, lora_name, trigger_word):
+    """Import a pre-built LoRA .safetensors file."""
+    import shutil
+    from pathlib import Path
+    
+    if file is None:
+        return "❌ Please select a .safetensors file", gr.update()
+    
+    if not lora_name or not lora_name.strip():
+        return "❌ Please enter a name for the LoRA", gr.update()
+    
+    lora_name = lora_name.strip().replace(" ", "_")
+    
+    # Validate file type
+    if not file.name.lower().endswith('.safetensors'):
+        return "❌ File must be a .safetensors file", gr.update()
+    
+    try:
+        # Create LoRA directory
+        lora_dir = Path("data/lora_models") / lora_name
+        lora_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy the file
+        dest_file = lora_dir / "adapter_model.safetensors"
+        shutil.copy2(file.name, dest_file)
+        
+        # Try to detect rank from the file
+        rank = 16  # default
+        try:
+            from safetensors import safe_open
+            with safe_open(str(dest_file), framework="pt") as f:
+                for key in f.keys():
+                    if "lora_down" in key.lower() or "lora_a" in key.lower():
+                        tensor = f.get_tensor(key)
+                        rank = min(tensor.shape)
+                        break
+        except Exception as e:
+            logger.warning(f"Could not detect LoRA rank: {e}")
+        
+        # Create adapter_config.json
+        adapter_config = {
+            "base_model_name_or_path": "stabilityai/stable-diffusion-xl-base-1.0",
+            "inference_mode": True,
+            "peft_type": "LORA",
+            "r": rank,
+            "lora_alpha": rank * 2,
+            "lora_dropout": 0.0,
+            "target_modules": [
+                "to_q", "to_k", "to_v", "to_out.0",
+                "proj_in", "proj_out",
+                "ff.net.0.proj", "ff.net.2"
+            ],
+            "bias": "none"
+        }
+        
+        with open(lora_dir / "adapter_config.json", "w") as f:
+            json.dump(adapter_config, f, indent=2)
+        
+        # Create metadata
+        if not trigger_word or not trigger_word.strip():
+            trigger_word = lora_name.lower()
+        
+        metadata = {
+            "name": lora_name,
+            "trigger_word": trigger_word.strip(),
+            "source": os.path.basename(file.name),
+            "installed_from": "imported",
+            "rank": rank,
+            "description": f"Imported from {os.path.basename(file.name)}"
+        }
+        
+        with open(lora_dir / "lora_metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+        
+        logger.info(f"Imported LoRA: {lora_name} (rank={rank}, trigger={trigger_word})")
+        
+        return f"✅ Imported '{lora_name}'! Trigger word: **{trigger_word}**", gr.update(choices=get_lora_choices(), value=lora_name)
+        
+    except Exception as e:
+        logger.error(f"Error importing LoRA: {e}")
+        return f"❌ Error: {str(e)}", gr.update()
 
 
 # Initialize BLIP model variables
@@ -3319,7 +3468,7 @@ def create_ui():
                                 training_details = gr.Markdown("")
                             
                             with gr.TabItem("📦 My LoRAs", id="my_loras_tab"):
-                                gr.Markdown("#### Your Trained LoRAs")
+                                gr.Markdown("#### Manage LoRAs")
                                 
                                 with gr.Row():
                                     with gr.Column(scale=1):
@@ -3336,17 +3485,42 @@ def create_ui():
                                         lora_info_display = gr.Markdown("*Select a LoRA to see details*")
                                 
                                 gr.Markdown("---")
+                                gr.Markdown("#### 📥 Import Pre-built LoRA")
+                                gr.Markdown("*Import .safetensors files from CivitAI or other sources*")
+                                
+                                with gr.Row():
+                                    with gr.Column(scale=2):
+                                        import_lora_file = gr.File(
+                                            label="LoRA File (.safetensors)",
+                                            file_types=[".safetensors"],
+                                            type="filepath"
+                                        )
+                                    with gr.Column(scale=1):
+                                        import_lora_name = gr.Textbox(
+                                            label="LoRA Name",
+                                            placeholder="e.g., TwilekStyle",
+                                            info="Name to identify this LoRA"
+                                        )
+                                        import_trigger_word = gr.Textbox(
+                                            label="Trigger Word",
+                                            placeholder="e.g., twilek",
+                                            info="Word to use in prompts (optional)"
+                                        )
+                                        import_lora_btn = gr.Button("📥 Import LoRA", variant="primary")
+                                
+                                import_lora_status = gr.Markdown("")
+                                
+                                gr.Markdown("---")
                                 gr.Markdown("""
-**How to Use Your LoRAs:**
+**How to Use LoRAs:**
 
 1. Load a compatible base model in the Generate tab
-2. Include the **trigger word** in your prompt
-3. The LoRA will automatically modify the generation
+2. Select your LoRA from the dropdown
+3. Include the **trigger word** in your prompt
+4. Adjust LoRA strength (0.5-1.0 recommended)
 
 *Example:* If your trigger word is `twilek`, use prompts like:
 > "a twilek standing in a cantina, star wars, detailed"
-
-**Coming Soon:** LoRA strength slider for fine-tuning the effect.
                                 """)
         
         # Chat Events
@@ -3591,10 +3765,24 @@ def create_ui():
             outputs=lora_manage_dropdown
         )
         
+        # Delete LoRA button - update BOTH dropdowns
         delete_lora_btn.click(
             delete_lora,
             inputs=lora_manage_dropdown,
             outputs=[lora_manage_status, lora_manage_dropdown]
+        ).then(
+            lambda: gr.update(choices=["None"] + get_lora_choices()),
+            outputs=lora_dropdown
+        )
+        
+        # Import LoRA button - update BOTH dropdowns (manage tab AND generate tab)
+        import_lora_btn.click(
+            import_lora,
+            inputs=[import_lora_file, import_lora_name, import_trigger_word],
+            outputs=[import_lora_status, lora_manage_dropdown]
+        ).then(
+            lambda: gr.update(choices=["None"] + get_lora_choices()),
+            outputs=lora_dropdown
         )
         
         # Define helper functions for character/persona management

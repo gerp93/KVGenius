@@ -1,27 +1,48 @@
 """
 Download all image generation models with resume support.
+Reads models from config/image_model_presets.yaml
 Uses single-threaded downloads to avoid timeout issues.
 """
-import fix_dll_paths  # Must be first
-
 import os
 import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import fix_dll_paths  # Must be before torch imports
 
 # Disable Xet storage - use direct HTTP (more reliable)
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 
+import yaml
 from huggingface_hub import snapshot_download
 
-# Models to download - SMALLEST FIRST for quick results
-IMAGE_MODELS = {
-    "Dreamshaper 8": "Lykon/dreamshaper-8",  # ~2 GB - great quality
-    "AbsoluteReality": "Lykon/absolute-reality-1.6525",  # ~2 GB - photorealistic  
-    "Realistic Vision V5": "SG161222/Realistic_Vision_V5.1_noVAE",  # ~2 GB
-    "Stable Diffusion 1.5": "stable-diffusion-v1-5/stable-diffusion-v1-5",  # ~4 GB
-    "SDXL-Turbo": "stabilityai/sdxl-turbo",  # ~10 GB - last (largest)
-}
-
 CACHE_DIR = "./data/model_cache"
+
+def load_models_from_config():
+    """Load model list from user's config file."""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "image_model_presets.yaml")
+    example_path = os.path.join(os.path.dirname(__file__), "..", "config", "image_model_presets.example.yaml")
+    
+    # Try user config first, fall back to example
+    if os.path.exists(config_path):
+        path_to_use = config_path
+    elif os.path.exists(example_path):
+        path_to_use = example_path
+        print("⚠️ No user config found, using example config")
+    else:
+        print("❌ No config file found!")
+        return {}
+    
+    try:
+        with open(path_to_use, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            models = config.get('models', {})
+            # Convert to {name: id} format
+            return {name: preset.get('id') for name, preset in models.items() if preset.get('id')}
+    except Exception as e:
+        print(f"❌ Error loading config: {e}")
+        return {}
 
 def download_model(name: str, repo_id: str):
     """Download a single model with resume support."""
@@ -45,11 +66,21 @@ def download_model(name: str, repo_id: str):
         return False
 
 def main():
+    # Load models from config
+    IMAGE_MODELS = load_models_from_config()
+    
+    if not IMAGE_MODELS:
+        print("No models found in config. Please check your image_model_presets.yaml")
+        return
+    
     print("="*60)
     print("Image Model Downloader")
     print("="*60)
     print(f"Cache directory: {os.path.abspath(CACHE_DIR)}")
     print(f"Models to download: {len(IMAGE_MODELS)}")
+    print()
+    for name, repo_id in IMAGE_MODELS.items():
+        print(f"  • {name}: {repo_id}")
     
     os.makedirs(CACHE_DIR, exist_ok=True)
     

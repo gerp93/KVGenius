@@ -190,19 +190,74 @@ class ImageGenerator:
                 progress_callback(0.3, "Downloading/loading pipeline...")
             
             # Load appropriate pipeline based on model
-            if "sdxl" in model_id.lower() or "turbo" in model_key.lower():
-                self.model = AutoPipelineForText2Image.from_pretrained(
-                    model_id,
-                    torch_dtype=torch.float16,
-                    cache_dir=self.cache_dir,
-                    variant="fp16" if "turbo" not in model_id.lower() else None,
-                )
+            # Detect SDXL by name hints or auto-detect from model config
+            is_sdxl = "sdxl" in model_id.lower() or "xl" in model_id.lower() or "turbo" in model_key.lower()
+            
+            # Also check if model has SDXL structure from model_index.json
+            if not is_sdxl:
+                try:
+                    from huggingface_hub import hf_hub_download
+                    import json
+                    config_path = hf_hub_download(model_id, "model_index.json", cache_dir=self.cache_dir)
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                    if config.get('_class_name') == 'StableDiffusionXLPipeline' or 'text_encoder_2' in config:
+                        is_sdxl = True
+                        logger.info(f"Auto-detected SDXL model from config: {model_id}")
+                except:
+                    pass  # Fall back to name-based detection
+            
+            logger.info(f"Loading model: {model_id}, is_sdxl={is_sdxl}")
+            
+            if is_sdxl:
+                from diffusers import StableDiffusionXLPipeline
+                # Try without variant first (most SDXL models don't have fp16 variant)
+                for variant in [None, "fp16"]:
+                    try:
+                        logger.info(f"Trying SDXL pipeline with variant={variant}")
+                        self.model = StableDiffusionXLPipeline.from_pretrained(
+                            model_id,
+                            torch_dtype=torch.float16,
+                            cache_dir=self.cache_dir,
+                            variant=variant,
+                            use_safetensors=True,
+                        )
+                        logger.info(f"SDXL pipeline loaded successfully with variant={variant}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"SDXL load with variant={variant} failed: {e}")
+                        continue
+                else:
+                    # All SDXL attempts failed, try AutoPipeline as last resort
+                    logger.warning("All SDXL variants failed, trying AutoPipeline")
+                    self.model = AutoPipelineForText2Image.from_pretrained(
+                        model_id,
+                        torch_dtype=torch.float16,
+                        cache_dir=self.cache_dir,
+                    )
             else:
-                self.model = StableDiffusionPipeline.from_pretrained(
-                    model_id,
-                    torch_dtype=torch.float16,
-                    cache_dir=self.cache_dir,
-                )
+                # Try loading with different variants - some models only have fp16 safetensors
+                load_errors = []
+                for variant, use_st in [("fp16", True), (None, True), (None, False)]:
+                    try:
+                        kwargs = {
+                            "torch_dtype": torch.float16,
+                            "cache_dir": self.cache_dir,
+                        }
+                        if variant:
+                            kwargs["variant"] = variant
+                        if use_st:
+                            kwargs["use_safetensors"] = True
+                        
+                        self.model = StableDiffusionPipeline.from_pretrained(model_id, **kwargs)
+                        logger.info(f"Loaded model with variant={variant}, safetensors={use_st}")
+                        break
+                    except Exception as e:
+                        load_errors.append(f"variant={variant}, safetensors={use_st}: {e}")
+                        continue
+                else:
+                    # All attempts failed
+                    raise RuntimeError(f"Failed to load model. Tried:\n" + "\n".join(load_errors))
             
             if progress_callback:
                 progress_callback(0.8, "Moving to GPU...")
@@ -299,22 +354,43 @@ class ImageGenerator:
             self.cancel_requested = False
             self.in_progress = True
 
-            def _generation_callback(step: int, timestep: int, latents=None):
+            def _generation_callback(pipe, step, timestep, callback_kwargs):
                 if self.cancel_requested:
                     raise Exception("Generation cancelled by user")
+                return callback_kwargs
 
-            # Generate image
-            result = self.model(
-                prompt=prompt,
-                negative_prompt=negative_prompt if negative_prompt.strip() else None,
-                num_inference_steps=num_steps,
-                guidance_scale=guidance_scale,
-                width=width,
-                height=height,
-                generator=generator,
-                callback=_generation_callback,
-                callback_steps=1,
-            )
+            # Prepare negative prompt (handle None case)
+            neg_prompt = None
+            if negative_prompt and isinstance(negative_prompt, str) and negative_prompt.strip():
+                neg_prompt = negative_prompt
+
+            # Generate image - use callback_on_step_end for newer diffusers
+            gen_kwargs = {
+                "prompt": prompt,
+                "negative_prompt": neg_prompt,
+                "num_inference_steps": num_steps,
+                "guidance_scale": guidance_scale,
+                "width": width,
+                "height": height,
+                "generator": generator,
+            }
+            
+            # Try new callback API first, fall back to legacy
+            try:
+                result = self.model(
+                    **gen_kwargs,
+                    callback_on_step_end=_generation_callback,
+                )
+            except TypeError:
+                # Legacy callback for older models/pipelines
+                def _legacy_callback(step, timestep, latents):
+                    if self.cancel_requested:
+                        raise Exception("Generation cancelled by user")
+                result = self.model(
+                    **gen_kwargs,
+                    callback=_legacy_callback,
+                    callback_steps=1,
+                )
             
             gen_time = time.time() - gen_start
             

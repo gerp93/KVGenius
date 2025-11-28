@@ -1,4 +1,5 @@
 # Image Model Presets Configuration
+# Copy this file to image_model_presets.yaml and customize as needed
 # Each model has optimized default settings for best results
 # Note: All SD/SDXL models use CLIP with a 77 token limit (hardcoded in architecture)
 
@@ -67,6 +68,36 @@ models:
     guidance_range: [0.0, 2.0]
     default_negative: "ugly, deformed, noisy, blurry, distorted, disfigured, bad anatomy, wrong anatomy, extra limbs, mutated hands, extra fingers, poorly drawn face, low quality, worst quality"
     tips: "Very fast! Use 4-6 steps for quick results, 6-8 for people. Low guidance (0-1) works best."
+
+  epiCRealism:
+    id: "emilianJR/epiCRealism"
+    description: "Extremely photorealistic, popular SD 1.5 model"
+    vram: "~4 GB"
+    default_steps: 25
+    default_guidance: 7.0
+    default_width: 512
+    default_height: 768
+    step_range: [20, 50]
+    guidance_range: [5.0, 10.0]
+    default_negative: "cartoon, painting, illustration, drawing, art, sketch, anime, ugly, deformed, noisy, blurry, low quality, bad anatomy, extra limbs, watermark, text, worst quality, jpeg artifacts, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face"
+    tips: "One of the most popular realistic models. Great for portraits and people. Use 'RAW photo, 8k' in prompts."
+
+# ============================================
+# Add your own models below!
+# ============================================
+# Example custom model:
+#   My Custom Model:
+#     id: "username/model-name-on-huggingface"
+#     description: "Description here"
+#     vram: "~4 GB"
+#     default_steps: 25
+#     default_guidance: 7.0
+#     default_width: 512
+#     default_height: 768
+#     step_range: [15, 50]
+#     guidance_range: [5.0, 12.0]
+#     default_negative: "ugly, blurry, low quality"
+#     tips: "Tips for using this model"
 
 # Prompt enhancement templates per style
 prompt_templates:
