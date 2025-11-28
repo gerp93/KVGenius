@@ -231,81 +231,58 @@ if not AVAILABLE_IMAGE_MODELS:
         }
     }
 
-# Available models
-AVAILABLE_MODELS = {
-    "Nous-Hermes-2-Mistral-7B": {
-        "id": "NousResearch/Nous-Hermes-2-Mistral-7B-DPO",
-        "description": "🎭 Excellent roleplay & instruction-following",
-        "details": "Fine-tuned on DPO (Direct Preference Optimization) for superior instruction following and character roleplay. Best all-around choice for conversational AI and creative scenarios.",
-        "best_for": "Character roleplay, instruction following, general conversation",
-        "params": "7B",
-        "vram": "~14 GB"
-    },
-    "SynthIA-7B": {
-        "id": "migtissera/SynthIA-7B-v2.0",
-        "description": "🎪 Specialized for character roleplay",
-        "details": "Trained specifically for character impersonation and creative storytelling. Excels at maintaining consistent personalities and engaging in immersive roleplay scenarios.",
-        "best_for": "Character roleplay, creative writing, storytelling",
-        "params": "7B",
-        "vram": "~14 GB"
-    },
-    "Dark Champion MOE": {
-        "id": "DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B",
-        "description": "🔥 Uncensored creative writing (MOE)",
-        "details": "Mixture-of-Experts model with 8 expert networks (3B each). Uncensored and abliterated for maximum creative freedom. Most intelligent option but requires more VRAM.",
-        "best_for": "Creative writing, complex scenarios, unrestricted content",
-        "params": "18.4B (8x3B)",
-        "vram": "~16-20 GB"
-    },
-    "DeepSeek Coder 6.7B": {
-        "id": "deepseek-ai/deepseek-coder-6.7b-instruct",
-        "description": "💻 Code-focused model",
-        "details": "Specialized for programming tasks, code generation, debugging, and technical explanations. Trained on massive code repositories with strong understanding of multiple languages.",
-        "best_for": "Code generation, debugging, technical explanations, programming help",
-        "params": "6.7B",
-        "vram": "~13 GB"
-    },
-    "DeepSeek LLM 7B": {
-        "id": "deepseek-ai/deepseek-llm-7b-chat",
-        "description": "💬 General conversation",
-        "details": "Balanced general-purpose model good for everyday conversations, Q&A, and informational queries. Reliable for factual responses and casual chat.",
-        "best_for": "General conversation, Q&A, information retrieval",
-        "params": "7B",
-        "vram": "~14 GB"
-    },
-    "Wizard Vicuna 7B": {
-        "id": "ehartford/Wizard-Vicuna-7B-Uncensored",
-        "description": "🧙 Uncensored (not great for roleplay)",
-        "details": "Older uncensored model. Less consistent for roleplay compared to newer options but completely unrestricted. Consider using Nous-Hermes-2 or Dark Champion instead.",
-        "best_for": "Unrestricted content (older generation)",
-        "params": "7B",
-        "vram": "~14 GB"
-    },
-    "DialoGPT Medium": {
-        "id": "microsoft/DialoGPT-medium",
-        "description": "⚡ Fast & lightweight",
-        "details": "Smallest and fastest option. Good for quick responses and casual chat when VRAM is limited. Less capable for complex tasks or roleplay.",
-        "best_for": "Quick responses, low VRAM usage, casual chat",
-        "params": "355M",
-        "vram": "~2 GB"
-    },
-    "Kunoichi-DPO-v2-7B": {
-        "id": "SanjiWatsuki/Kunoichi-DPO-v2-7B",
-        "description": "🎭 Uncensored roleplay specialist",
-        "details": "Fine-tuned specifically for creative roleplay and storytelling with DPO. Uncensored and excels at maintaining character consistency in adult and mature scenarios.",
-        "best_for": "Uncensored roleplay, creative writing, character personas",
-        "params": "7B",
-        "vram": "~14 GB"
-    },
-    "Dolphin-2.6-Mistral-7B": {
-        "id": "cognitivecomputations/dolphin-2.6-mistral-7b-dpo",
-        "description": "🐬 Uncensored & helpful",
-        "details": "Dolphin models are trained to be helpful and uncensored. Uses ChatML format. Great for creative scenarios, roleplay, and unrestricted conversations.",
-        "best_for": "Uncensored chat, roleplay, helpful responses, creative writing",
-        "params": "7B",
-        "vram": "~14 GB"
+
+def load_chat_model_presets():
+    """Load chat model presets from config file.
+    
+    If user config doesn't exist, copies from example template.
+    """
+    config_dir = os.path.join(os.path.dirname(__file__), "config")
+    presets_path = os.path.join(config_dir, "chat_model_presets.yaml")
+    example_path = os.path.join(config_dir, "chat_model_presets.example.yaml")
+    
+    # If user config doesn't exist, copy from example
+    if not os.path.exists(presets_path) and os.path.exists(example_path):
+        import shutil
+        shutil.copy(example_path, presets_path)
+        logger.info(f"Created chat_model_presets.yaml from example template")
+    
+    try:
+        with open(presets_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            return config.get('models', {})
+    except Exception as e:
+        logger.warning(f"Could not load chat model presets: {e}")
+        return {}
+
+
+# Load chat model presets from config
+CHAT_MODEL_PRESETS = load_chat_model_presets()
+
+# Build AVAILABLE_MODELS from presets (with fallback defaults)
+AVAILABLE_MODELS = {}
+for model_key, preset in CHAT_MODEL_PRESETS.items():
+    AVAILABLE_MODELS[model_key] = {
+        "id": preset.get("id", ""),
+        "description": preset.get("description", ""),
+        "details": preset.get("details", ""),
+        "best_for": preset.get("best_for", ""),
+        "params": preset.get("params", ""),
+        "vram": preset.get("vram", "~14 GB")
     }
-}
+
+# Fallback if config file not found
+if not AVAILABLE_MODELS:
+    AVAILABLE_MODELS = {
+        "DialoGPT Medium": {
+            "id": "microsoft/DialoGPT-medium",
+            "description": "⚡ Fast & lightweight",
+            "details": "Smallest and fastest option for quick responses.",
+            "best_for": "Quick responses, low VRAM usage",
+            "params": "355M",
+            "vram": "~2 GB"
+        }
+    }
 
 
 # ============================================================
@@ -2311,6 +2288,44 @@ def delete_conversation():
         return [], f"❌ Delete failed: {str(e)}"
 
 
+def update_chat_model_controls(model_name):
+    """Return model info and button visibility based on loaded state."""
+    model_key = extract_model_key(model_name)
+    
+    if model_key not in AVAILABLE_MODELS:
+        return (
+            "*Select a model*",
+            gr.update(visible=True),   # load button
+            gr.update(visible=False),  # unload button
+        )
+    
+    m = AVAILABLE_MODELS[model_key]
+    info = f"*{m['description']}*\n\n**VRAM:** {m['vram']}"
+    
+    if model_key in active_models:
+        # Model is loaded -> hide load, show unload
+        return info, gr.update(visible=False), gr.update(visible=True)
+    else:
+        # Model not loaded -> show load, hide unload
+        return info, gr.update(visible=True), gr.update(visible=False)
+
+
+def load_chat_model(model_name, progress=gr.Progress()):
+    """Explicitly load a chat model."""
+    model_key = extract_model_key(model_name)
+    
+    if model_key not in AVAILABLE_MODELS:
+        return f"❌ Model '{model_key}' not found"
+    
+    try:
+        progress(0.1, desc=f"Loading {model_key}...")
+        model, tokenizer, chatbot = load_model(model_key, progress)
+        return f"✅ {model_key} loaded successfully"
+    except Exception as e:
+        logger.error(f"Failed to load {model_key}: {e}")
+        return f"❌ Failed to load: {str(e)}"
+
+
 def unload(model_selection):
     """Unload chat model."""
     model_key = extract_model_key(model_selection)
@@ -2977,200 +2992,184 @@ def create_ui():
         
         with gr.Tabs() as main_tabs:
             with gr.TabItem("💬 Chat", id="chat_tab"):
-                with gr.Row():
-                    model_dropdown = gr.Dropdown(
-                        choices=get_chat_model_choices(),
-                        value=get_chat_model_choices()[0] if get_chat_model_choices() else None,
-                        label="🤖 Model (🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded)",
-                        scale=2
-                    )
-                    refresh_models_btn = gr.Button("🔄", scale=0, min_width=40)
-                    
-                    ai_char_dropdown = gr.Dropdown(
-                        choices=ai_char_names,
-                        value="None",
-                        label="🎭 AI Character (What AI acts as)",
-                        scale=2
-                    )
-                    
-                    user_persona_dropdown = gr.Dropdown(
-                        choices=user_persona_names,
-                        value="None",
-                        label="👤 User Persona (Who you are)",
-                        scale=2
-                    )
-                    
-                    new_chat_btn = gr.Button("🆕 New Chat", scale=1)
-                    load_conv_dropdown = gr.Dropdown(
-                        choices=list(conv_choices.keys()),
-                        label="📂 Load Conversation",
-                        scale=2
-                    )
-                
-                with gr.Row():
-                    with gr.Column(scale=3):
-                        chatbot_ui = gr.Chatbot(label="Chat", show_copy_button=True, elem_id="chatbot", type="tuples")
+                with gr.Tabs() as chat_tabs:
+                    with gr.TabItem("💬 Conversation", id="conversation_tab"):
+                        # Status bar at top - spans full width
+                        chat_status = gr.Markdown("*Select a model and click 'Load' to start chatting*")
                         
                         with gr.Row():
-                            msg = gr.Textbox(
-                                label="Message",
-                                placeholder="Type here and press Enter...",
-                                lines=1,
-                                scale=4
-                            )
-                            send = gr.Button("Send 📤", variant="primary", scale=1)
-                        
-                        clear_btn = gr.Button("Clear 🗑️", variant="secondary")
-                        
-                        with gr.Row():
-                            export_btn = gr.Button("📥 Export Chat", size="sm")
-                            delete_btn = gr.Button("🗑️ Delete Chat", size="sm", variant="stop")
-                        
-                        # Hidden file output for export downloads
-                        export_file = gr.File(label="Download", visible=False)
-                            
-                    with gr.Column(scale=1, elem_classes="side-panel"):
-                        gr.Markdown("### 🎛️ Model")
-                        
-                        model_info = gr.Markdown()
-                        
-                        def update_info(model_key):
-                            info = AVAILABLE_MODELS[model_key]
-                            return f"""**{model_key}**
-
-{info['description']}
-
-📊 {info['params']} parameters
-💾 {info['vram']} VRAM"""
-                        
-                        model_dropdown.change(update_info, model_dropdown, model_info)
-                        demo.load(lambda: update_info(list(AVAILABLE_MODELS.keys())[0]), outputs=model_info)
-                        
-                        gr.Markdown("---\n### 📊 Status")
-                        
-                        status = gr.Markdown()
-                        
-                        with gr.Row():
-                            refresh = gr.Button("🔄 Refresh", size="sm")
-                            cancel_btn = gr.Button("🛑 Cancel DL", size="sm", variant="stop")
-                        
-                        unload_btn = gr.Button("💾 Unload Model", size="sm")
-                        
-                        demo.load(get_status, outputs=status)
-                        
-                        with gr.Accordion("ℹ️ Help", open=False):
-                            gr.Markdown("""
+                            # Sidebar - Model & Settings (LEFT side, matching Image Generator)
+                            with gr.Column(scale=1):
+                                gr.Markdown("### 🤖 Model")
+                                model_dropdown = gr.Dropdown(
+                                    choices=get_chat_model_choices(),
+                                    value=get_chat_model_choices()[0] if get_chat_model_choices() else None,
+                                    label="Chat Model",
+                                    info="🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded"
+                                )
+                                refresh_models_btn = gr.Button("🔄 Refresh", size="sm")
+                                model_info = gr.Markdown("*Select a model to see details*")
+                                
+                                with gr.Row():
+                                    load_model_btn = gr.Button("📥 Load", variant="secondary", size="sm", visible=True)
+                                    unload_btn = gr.Button("🗑️ Unload", variant="stop", size="sm", visible=False)
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("### 🎭 Character & Persona")
+                                ai_char_dropdown = gr.Dropdown(
+                                    choices=ai_char_names,
+                                    value="None",
+                                    label="AI Character",
+                                    info="How the AI behaves"
+                                )
+                                user_persona_dropdown = gr.Dropdown(
+                                    choices=user_persona_names,
+                                    value="None",
+                                    label="User Persona",
+                                    info="Who you are roleplaying as"
+                                )
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("### 📂 Conversations")
+                                load_conv_dropdown = gr.Dropdown(
+                                    choices=list(conv_choices.keys()),
+                                    label="Load Conversation"
+                                )
+                                new_chat_btn = gr.Button("🆕 New Chat", size="sm")
+                                
+                                with gr.Row():
+                                    export_btn = gr.Button("📥 Export", size="sm")
+                                    delete_btn = gr.Button("🗑️ Delete", size="sm", variant="stop")
+                                
+                                # Hidden file output for export downloads
+                                export_file = gr.File(label="Download", visible=False)
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("### 📊 Status")
+                                status = gr.Markdown()
+                                
+                                with gr.Row():
+                                    refresh = gr.Button("🔄 Refresh", size="sm")
+                                    cancel_btn = gr.Button("🛑 Cancel DL", size="sm", variant="stop")
+                                
+                                with gr.Accordion("ℹ️ Help", open=False):
+                                    gr.Markdown("""
 **Features:**
 - 🔄 Switch models anytime
 - 💾 Models cached in VRAM
 - 🗑️ Unload to free VRAM
-- 📝 Copy any message
-- 🎭 AI Characters control how the AI behaves
-- 👤 User Personas define who you're roleplaying as
-
-**Models (Roleplay Recommended ⭐):**
-- **⭐ Nous-Hermes-2-Mistral** - Best instruction-following & roleplay
-- **⭐ SynthIA-7B** - Specialized for character roleplay
-- **⭐ Dark Champion MOE** - Most intelligent, creative writing
-- **DeepSeek Coder** - Programming tasks
-- **DeepSeek LLM** - General chat
-- **Wizard Vicuna** - Uncensored (older, less consistent)
-- **DialoGPT** - Fast/Small
+- 🎭 AI Characters control AI behavior
+- 👤 User Personas define your role
 
 **Privacy:**
-- ✅ Runs locally
-- ✅ No data sent out
-- ✅ History saved in database
-                    """)
-            
-            with gr.TabItem("🎭 Characters", id="char_tab"):
-                # Browse view
-                with gr.Column(visible=True) as char_browse_view:
-                    gr.Markdown("## 🎴 Your AI Characters\nClick any character tile to edit it.")
+- ✅ Runs 100% locally
+- ✅ No data sent externally
+- ✅ History saved in local database
+                                    """)
+                            
+                            # Main area - Chat (RIGHT side, matching Image Generator)
+                            with gr.Column(scale=3):
+                                chatbot_ui = gr.Chatbot(label="Chat", show_copy_button=True, elem_id="chatbot", type="tuples", height=500)
+                                
+                                with gr.Row():
+                                    msg = gr.Textbox(
+                                        label="Message",
+                                        placeholder="Type here and press Enter...",
+                                        lines=2,
+                                        scale=4
+                                    )
+                                    send = gr.Button("Send 📤", variant="primary", scale=1)
+                                
+                                clear_btn = gr.Button("🗑️ Clear Chat", variant="secondary")
                     
-                    # Get character names for radio buttons
-                    char_display_names = ["➕ Create New"] + [f"{char['avatar']} {char['name']}" for char in db.get_all_ai_characters()]
-                    char_actual_names = ["[Create New]"] + [char['name'] for char in db.get_all_ai_characters()]
+                    with gr.TabItem("👤 Characters", id="char_tab"):
+                        # Browse view
+                        with gr.Column(visible=True) as char_browse_view:
+                            gr.Markdown("## 🎴 Your AI Characters\nClick any character tile to edit it.")
+                            
+                            # Get character names for radio buttons
+                            char_display_names = ["➕ Create New"] + [f"{char['avatar']} {char['name']}" for char in db.get_all_ai_characters()]
+                            char_actual_names = ["[Create New]"] + [char['name'] for char in db.get_all_ai_characters()]
+                            
+                            ai_char_selector = gr.Radio(
+                                choices=char_display_names,
+                                label="Select Character",
+                                elem_classes="tile-radio",
+                                container=False
+                            )
+                            
+                            refresh_ai_tiles_btn = gr.Button("🔄 Refresh Gallery", size="sm")
+                        
+                        # Edit view (hidden by default)
+                        with gr.Column(visible=False) as char_edit_view:
+                            gr.Markdown("## Edit AI Character\nModify character personality, system prompt, and generation parameters.")
+                            
+                            back_to_browse_ai_btn = gr.Button("← Back to Gallery", size="sm", variant="secondary")
+                            
+                            ai_char_id_hidden = gr.Textbox(visible=False, value="")
+                            
+                            new_ai_name = gr.Textbox(label="Character Name", placeholder="e.g., Friendly Tutor")
+                            new_ai_desc = gr.Textbox(label="Short Description", placeholder="Brief description for the dropdown")
+                            new_ai_system = gr.Textbox(
+                                label="System Prompt (Personality)", 
+                                placeholder="You are a helpful tutor who explains things clearly...", 
+                                lines=8
+                            )
+                            
+                            gr.Markdown("### Generation Parameters")
+                            with gr.Row():
+                                new_ai_temp = gr.Slider(0.1, 1.5, value=0.7, label="Temperature", info="Creativity (higher = more random)")
+                                new_ai_topp = gr.Slider(0.1, 1.0, value=0.95, label="Top P", info="Nucleus sampling")
+                                new_ai_topk = gr.Slider(1, 100, value=50, step=1, label="Top K", info="Token diversity")
+                            
+                            new_ai_avatar = gr.Textbox(label="Avatar Emoji", value="🤖", max_lines=1)
+                            
+                            with gr.Row():
+                                save_ai_btn = gr.Button("💾 Save Character", variant="primary", size="lg")
+                                delete_ai_btn = gr.Button("🗑️ Delete Character", variant="stop", size="lg")
+                            
+                            ai_create_status = gr.Markdown()
                     
-                    ai_char_selector = gr.Radio(
-                        choices=char_display_names,
-                        label="Select Character",
-                        elem_classes="tile-radio",
-                        container=False
-                    )
-                    
-                    refresh_ai_tiles_btn = gr.Button("🔄 Refresh Gallery", size="sm")
-                
-                # Edit view (hidden by default)
-                with gr.Column(visible=False) as char_edit_view:
-                    gr.Markdown("## Edit AI Character\nModify character personality, system prompt, and generation parameters.")
-                    
-                    back_to_browse_ai_btn = gr.Button("← Back to Gallery", size="sm", variant="secondary")
-                    
-                    ai_char_id_hidden = gr.Textbox(visible=False, value="")
-                    
-                    new_ai_name = gr.Textbox(label="Character Name", placeholder="e.g., Friendly Tutor")
-                    new_ai_desc = gr.Textbox(label="Short Description", placeholder="Brief description for the dropdown")
-                    new_ai_system = gr.Textbox(
-                        label="System Prompt (Personality)", 
-                        placeholder="You are a helpful tutor who explains things clearly...", 
-                        lines=8
-                    )
-                    
-                    gr.Markdown("### Generation Parameters")
-                    with gr.Row():
-                        new_ai_temp = gr.Slider(0.1, 1.5, value=0.7, label="Temperature", info="Creativity (higher = more random)")
-                        new_ai_topp = gr.Slider(0.1, 1.0, value=0.95, label="Top P", info="Nucleus sampling")
-                        new_ai_topk = gr.Slider(1, 100, value=50, step=1, label="Top K", info="Token diversity")
-                    
-                    new_ai_avatar = gr.Textbox(label="Avatar Emoji", value="🤖", max_lines=1)
-                    
-                    with gr.Row():
-                        save_ai_btn = gr.Button("💾 Save Character", variant="primary", size="lg")
-                        delete_ai_btn = gr.Button("🗑️ Delete Character", variant="stop", size="lg")
-                    
-                    ai_create_status = gr.Markdown()
-            
-            with gr.TabItem("👤 Personas", id="persona_tab"):
-                # Browse view
-                with gr.Column(visible=True) as persona_browse_view:
-                    gr.Markdown("## 🎴 Your User Personas\nClick any persona tile to edit it.")
-                    
-                    # Get persona names for radio buttons
-                    persona_display_names = ["➕ Create New"] + [f"{p['avatar']} {p['name']}" for p in db.get_all_user_personas()]
-                    persona_actual_names = ["[Create New]"] + [p['name'] for p in db.get_all_user_personas()]
-                    
-                    user_persona_selector = gr.Radio(
-                        choices=persona_display_names,
-                        label="Select Persona",
-                        elem_classes="tile-radio",
-                        container=False
-                    )
-                    
-                    refresh_user_tiles_btn = gr.Button("🔄 Refresh Gallery", size="sm")
-                
-                # Edit view (hidden by default)
-                with gr.Column(visible=False) as persona_edit_view:
-                    gr.Markdown("## Edit User Persona\nModify who you are in the roleplay.")
-                    
-                    back_to_browse_user_btn = gr.Button("← Back to Gallery", size="sm", variant="secondary")
-                    
-                    user_persona_id_hidden = gr.Textbox(visible=False, value="")
-                    
-                    new_user_name = gr.Textbox(label="Persona Name", placeholder="e.g., Space Explorer")
-                    new_user_desc = gr.Textbox(label="Short Description", placeholder="Brief description (e.g., 'A brave starship captain')")
-                    new_user_bg = gr.Textbox(
-                        label="Background/Context", 
-                        placeholder="Detailed roleplay background: You are Captain Sarah Chen, commanding the starship Odyssey...", 
-                        lines=8
-                    )
-                    new_user_avatar = gr.Textbox(label="Avatar Emoji", value="👤", max_lines=1)
-                    
-                    with gr.Row():
-                        save_user_btn = gr.Button("💾 Save Persona", variant="primary", size="lg")
-                        delete_user_btn = gr.Button("🗑️ Delete Persona", variant="stop", size="lg")
-                    
-                    user_create_status = gr.Markdown()
+                    with gr.TabItem("🎭 Personas", id="persona_tab"):
+                        # Browse view
+                        with gr.Column(visible=True) as persona_browse_view:
+                            gr.Markdown("## 🎴 Your User Personas\nClick any persona tile to edit it.")
+                            
+                            # Get persona names for radio buttons
+                            persona_display_names = ["➕ Create New"] + [f"{p['avatar']} {p['name']}" for p in db.get_all_user_personas()]
+                            persona_actual_names = ["[Create New]"] + [p['name'] for p in db.get_all_user_personas()]
+                            
+                            user_persona_selector = gr.Radio(
+                                choices=persona_display_names,
+                                label="Select Persona",
+                                elem_classes="tile-radio",
+                                container=False
+                            )
+                            
+                            refresh_user_tiles_btn = gr.Button("🔄 Refresh Gallery", size="sm")
+                        
+                        # Edit view (hidden by default)
+                        with gr.Column(visible=False) as persona_edit_view:
+                            gr.Markdown("## Edit User Persona\nModify who you are in the roleplay.")
+                            
+                            back_to_browse_user_btn = gr.Button("← Back to Gallery", size="sm", variant="secondary")
+                            
+                            user_persona_id_hidden = gr.Textbox(visible=False, value="")
+                            
+                            new_user_name = gr.Textbox(label="Persona Name", placeholder="e.g., Space Explorer")
+                            new_user_desc = gr.Textbox(label="Short Description", placeholder="Brief description (e.g., 'A brave starship captain')")
+                            new_user_bg = gr.Textbox(
+                                label="Background/Context", 
+                                placeholder="Detailed roleplay background: You are Captain Sarah Chen, commanding the starship Odyssey...", 
+                                lines=8
+                            )
+                            new_user_avatar = gr.Textbox(label="Avatar Emoji", value="👤", max_lines=1)
+                            
+                            with gr.Row():
+                                save_user_btn = gr.Button("💾 Save Persona", variant="primary", size="lg")
+                                delete_user_btn = gr.Button("🗑️ Delete Persona", variant="stop", size="lg")
+                            
+                            user_create_status = gr.Markdown()
             
             with gr.TabItem("🎨 Image Generator", id="image_tab"):
                 
@@ -3524,13 +3523,23 @@ def create_ui():
                                 """)
         
         # Chat Events
+        # Model controls - outputs for model_info and button visibility
+        chat_model_outputs = [model_info, load_model_btn, unload_btn]
+        model_dropdown.change(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
+        load_model_btn.click(load_chat_model, inputs=model_dropdown, outputs=chat_status).then(
+            refresh_chat_dropdown, inputs=model_dropdown, outputs=model_dropdown
+        ).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
+        unload_btn.click(unload, model_dropdown, status).then(
+            refresh_chat_dropdown, inputs=model_dropdown, outputs=model_dropdown
+        ).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
+        
         msg.submit(chat, [msg, chatbot_ui, model_dropdown, ai_char_dropdown, user_persona_dropdown], chatbot_ui).then(
             lambda: "", outputs=msg
-        ).then(get_status, outputs=status)
+        ).then(get_status, outputs=status).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
         
         send.click(chat, [msg, chatbot_ui, model_dropdown, ai_char_dropdown, user_persona_dropdown], chatbot_ui).then(
             lambda: "", outputs=msg
-        ).then(get_status, outputs=status)
+        ).then(get_status, outputs=status).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
         
         clear_btn.click(clear_chat, model_dropdown, chatbot_ui)
         new_chat_btn.click(new_chat, outputs=[chatbot_ui, status])
@@ -3541,9 +3550,6 @@ def create_ui():
         delete_btn.click(delete_conversation, outputs=[chatbot_ui, status])
         
         refresh.click(get_status, outputs=status)
-        unload_btn.click(unload, model_dropdown, status).then(
-            refresh_chat_dropdown, inputs=model_dropdown, outputs=model_dropdown
-        )
         cancel_btn.click(cancel_download, outputs=status).then(get_status, outputs=status)
         
         # Chat model refresh button

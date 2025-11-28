@@ -44,6 +44,7 @@ data/
 # ============================================
 # User's actual model presets (use .example.yaml as template)
 config/image_model_presets.yaml
+config/chat_model_presets.yaml
 
 # Legacy paths (in case they still exist)
 model_cache/
