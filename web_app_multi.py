@@ -6,6 +6,15 @@ import fix_dll_paths
 
 import sys
 import os
+import time
+import yaml
+
+# Force unbuffered output for conda run
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+os.environ['PYTHONUNBUFFERED'] = '1'
+
+print("[KVGenius] Starting up...", flush=True)
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -14,20 +23,200 @@ from src.models import ModelLoader
 from src.chat import ChatBot
 from src.utils import load_config, setup_logging, load_environment
 from src.database import ChatHistoryDB
+from src.training.lora_trainer import (
+    get_dataset_manager, get_lora_manager, get_trainer,
+    DatasetManager, LoRAManager, LoRATrainer, TrainingConfig, training_state
+)
 import gradio as gr
 import logging
 import torch
 
+# Configure logging to show in console with unbuffered handler
+class FlushHandler(logging.StreamHandler):
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[FlushHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
+print("[KVGenius] Logging configured", flush=True)
 
 # Global variables
 active_models = {}
 gen_config = {}
-cache_dir = "./model_cache"
+cache_dir = "./data/model_cache"
 is_downloading = False
 download_canceled = False
 db = None  # Database instance
 current_conversation_id = None  # Active conversation ID
+image_model = None  # Stable Diffusion pipeline
+image_model_loaded = False
+loaded_image_models = {}  # cache of loaded image pipelines by name
+current_image_model_key = None  # track which model is currently active
+image_gen_cancel_event = False  # flag to request cancellation of a running generation
+image_gen_in_progress = False
+
+# CPU Prompt Enhancer (lazy loaded)
+prompt_enhancer_model = None
+prompt_enhancer_tokenizer = None
+
+# CLIP token limit - applies to all SD/SDXL models (hardcoded in CLIP architecture)
+CLIP_MAX_TOKENS = 77
+
+
+def count_clip_tokens(text, tokenizer=None):
+    """Count actual CLIP tokens using the model's tokenizer, or estimate if not available."""
+    if not text:
+        return 0
+    
+    # Try to use the actual tokenizer from loaded model
+    if tokenizer is not None:
+        try:
+            tokens = tokenizer(text, return_tensors="pt", truncation=False)
+            return tokens.input_ids.shape[1]
+        except:
+            pass
+    
+    # Fallback: estimate based on CLIP tokenization patterns
+    # CLIP uses BPE - roughly 1.3 tokens per word on average
+    import re
+    words = len(re.findall(r'\w+', text))
+    punctuation = len(re.findall(r'[^\w\s]', text))
+    # Add buffer for subword tokenization
+    return int(words * 1.3) + punctuation
+
+
+def update_token_counter(prompt):
+    """Update the live token counter display."""
+    if not prompt or not prompt.strip():
+        return "*0 / 77 tokens*"
+    
+    # Use actual tokenizer if model is loaded
+    tokenizer = getattr(image_model, 'tokenizer', None) if image_model else None
+    tokens = count_clip_tokens(prompt, tokenizer)
+    
+    if tokens > CLIP_MAX_TOKENS:
+        return f"### ⚠️ {tokens} / 77 TOKENS - PROMPT WILL BE TRUNCATED!"
+    elif tokens > 60:
+        return f"**{tokens} / 77 tokens** ⚠️ *getting close to limit*"
+    else:
+        return f"*{tokens} / 77 tokens*"
+
+
+def read_image_metadata(filepath):
+    """Read generation metadata from a PNG file."""
+    try:
+        from PIL import Image
+        img = Image.open(filepath)
+        metadata = {}
+        if hasattr(img, 'info'):
+            for key in ['prompt', 'negative_prompt', 'steps', 'guidance_scale', 'width', 'height', 'seed', 'model', 'generated_at']:
+                if key in img.info:
+                    metadata[key] = img.info[key]
+        return metadata
+    except Exception as e:
+        logger.error(f"Error reading metadata from {filepath}: {e}")
+        return {}
+
+
+def format_image_metadata(metadata):
+    """Format metadata for display."""
+    if not metadata:
+        return "*No metadata available*"
+    
+    lines = []
+    if metadata.get('prompt'):
+        lines.append(f"**Prompt:** {metadata['prompt']}")
+    if metadata.get('negative_prompt'):
+        lines.append(f"**Negative:** {metadata['negative_prompt']}")
+    if metadata.get('model'):
+        lines.append(f"**Model:** {metadata['model']}")
+    
+    settings = []
+    if metadata.get('steps'):
+        settings.append(f"Steps: {metadata['steps']}")
+    if metadata.get('guidance_scale'):
+        settings.append(f"CFG: {metadata['guidance_scale']}")
+    if metadata.get('width') and metadata.get('height'):
+        settings.append(f"Size: {metadata['width']}x{metadata['height']}")
+    if metadata.get('seed'):
+        settings.append(f"Seed: {metadata['seed']}")
+    
+    if settings:
+        lines.append(f"**Settings:** {' | '.join(settings)}")
+    
+    if metadata.get('generated_at'):
+        lines.append(f"**Generated:** {metadata['generated_at']}")
+    
+    return "\n\n".join(lines)
+
+
+def load_image_model_presets():
+    """Load image model presets from config file."""
+    presets_path = os.path.join(os.path.dirname(__file__), "config", "image_model_presets.yaml")
+    try:
+        with open(presets_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            return config.get('models', {}), config.get('prompt_templates', {})
+    except Exception as e:
+        logger.warning(f"Could not load image model presets: {e}")
+        return {}, {}
+
+
+# Load image model presets from config
+IMAGE_MODEL_PRESETS, PROMPT_TEMPLATES = load_image_model_presets()
+
+# Build AVAILABLE_IMAGE_MODELS from presets (with fallback defaults)
+AVAILABLE_IMAGE_MODELS = {}
+for model_key, preset in IMAGE_MODEL_PRESETS.items():
+    AVAILABLE_IMAGE_MODELS[model_key] = {
+        "id": preset.get("id", ""),
+        "description": preset.get("description", ""),
+        "vram": preset.get("vram", "~6 GB"),
+        "default_steps": preset.get("default_steps", 25),
+        "default_guidance": preset.get("default_guidance", 7.5),
+        "default_width": preset.get("default_width", 512),
+        "default_height": preset.get("default_height", 512),
+        "step_range": preset.get("step_range", [1, 50]),
+        "guidance_range": preset.get("guidance_range", [0.0, 20.0]),
+        "default_negative": preset.get("default_negative", ""),
+        "tips": preset.get("tips", "")
+    }
+
+# Fallback if config file not found
+if not AVAILABLE_IMAGE_MODELS:
+    AVAILABLE_IMAGE_MODELS = {
+        "Dreamshaper 8": {
+            "id": "Lykon/dreamshaper-8",
+            "description": "Artistic, great for portraits",
+            "vram": "~4 GB",
+            "default_steps": 25,
+            "default_guidance": 7.5,
+            "default_width": 512,
+            "default_height": 768,
+            "step_range": [15, 50],
+            "guidance_range": [5.0, 12.0],
+            "default_negative": "ugly, deformed, blurry",
+            "tips": ""
+        },
+        "SDXL Turbo": {
+            "id": "stabilityai/sdxl-turbo",
+            "description": "Fast generation (1-8 steps)",
+            "vram": "~7 GB",
+            "default_steps": 6,
+            "default_guidance": 0.5,
+            "default_width": 1024,
+            "default_height": 1024,
+            "step_range": [1, 8],
+            "guidance_range": [0.0, 2.0],
+            "default_negative": "ugly, deformed, blurry",
+            "tips": ""
+        }
+    }
 
 # Available models
 AVAILABLE_MODELS = {
@@ -86,16 +275,190 @@ AVAILABLE_MODELS = {
         "best_for": "Quick responses, low VRAM usage, casual chat",
         "params": "355M",
         "vram": "~2 GB"
+    },
+    "Kunoichi-DPO-v2-7B": {
+        "id": "SanjiWatsuki/Kunoichi-DPO-v2-7B",
+        "description": "🎭 Uncensored roleplay specialist",
+        "details": "Fine-tuned specifically for creative roleplay and storytelling with DPO. Uncensored and excels at maintaining character consistency in adult and mature scenarios.",
+        "best_for": "Uncensored roleplay, creative writing, character personas",
+        "params": "7B",
+        "vram": "~14 GB"
+    },
+    "Dolphin-2.6-Mistral-7B": {
+        "id": "cognitivecomputations/dolphin-2.6-mistral-7b-dpo",
+        "description": "🐬 Uncensored & helpful",
+        "details": "Dolphin models are trained to be helpful and uncensored. Uses ChatML format. Great for creative scenarios, roleplay, and unrestricted conversations.",
+        "best_for": "Uncensored chat, roleplay, helpful responses, creative writing",
+        "params": "7B",
+        "vram": "~14 GB"
     }
 }
 
 
-def load_model(model_key, progress=gr.Progress()):
-    """Load a model if not cached."""
-    global is_downloading, download_canceled
+# ============================================================
+# MODEL STATUS HELPERS
+# ============================================================
+
+def is_model_downloaded(repo_id: str, is_image_model: bool = False) -> bool:
+    """Check if a model is downloaded to disk.
+    
+    Args:
+        repo_id: HuggingFace repo ID (e.g., 'Lykon/dreamshaper-8')
+        is_image_model: If True, check for complete SD model (unet + vae)
+    """
+    # HuggingFace cache structure: models--org--name
+    cache_name = "models--" + repo_id.replace("/", "--")
+    cache_path = os.path.join(cache_dir, cache_name)
+    
+    if not os.path.exists(cache_path):
+        return False
+    
+    # Check for snapshots folder with actual model files
+    snapshots_path = os.path.join(cache_path, "snapshots")
+    if os.path.exists(snapshots_path):
+        for snapshot in os.listdir(snapshots_path):
+            snapshot_dir = os.path.join(snapshots_path, snapshot)
+            if os.path.isdir(snapshot_dir):
+                if is_image_model:
+                    # For SD models, check that unet is fully downloaded
+                    unet_path = os.path.join(snapshot_dir, "unet")
+                    if os.path.isdir(unet_path):
+                        unet_files = [f for f in os.listdir(unet_path) 
+                                      if f.endswith(('.safetensors', '.bin'))]
+                        if unet_files:
+                            # Check file isn't being downloaded (has .incomplete suffix or is very small)
+                            for uf in unet_files:
+                                full_path = os.path.join(unet_path, uf)
+                                # UNet should be at least 1GB for SD models
+                                if os.path.getsize(full_path) > 1_000_000_000:
+                                    return True
+                    return False
+                else:
+                    # For chat models, any model file indicates downloaded
+                    for root, dirs, files in os.walk(snapshot_dir):
+                        for f in files:
+                            if f.endswith(('.safetensors', '.bin', '.pt')):
+                                return True
+    return False
+
+
+def get_chat_model_status(model_key: str) -> str:
+    """Get status icon for a chat model: 🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded"""
+    global active_models
     
     if model_key in active_models:
+        return "🟢"  # Loaded in VRAM
+    
+    if model_key in AVAILABLE_MODELS:
+        repo_id = AVAILABLE_MODELS[model_key]["id"]
+        if is_model_downloaded(repo_id):
+            return "🟡"  # Downloaded but not loaded
+    
+    return "🔴"  # Not downloaded
+
+
+def get_image_model_status(model_key: str) -> str:
+    """Get status icon for an image model: 🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded"""
+    global loaded_image_models
+    
+    if model_key in loaded_image_models:
+        return "🟢"  # Loaded in VRAM
+    
+    if model_key in AVAILABLE_IMAGE_MODELS:
+        repo_id = AVAILABLE_IMAGE_MODELS[model_key]["id"]
+        if is_model_downloaded(repo_id, is_image_model=True):
+            return "🟡"  # Downloaded but not loaded
+    
+    return "🔴"  # Not downloaded
+
+
+def get_chat_model_choices():
+    """Get chat model choices with status icons."""
+    choices = []
+    for model_key in AVAILABLE_MODELS.keys():
+        status = get_chat_model_status(model_key)
+        choices.append(f"{status} {model_key}")
+    return choices
+
+
+def get_image_model_choices():
+    """Get image model choices with status icons."""
+    choices = []
+    for model_key in AVAILABLE_IMAGE_MODELS.keys():
+        status = get_image_model_status(model_key)
+        choices.append(f"{status} {model_key}")
+    return choices
+
+
+def refresh_image_dropdown(current_selection):
+    """Refresh image dropdown choices and update selected value to match new status."""
+    choices = get_image_model_choices()
+    # Extract the model key from current selection and find matching choice
+    if current_selection:
+        model_key = extract_model_key(current_selection)
+        for choice in choices:
+            if model_key in choice:
+                return gr.update(choices=choices, value=choice)
+    return gr.update(choices=choices)
+
+
+def refresh_chat_dropdown(current_selection):
+    """Refresh chat dropdown choices and update selected value to match new status."""
+    choices = get_chat_model_choices()
+    if current_selection:
+        model_key = extract_model_key(current_selection)
+        for choice in choices:
+            if model_key in choice:
+                return gr.update(choices=choices, value=choice)
+    return gr.update(choices=choices)
+
+
+def extract_model_key(selection: str) -> str:
+    """Extract model key from selection with status icon (e.g., '🟢 ModelName' -> 'ModelName')."""
+    if selection and len(selection) > 2:
+        # Remove status icon prefix (emoji + space)
+        if selection[0] in "🟢🟡🔴":
+            return selection[2:].strip()
+    return selection
+
+
+def unload_all_chat_models():
+    """Unload all cached chat models to free VRAM."""
+    global active_models
+    
+    for model_key in list(active_models.keys()):
+        try:
+            model, tokenizer, chatbot = active_models[model_key]
+            del model
+            del tokenizer
+            del chatbot
+            logger.info(f"Unloaded chat model: {model_key}")
+        except:
+            pass
+    
+    active_models.clear()
+    
+    # Force garbage collection
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def load_model(model_key, progress=gr.Progress()):
+    """Load a model if not cached. Auto-unloads previous model to save VRAM."""
+    global is_downloading, download_canceled, active_models
+    
+    # If this model is already loaded, return it
+    if model_key in active_models:
         return active_models[model_key]
+    
+    # Auto-unload any previously loaded models to free VRAM
+    if active_models:
+        prev_models = list(active_models.keys())
+        progress(0.05, desc="Unloading previous model...")
+        unload_all_chat_models()
+        logger.info(f"Auto-unloaded previous chat models: {prev_models}")
     
     model_info = AVAILABLE_MODELS[model_key]
     model_id = model_info["id"]
@@ -109,9 +472,9 @@ def load_model(model_key, progress=gr.Progress()):
     if not is_cached:
         is_downloading = True
         download_canceled = False
-        progress(0, desc=f"📥 Downloading {model_key}...")
+        progress(0.1, desc=f"📥 Downloading {model_key}...")
     else:
-        progress(0, desc=f"⏳ Loading {model_key} from cache...")
+        progress(0.1, desc=f"⏳ Loading {model_key} from cache...")
     
     try:
         model_loader = ModelLoader(
@@ -199,8 +562,9 @@ def format_prompt_for_model(tokenizer, model_key, system_instruction, char_name,
     # Use model-specific formats for reliable multi-turn conversations
     logger.info(f"Using custom prompt format for {model_key}")
     
-    # Mistral/Hermes format: [INST] ... [/INST]
-    if "Mistral" in model_key or "Hermes" in model_key:
+    # Mistral/Hermes/Kunoichi/Dolphin-Mistral format: [INST] ... [/INST]
+    # Note: Dolphin-2.6-Mistral uses Mistral format, not ChatML
+    if "Mistral" in model_key or "Hermes" in model_key or "Kunoichi" in model_key or "Dolphin" in model_key:
         prompt_parts = []
         
         # Add system instruction in its own [INST] block
@@ -308,12 +672,1232 @@ def get_status():
     return "\n".join(lines)
 
 
+# ============================================================
+# IMAGE GENERATION FUNCTIONS
+# ============================================================
+
+def unload_all_image_models():
+    """Unload all cached image models to free VRAM."""
+    global image_model, image_model_loaded, loaded_image_models
+    
+    for model_key in list(loaded_image_models.keys()):
+        try:
+            del loaded_image_models[model_key]
+            logger.info(f"Unloaded image model: {model_key}")
+        except:
+            pass
+    
+    loaded_image_models.clear()
+    image_model = None
+    image_model_loaded = False
+    
+    # Force garbage collection
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def load_image_model(model_name, progress=gr.Progress()):
+    """Load a Stable Diffusion model. Auto-unloads previous model to save VRAM."""
+    global image_model, image_model_loaded, loaded_image_models, current_image_model_key
+    
+    # Extract model key from selection (remove status icon)
+    model_key = extract_model_key(model_name)
+    
+    try:
+        from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, AutoPipelineForText2Image
+        
+        if model_key not in AVAILABLE_IMAGE_MODELS:
+            return f"❌ Unknown model: {model_key}"
+        
+        model_id = AVAILABLE_IMAGE_MODELS[model_key]["id"]
+        
+        progress(0.1, desc="Preparing...")
+        logger.info(f"Loading image model: {model_id}")
+        
+        # Auto-unload any previously loaded model to free VRAM
+        if loaded_image_models:
+            prev_models = list(loaded_image_models.keys())
+            progress(0.15, desc="Unloading previous model...")
+            unload_all_image_models()
+            logger.info(f"Auto-unloaded previous models: {prev_models}")
+        
+        progress(0.3, desc="Downloading/loading pipeline...")
+        
+        # Load appropriate pipeline based on model
+        if "sdxl" in model_id.lower() or "turbo" in model_key.lower():
+            image_model = AutoPipelineForText2Image.from_pretrained(
+                model_id,
+                torch_dtype=torch.float16,
+                cache_dir=cache_dir,
+                variant="fp16" if "turbo" not in model_id.lower() else None,
+            )
+        else:
+            image_model = StableDiffusionPipeline.from_pretrained(
+                model_id,
+                torch_dtype=torch.float16,
+                cache_dir=cache_dir,
+            )
+        
+        progress(0.8, desc="Moving to GPU...")
+        image_model = image_model.to("cuda")
+        
+        # Disable NSFW safety checker (causes black images on false positives)
+        if hasattr(image_model, 'safety_checker'):
+            image_model.safety_checker = None
+        if hasattr(image_model, 'requires_safety_checker'):
+            image_model.requires_safety_checker = False
+        
+        # Enable memory optimizations
+        image_model.enable_attention_slicing()
+        
+        progress(1.0, desc="Done!")
+        # Track loaded model
+        loaded_image_models[model_key] = image_model
+        current_image_model_key = model_key
+        image_model_loaded = True
+        logger.info(f"Image model loaded: {model_key}")
+
+        return f"✅ **{model_key}** loaded successfully!"
+        
+    except ImportError:
+        return "❌ Please install diffusers: `pip install diffusers transformers accelerate`"
+    except Exception as e:
+        logger.error(f"Error loading image model: {e}")
+        return f"❌ Error loading model: {str(e)}"
+
+
+def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, height, seed, lora_name, lora_strength, progress=gr.Progress()):
+    """Generate an image from a text prompt."""
+    global image_model, image_gen_cancel_event, image_gen_in_progress
+    
+    if image_model is None:
+        return None, "❌ No image model loaded. Please load a model first."
+    
+    if not prompt.strip():
+        return None, "❌ Please enter a prompt."
+    
+    # Check for CLIP token limit using actual tokenizer if available
+    tokenizer = getattr(image_model, 'tokenizer', None)
+    prompt_tokens = count_clip_tokens(prompt, tokenizer)
+    negative_tokens = count_clip_tokens(negative_prompt, tokenizer) if negative_prompt else 0
+    token_warning = ""
+    if prompt_tokens > CLIP_MAX_TOKENS:
+        token_warning = f"### ⚠️ WARNING: Prompt ({prompt_tokens} tokens) exceeds {CLIP_MAX_TOKENS} limit - end of prompt will be ignored!\n\n"
+    if negative_tokens > CLIP_MAX_TOKENS:
+        token_warning += f"### ⚠️ Negative prompt ({negative_tokens} tokens) also truncated!\n\n"
+    
+    try:
+        progress(0.1, desc="Preparing generation...")
+        
+        # Load LoRA if specified
+        lora_loaded = False
+        if lora_name and lora_name != "None":
+            try:
+                lora_path = f"data/lora_models/{lora_name}"
+                if os.path.exists(lora_path):
+                    progress(0.15, desc=f"Loading LoRA: {lora_name}...")
+                    print(f"[LoRA] Loading from: {lora_path}")
+                    image_model.load_lora_weights(lora_path)
+                    image_model.fuse_lora(lora_scale=lora_strength)
+                    lora_loaded = True
+                    print(f"[LoRA] ✓ Loaded '{lora_name}' with strength {lora_strength}")
+                    logger.info(f"Loaded LoRA: {lora_name} with strength {lora_strength}")
+                else:
+                    print(f"[LoRA] ✗ Path not found: {lora_path}")
+            except Exception as e:
+                print(f"[LoRA] ✗ Failed to load: {e}")
+                logger.warning(f"Failed to load LoRA {lora_name}: {e}")
+                # Continue without LoRA
+        
+        # Set seed for reproducibility
+        generator = None
+        if seed != -1:
+            generator = torch.Generator(device="cuda").manual_seed(seed)
+        
+        gen_start = time.time()
+        
+        progress(0.2, desc="Generating image...")
+
+        # Setup cancel flag and callback
+        image_gen_cancel_event = False
+        image_gen_in_progress = True
+
+        def _generation_callback(step: int, timestep: int, latents=None):
+            # This callback is called during generation when callback_steps is set
+            if image_gen_cancel_event:
+                raise Exception("Generation cancelled by user")
+
+        # Generate image (pass callback to allow cancellation)
+        result = image_model(
+            prompt=prompt,
+            negative_prompt=negative_prompt if negative_prompt.strip() else None,
+            num_inference_steps=num_steps,
+            guidance_scale=guidance_scale,
+            width=width,
+            height=height,
+            generator=generator,
+            callback=_generation_callback,
+            callback_steps=1,
+        )
+        
+        gen_time = time.time() - gen_start
+        
+        # Unload LoRA after generation to keep model clean for next generation
+        if lora_loaded:
+            try:
+                image_model.unfuse_lora()
+                image_model.unload_lora_weights()
+            except Exception as e:
+                logger.warning(f"Failed to unload LoRA: {e}")
+        
+        progress(1.0, desc="Done!")
+        
+        image = result.images[0]
+        
+        # Save to file with metadata
+        os.makedirs("data/generated_images", exist_ok=True)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"data/generated_images/img_{timestamp}.png"
+        
+        # Add generation parameters as PNG metadata
+        from PIL import PngImagePlugin
+        metadata = PngImagePlugin.PngInfo()
+        metadata.add_text("prompt", prompt)
+        metadata.add_text("negative_prompt", negative_prompt if negative_prompt else "")
+        metadata.add_text("steps", str(num_steps))
+        metadata.add_text("guidance_scale", str(guidance_scale))
+        metadata.add_text("width", str(width))
+        metadata.add_text("height", str(height))
+        metadata.add_text("seed", str(seed))
+        metadata.add_text("model", current_image_model_key if current_image_model_key else "unknown")
+        metadata.add_text("lora", lora_name if lora_name and lora_name != "None" else "")
+        metadata.add_text("lora_strength", str(lora_strength) if lora_name and lora_name != "None" else "")
+        metadata.add_text("generated_at", timestamp)
+        
+        image.save(filename, pnginfo=metadata)
+        
+        status = f"✅ Generated in **{gen_time:.1f}s** | Saved to `{filename}`"
+        if lora_name and lora_name != "None":
+            status += f" | LoRA: {lora_name} ({lora_strength})"
+        if seed != -1:
+            status += f" | Seed: {seed}"
+        if token_warning:
+            status = token_warning + "\n" + status
+        image_gen_in_progress = False
+        return image, status
+        
+    except Exception as e:
+        image_gen_in_progress = False
+        # Unload LoRA on error too
+        if lora_name and lora_name != "None":
+            try:
+                image_model.unfuse_lora()
+                image_model.unload_lora_weights()
+            except:
+                pass
+        # If cancelled by user, return a friendly message
+        if str(e).lower().find('cancel') != -1:
+            logger.info("Image generation cancelled by user")
+            return None, "🛑 Generation cancelled"
+        logger.error(f"Error generating image: {e}")
+        return None, f"❌ Error: {str(e)}"
+
+
+def unload_image_model(model_name=None):
+    """Unload the image model to free VRAM."""
+    global image_model, image_model_loaded, loaded_image_models
+
+    # Extract model key from selection (remove status icon)
+    model_key = extract_model_key(model_name) if model_name else None
+    
+    if loaded_image_models or image_model is not None:
+        unload_all_image_models()
+        if model_key:
+            return f"✅ Unloaded image model: {model_key}"
+        return "✅ Image model unloaded. VRAM freed."
+
+    return "ℹ️ No image model was loaded."
+
+
+def get_image_status():
+    """Get image generation status."""
+    global image_model_loaded
+    
+    lines = []
+    
+    if torch.cuda.is_available():
+        vram_used = torch.cuda.memory_allocated(0) / 1024**3
+        vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        lines.append(f"🎮 **VRAM:** {vram_used:.2f} / {vram_total:.1f} GB")
+    
+    if image_model_loaded:
+        lines.append("✅ **Active image model:** Loaded")
+    if loaded_image_models:
+        lines.append(f"\n📦 **Cached models ({len(loaded_image_models)}):**")
+        for name in loaded_image_models.keys():
+            lines.append(f"  • {name}")
+    else:
+        lines.append("\n📦 **No cached image models**")
+    # show progress flag
+    if image_gen_in_progress:
+        lines.append("\n⏳ Image generation: In progress")
+    else:
+        lines.append("\n✅ Image generation: Idle")
+
+    return "\n".join(lines)
+
+
+# Helper functions for generated images gallery
+def get_generated_image_choices():
+    """Return a list of generated images (filenames) sorted by mtime desc."""
+    folder = os.path.abspath("data/generated_images")
+    if not os.path.isdir(folder):
+        return []
+    files = [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(".png")]
+    files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    # return full paths so Gradio can display them
+    return files
+
+
+def get_gallery_images():
+    """Return list of image paths for gallery display."""
+    return get_generated_image_choices()
+
+
+def get_gallery_checkbox_choices():
+    """Return list of filenames for checkbox selection."""
+    images = get_generated_image_choices()
+    return [os.path.basename(p) for p in images]
+
+
+def get_path_from_filename(filename):
+    """Get full path from filename."""
+    folder = os.path.abspath("data/generated_images")
+    return os.path.join(folder, filename)
+
+
+def select_all_images():
+    """Select all images in the gallery."""
+    choices = get_gallery_checkbox_choices()
+    return gr.update(choices=choices, value=choices), f"✅ Selected {len(choices)} images"
+
+
+def clear_image_selection():
+    """Clear all selected images."""
+    return gr.update(choices=get_gallery_checkbox_choices(), value=[]), "☐ Selection cleared"
+
+
+def delete_selected_images(selected_filenames):
+    """Delete multiple selected images."""
+    if not selected_filenames:
+        return get_gallery_images(), gr.update(choices=get_gallery_checkbox_choices(), value=[]), "⚠️ No images selected"
+    
+    deleted = 0
+    errors = []
+    for filename in selected_filenames:
+        path = get_path_from_filename(filename)
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                deleted += 1
+        except Exception as e:
+            errors.append(f"{filename}: {e}")
+    
+    # Refresh choices after deletion
+    new_choices = get_gallery_checkbox_choices()
+    status = f"🗑️ Deleted {deleted} image(s)"
+    if errors:
+        status += f" | Errors: {len(errors)}"
+    
+    return get_gallery_images(), gr.update(choices=new_choices, value=[]), status
+
+
+def download_selected_images(selected_filenames):
+    """Prepare selected images for download as a zip file."""
+    import zipfile
+    import tempfile
+    
+    if not selected_filenames:
+        return None, "⚠️ No images selected"
+    
+    if len(selected_filenames) == 1:
+        # Single file - return directly
+        path = get_path_from_filename(selected_filenames[0])
+        if os.path.exists(path):
+            return path, f"⬇️ Downloading {selected_filenames[0]}"
+        return None, "❌ File not found"
+    
+    # Multiple files - create zip
+    try:
+        # Create a zip file in temp directory
+        zip_path = os.path.join(tempfile.gettempdir(), "kvgenius_images.zip")
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for filename in selected_filenames:
+                path = get_path_from_filename(filename)
+                if os.path.exists(path):
+                    zf.write(path, filename)
+        
+        return zip_path, f"⬇️ Downloading {len(selected_filenames)} images as ZIP"
+    except Exception as e:
+        return None, f"❌ Error creating ZIP: {e}"
+
+
+def refresh_gallery():
+    """Refresh both gallery and checkbox list."""
+    images = get_gallery_images()
+    choices = get_gallery_checkbox_choices()
+    return images, gr.update(choices=choices, value=[]), f"🔄 Refreshed - {len(images)} images"
+
+
+# Track currently selected image in gallery for metadata display
+selected_gallery_image_path = None
+
+
+def on_gallery_select(evt: gr.SelectData):
+    """Handle gallery image selection - show metadata."""
+    global selected_gallery_image_path
+    
+    if evt.value is None:
+        selected_gallery_image_path = None
+        return "*Click an image to see its generation settings*", gr.update(visible=False)
+    
+    # Get the image path from the selection
+    # evt.value is a dict with 'image' containing the path
+    if isinstance(evt.value, dict):
+        img_path = evt.value.get('image', {}).get('path', '')
+    elif isinstance(evt.value, str):
+        img_path = evt.value
+    else:
+        img_path = str(evt.value)
+    
+    selected_gallery_image_path = img_path
+    
+    # Read and format metadata
+    metadata = read_image_metadata(img_path)
+    if metadata:
+        formatted = format_image_metadata(metadata)
+        return formatted, gr.update(visible=True)
+    else:
+        return f"*No metadata found for this image*\n\n`{os.path.basename(img_path)}`", gr.update(visible=False)
+
+
+def load_prompt_from_gallery_image():
+    """Load the prompt and settings from the selected gallery image into the generator."""
+    global selected_gallery_image_path
+    
+    if not selected_gallery_image_path:
+        return [gr.update()] * 6 + ["⚠️ No image selected"]
+    
+    metadata = read_image_metadata(selected_gallery_image_path)
+    if not metadata:
+        return [gr.update()] * 6 + ["⚠️ No metadata found in image"]
+    
+    # Return updates for: prompt, negative, steps, guidance, width, height, status
+    return (
+        gr.update(value=metadata.get('prompt', '')),
+        gr.update(value=metadata.get('negative_prompt', '')),
+        gr.update(value=int(metadata.get('steps', 25))),
+        gr.update(value=float(metadata.get('guidance_scale', 7.5))),
+        gr.update(value=int(metadata.get('width', 512))),
+        gr.update(value=int(metadata.get('height', 512))),
+        f"✅ Loaded prompt from `{os.path.basename(selected_gallery_image_path)}`"
+    )
+
+
+def delete_gallery_image(path):
+    """Delete an image from the gallery."""
+    if not path:
+        return get_gallery_images(), "", "⚠️ No image selected"
+    try:
+        if os.path.exists(path):
+            filename = os.path.basename(path)
+            os.remove(path)
+            return get_gallery_images(), "", f"🗑️ Deleted {filename}"
+        return get_gallery_images(), "", "ℹ️ File not found"
+    except Exception as e:
+        return get_gallery_images(), "", f"❌ Error deleting: {e}"
+
+
+# ==================== Prompt Library Functions ====================
+
+def get_prompt_library_choices():
+    """Get list of saved prompts for display."""
+    prompts = db.get_all_prompts()
+    return [f"📝 {p['name']}" for p in prompts]
+
+
+def save_current_prompt(name, prompt, negative, steps, guidance, width, height):
+    """Save current generation settings to prompt library."""
+    if not name or not name.strip():
+        return gr.update(), "❌ Please enter a name for the prompt"
+    
+    if not prompt or not prompt.strip():
+        return gr.update(), "❌ Prompt cannot be empty"
+    
+    try:
+        db.save_prompt(
+            name=name.strip(),
+            prompt=prompt,
+            negative_prompt=negative,
+            steps=int(steps),
+            guidance_scale=float(guidance),
+            width=int(width),
+            height=int(height),
+            model=current_image_model_key
+        )
+        # Refresh the list
+        choices = get_prompt_library_choices()
+        return gr.update(choices=choices), f"✅ Saved prompt '{name}'"
+    except Exception as e:
+        return gr.update(), f"❌ Error saving: {e}"
+
+
+def load_prompt_from_library(selection):
+    """Load a saved prompt into the generator."""
+    if not selection:
+        return [gr.update()] * 7 + ["⚠️ No prompt selected"]
+    
+    # Extract name from selection (remove emoji prefix)
+    name = selection.replace("📝 ", "").strip()
+    prompt_data = db.get_prompt_by_name(name)
+    
+    if not prompt_data:
+        return [gr.update()] * 7 + ["❌ Prompt not found"]
+    
+    return (
+        gr.update(value=prompt_data.get('prompt', '')),
+        gr.update(value=prompt_data.get('negative_prompt', '')),
+        gr.update(value=int(prompt_data.get('steps', 25))),
+        gr.update(value=float(prompt_data.get('guidance_scale', 7.5))),
+        gr.update(value=int(prompt_data.get('width', 512))),
+        gr.update(value=int(prompt_data.get('height', 768))),
+        gr.update(value=""),  # Clear save name
+        f"✅ Loaded prompt '{name}'"
+    )
+
+
+def delete_prompt_from_library(selection):
+    """Delete a prompt from the library."""
+    if not selection:
+        return gr.update(), "⚠️ No prompt selected"
+    
+    name = selection.replace("📝 ", "").strip()
+    prompt_data = db.get_prompt_by_name(name)
+    
+    if prompt_data:
+        db.delete_prompt(prompt_data['id'])
+        choices = get_prompt_library_choices()
+        return gr.update(choices=choices, value=None), f"🗑️ Deleted prompt '{name}'"
+    
+    return gr.update(), "❌ Prompt not found"
+
+
+def format_prompt_preview(selection):
+    """Show preview of selected prompt."""
+    if not selection:
+        return "*Select a prompt to see details*"
+    
+    name = selection.replace("📝 ", "").strip()
+    prompt_data = db.get_prompt_by_name(name)
+    
+    if not prompt_data:
+        return "*Prompt not found*"
+    
+    lines = []
+    lines.append(f"### 📝 {prompt_data['name']}")
+    lines.append("")
+    lines.append(f"**Prompt:**\n{prompt_data['prompt']}")
+    
+    if prompt_data.get('negative_prompt'):
+        lines.append(f"\n**Negative:**\n{prompt_data['negative_prompt']}")
+    
+    settings = []
+    settings.append(f"Steps: {prompt_data.get('steps', 25)}")
+    settings.append(f"CFG: {prompt_data.get('guidance_scale', 7.5)}")
+    settings.append(f"Size: {prompt_data.get('width', 512)}x{prompt_data.get('height', 768)}")
+    if prompt_data.get('model'):
+        settings.append(f"Model: {prompt_data['model']}")
+    
+    lines.append(f"\n**Settings:** {' | '.join(settings)}")
+    
+    return "\n".join(lines)
+
+
+# ==================== LoRA Training UI Functions ====================
+
+def get_lora_dataset_choices():
+    """Get list of available datasets for dropdown."""
+    dm = get_dataset_manager()
+    datasets = dm.list_datasets()
+    return datasets if datasets else []
+
+
+def get_lora_choices():
+    """Get list of trained LoRAs for dropdown."""
+    lm = get_lora_manager()
+    loras = lm.list_loras()
+    return [l.name for l in loras] if loras else []
+
+
+def create_new_dataset(name):
+    """Create a new training dataset."""
+    if not name or not name.strip():
+        return "❌ Please enter a dataset name", gr.update()
+    
+    name = name.strip().replace(" ", "_")
+    dm = get_dataset_manager()
+    
+    try:
+        dm.create_dataset(name)
+        return f"✅ Created dataset: {name}", gr.update(choices=get_lora_dataset_choices(), value=name)
+    except Exception as e:
+        return f"❌ Error: {e}", gr.update()
+
+
+def delete_dataset(name):
+    """Delete a dataset."""
+    if not name:
+        return "❌ Select a dataset first", gr.update(), []
+    
+    dm = get_dataset_manager()
+    dm.delete_dataset(name)
+    return f"✅ Deleted dataset: {name}", gr.update(choices=get_lora_dataset_choices(), value=None), []
+
+
+def upload_training_images(files, dataset_name, crop_size, crop_mode, auto_caption):
+    """Upload and process images for training dataset."""
+    if not dataset_name:
+        return "❌ Please select or create a dataset first", []
+    
+    if not files:
+        return "❌ No files selected", []
+    
+    dm = get_dataset_manager()
+    uploaded = 0
+    
+    from PIL import Image
+    
+    for file in files:
+        try:
+            img = Image.open(file.name).convert("RGB")
+            
+            # Process image with selected crop mode
+            img = dm.crop_image(img, size=crop_size, crop_mode=crop_mode)
+            
+            filename = os.path.basename(file.name)
+            
+            # Auto-caption if enabled
+            caption = ""
+            if auto_caption:
+                caption = auto_caption_image(img)
+            
+            dm.add_image(dataset_name, img, filename, caption)
+            uploaded += 1
+            
+        except Exception as e:
+            logger.error(f"Failed to upload {file.name}: {e}")
+    
+    # Return updated gallery
+    images = dm.get_images(dataset_name)
+    gallery_items = [(img["path"], img.get("caption", "")) for img in images]
+    
+    return f"✅ Uploaded {uploaded} images to {dataset_name}", gallery_items
+
+
+def load_dataset_images(dataset_name):
+    """Load images from a dataset for display."""
+    if not dataset_name:
+        return []
+    
+    dm = get_dataset_manager()
+    images = dm.get_images(dataset_name)
+    return [(img["path"], img.get("caption", "")[:50] + "..." if len(img.get("caption", "")) > 50 else img.get("caption", "")) for img in images]
+
+
+def get_image_caption(dataset_name, evt: gr.SelectData):
+    """Get caption for selected image in gallery."""
+    if not dataset_name:
+        return "", ""
+    
+    dm = get_dataset_manager()
+    images = dm.get_images(dataset_name)
+    
+    if evt.index < len(images):
+        img = images[evt.index]
+        return img.get("caption", ""), img.get("filename", "")
+    return "", ""
+
+
+def update_image_caption(dataset_name, filename, new_caption):
+    """Update caption for an image."""
+    if not dataset_name or not filename:
+        return "❌ Select an image first"
+    
+    dm = get_dataset_manager()
+    if dm.update_caption(dataset_name, filename, new_caption):
+        return f"✅ Caption updated for {filename}"
+    return "❌ Failed to update caption"
+
+
+def delete_dataset_image(dataset_name, filename):
+    """Delete an image from dataset."""
+    if not dataset_name or not filename:
+        return "❌ Select an image first", []
+    
+    dm = get_dataset_manager()
+    dm.delete_image(dataset_name, filename)
+    
+    # Return updated gallery
+    images = dm.get_images(dataset_name)
+    gallery_items = [(img["path"], img.get("caption", "")[:30]) for img in images]
+    return f"✅ Deleted {filename}", gallery_items
+
+
+def auto_caption_image(image):
+    """Generate caption using BLIP model (lazy loaded)."""
+    global blip_model, blip_processor
+    
+    try:
+        if 'blip_model' not in globals() or blip_model is None:
+            from transformers import BlipProcessor, BlipForConditionalGeneration
+            
+            logger.info("Loading BLIP captioning model...")
+            blip_processor = BlipProcessor.from_pretrained(
+                "Salesforce/blip-image-captioning-base",
+                cache_dir=cache_dir
+            )
+            blip_model = BlipForConditionalGeneration.from_pretrained(
+                "Salesforce/blip-image-captioning-base",
+                cache_dir=cache_dir
+            ).to("cpu")  # Keep on CPU to save VRAM
+            blip_model.eval()
+        
+        inputs = blip_processor(image, return_tensors="pt")
+        
+        with torch.no_grad():
+            output = blip_model.generate(**inputs, max_length=50)
+        
+        caption = blip_processor.decode(output[0], skip_special_tokens=True)
+        return caption
+        
+    except Exception as e:
+        logger.error(f"Auto-captioning failed: {e}")
+        return ""
+
+
+def suggest_captions_for_dataset(dataset_name):
+    """Generate suggested captions for all images in dataset."""
+    if not dataset_name:
+        return "❌ Select a dataset first", []
+    
+    dm = get_dataset_manager()
+    images = dm.get_images(dataset_name)
+    
+    if not images:
+        return "❌ No images in dataset", []
+    
+    from PIL import Image
+    updated = 0
+    
+    for img_data in images:
+        if not img_data.get("caption"):  # Only caption images without captions
+            try:
+                img = Image.open(img_data["path"]).convert("RGB")
+                caption = auto_caption_image(img)
+                if caption:
+                    dm.update_caption(dataset_name, img_data["filename"], caption)
+                    updated += 1
+            except Exception as e:
+                logger.error(f"Failed to caption {img_data['filename']}: {e}")
+    
+    # Return updated gallery
+    images = dm.get_images(dataset_name)
+    gallery_items = [(img["path"], img.get("caption", "")[:30]) for img in images]
+    return f"✅ Generated captions for {updated} images", gallery_items
+
+
+def get_base_model_choices():
+    """Get available base models for LoRA training."""
+    # Return models that are compatible with LoRA training
+    choices = []
+    for key, model in AVAILABLE_IMAGE_MODELS.items():
+        # Skip SDXL for now (needs different training approach)
+        if "sdxl" not in key.lower():
+            choices.append(key)
+    return choices
+
+
+def on_resume_lora_selected(lora_name):
+    """Auto-fill fields when selecting a LoRA to continue training."""
+    if not lora_name or lora_name == "(New LoRA)":
+        return gr.update(), gr.update(), gr.update()
+    
+    lm = get_lora_manager()
+    info = lm.get_lora(lora_name)
+    
+    if not info:
+        return gr.update(), gr.update(), gr.update()
+    
+    # Auto-fill the name, trigger word, and description
+    return (
+        gr.update(value=lora_name),  # output_name
+        gr.update(value=info.trigger_word),  # trigger_word
+        gr.update(value=info.description)  # description
+    )
+
+
+def start_lora_training(dataset_name, output_name, resume_from, base_model, trigger_word, description,
+                        num_epochs, learning_rate, lora_rank, lora_alpha, resolution, max_steps):
+    """Start LoRA training in background."""
+    trainer = get_trainer()
+    
+    if trainer.is_training():
+        return "❌ Training already in progress", ""
+    
+    if not dataset_name:
+        return "❌ Select a dataset first", ""
+    
+    if not output_name or not output_name.strip():
+        return "❌ Enter an output name for the LoRA", ""
+    
+    if not trigger_word or not trigger_word.strip():
+        return "❌ Enter a trigger word for the LoRA", ""
+    
+    dm = get_dataset_manager()
+    images = dm.get_images(dataset_name)
+    
+    if len(images) < 3:
+        return f"❌ Need at least 3 images (found {len(images)})", ""
+    
+    # Get full model path from the "id" field
+    model_info = AVAILABLE_IMAGE_MODELS.get(base_model, {})
+    model_path = model_info.get("id", base_model)  # Use "id" field for HuggingFace path
+    
+    # Handle resume from existing LoRA
+    resume_path = None
+    if resume_from and resume_from != "(New LoRA)":
+        resume_path = f"data/lora_models/{resume_from}"
+        if os.path.exists(resume_path):
+            print(f"[Training] Continuing from existing LoRA: {resume_path}")
+        else:
+            resume_path = None
+    
+    config = TrainingConfig(
+        dataset_name=dataset_name,
+        output_name=output_name.strip().replace(" ", "_"),
+        base_model=model_path,
+        trigger_word=trigger_word.strip(),
+        description=description,
+        resume_from=resume_path,
+        num_train_epochs=int(num_epochs),
+        learning_rate=float(learning_rate),
+        lora_rank=int(lora_rank),
+        lora_alpha=int(lora_alpha),
+        resolution=int(resolution),
+        max_train_steps=int(max_steps) if max_steps > 0 else None
+    )
+    
+    success = trainer.start_training(config)
+    
+    if success:
+        status_msg = "🚀 Training started!"
+        if resume_path:
+            status_msg += f" (continuing from {resume_from})"
+        return status_msg + " Check progress below.", f"Training {output_name}..."
+    else:
+        return "❌ Failed to start training", ""
+
+
+def get_training_progress():
+    """Get current training progress for UI update."""
+    trainer = get_trainer()
+    state = trainer.get_state()
+    
+    if not state.is_training and not state.completed and not state.error:
+        return "Idle - Ready to train", 0, ""
+    
+    progress = 0
+    if state.total_steps > 0:
+        progress = (state.current_step / state.total_steps) * 100
+    
+    details = f"Epoch: {state.current_epoch}/{state.total_epochs} | Step: {state.current_step}/{state.total_steps} | Loss: {state.loss:.4f}"
+    
+    return state.status_message, progress, details
+
+
+def stop_training():
+    """Request training to stop."""
+    trainer = get_trainer()
+    trainer.request_stop()
+    return "⏹ Stopping training...", 0, ""
+
+
+def get_lora_info(lora_name):
+    """Get detailed info for a LoRA."""
+    if not lora_name:
+        return "*Select a LoRA to see details*"
+    
+    lm = get_lora_manager()
+    info = lm.get_lora(lora_name)
+    
+    if not info:
+        return "*LoRA not found*"
+    
+    lines = [
+        f"### {info.name}",
+        f"**Trigger Word:** `{info.trigger_word}`",
+        f"**Base Model:** {info.base_model}",
+        f"**Training Steps:** {info.training_steps}",
+        f"**Rank:** {info.rank} | **Alpha:** {info.alpha}",
+        f"**Size:** {info.file_size_mb:.1f} MB",
+        f"**Created:** {info.created_at[:10] if info.created_at else 'Unknown'}",
+    ]
+    
+    if info.description:
+        lines.append(f"\n*{info.description}*")
+    
+    return "\n\n".join(lines)
+
+
+def delete_lora(lora_name):
+    """Delete a trained LoRA."""
+    if not lora_name:
+        return "❌ Select a LoRA first", gr.update()
+    
+    lm = get_lora_manager()
+    lm.delete_lora(lora_name)
+    
+    return f"✅ Deleted LoRA: {lora_name}", gr.update(choices=get_lora_choices(), value=None)
+
+
+# Initialize BLIP model variables
+blip_model = None
+blip_processor = None
+
+
+# ==================== CPU Prompt Enhancer ====================
+
+# Prompt enhancement templates for different styles
+ENHANCEMENT_TEMPLATES = {
+    "photorealistic": {
+        "prefix": "",
+        "suffix": ", RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3",
+        "quality": ", masterpiece, best quality, highly detailed, sharp focus"
+    },
+    "artistic": {
+        "prefix": "",
+        "suffix": ", digital art, concept art, smooth, sharp focus",
+        "quality": ", masterpiece, best quality, highly detailed, dramatic lighting, vibrant colors"
+    },
+    "portrait": {
+        "prefix": "portrait of ",
+        "suffix": ", professional portrait photography, studio lighting, 85mm lens, bokeh",
+        "quality": ", masterpiece, detailed skin texture, sharp eyes, natural lighting"
+    },
+    "fantasy": {
+        "prefix": "",
+        "suffix": ", fantasy art, epic scene, magical atmosphere, ethereal lighting",
+        "quality": ", masterpiece, best quality, highly detailed, dramatic composition"
+    },
+    "anime": {
+        "prefix": "",
+        "suffix": ", anime style, cel shading, vibrant colors",
+        "quality": ", masterpiece, best quality, highly detailed, sharp lines"
+    }
+}
+
+
+def load_prompt_enhancer():
+    """Lazy load a small T5 model for prompt enhancement on CPU."""
+    global prompt_enhancer_model, prompt_enhancer_tokenizer
+    
+    if prompt_enhancer_model is not None:
+        return True
+    
+    try:
+        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+        
+        logger.info("Loading prompt enhancer model on CPU...")
+        model_name = "google/flan-t5-small"  # Small model, ~300MB, runs well on CPU
+        
+        prompt_enhancer_tokenizer = AutoTokenizer.from_pretrained(
+            model_name, 
+            cache_dir=cache_dir
+        )
+        prompt_enhancer_model = AutoModelForSeq2SeqLM.from_pretrained(
+            model_name,
+            cache_dir=cache_dir
+        )
+        # Keep on CPU explicitly
+        prompt_enhancer_model = prompt_enhancer_model.to("cpu")
+        prompt_enhancer_model.eval()
+        
+        logger.info("Prompt enhancer loaded successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to load prompt enhancer: {e}")
+        return False
+
+
+def enhance_prompt_with_ai(prompt, style="photorealistic"):
+    """Use AI to enhance a basic prompt into a more detailed one."""
+    global prompt_enhancer_model, prompt_enhancer_tokenizer
+    
+    if not prompt or not prompt.strip():
+        return prompt, "❌ Please enter a prompt first"
+    
+    # Try to load model if not loaded
+    if prompt_enhancer_model is None:
+        if not load_prompt_enhancer():
+            # Fallback to template-based enhancement
+            return enhance_prompt_with_template(prompt, style)
+    
+    try:
+        # Style-specific context for better AI responses
+        style_hints = {
+            "photorealistic": "realistic photograph, natural lighting, detailed textures",
+            "artistic": "digital artwork, vibrant colors, creative composition",
+            "portrait": "portrait photography, facial details, studio lighting",
+            "fantasy": "fantasy art, magical elements, epic atmosphere",
+            "anime": "anime illustration, cel shading, expressive style"
+        }
+        style_hint = style_hints.get(style, style_hints["photorealistic"])
+        
+        # Better instruction that asks for specific additions
+        instruction = f"""Add specific visual details to this image prompt. Include: setting/environment, lighting conditions, colors, textures, camera angle or composition. Style: {style_hint}
+
+Prompt: {prompt.strip()}
+
+Enhanced prompt:"""
+        
+        inputs = prompt_enhancer_tokenizer(
+            instruction,
+            return_tensors="pt",
+            max_length=256,
+            truncation=True
+        )
+        
+        with torch.no_grad():
+            outputs = prompt_enhancer_model.generate(
+                inputs.input_ids,
+                max_length=100,
+                num_beams=4,
+                temperature=0.8,
+                do_sample=True,
+                top_p=0.9,
+                early_stopping=True,
+                no_repeat_ngram_size=2
+            )
+        
+        ai_output = prompt_enhancer_tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+        
+        # Check if AI gave a meaningful response (not just generic text)
+        generic_responses = ["masterpiece", "best quality", "highly detailed", "sharp focus"]
+        is_generic = all(term in ai_output.lower() for term in generic_responses[:2]) and len(ai_output) < len(prompt) + 50
+        
+        if is_generic or len(ai_output) < 10:
+            # AI didn't help much, use template with smart expansion
+            return enhance_prompt_smart(prompt, style)
+        
+        # Combine original prompt idea with AI expansion
+        # If AI output seems like a complete rewrite, use it; otherwise combine
+        if prompt.lower().split()[0] in ai_output.lower():
+            enhanced = ai_output
+        else:
+            enhanced = f"{prompt.strip()}, {ai_output}"
+        
+        # Add minimal style suffix (not the heavy quality terms)
+        template = ENHANCEMENT_TEMPLATES.get(style, ENHANCEMENT_TEMPLATES["photorealistic"])
+        enhanced += template["suffix"]
+        
+        token_count = count_clip_tokens(enhanced, None)
+        return enhanced, f"✨ AI Enhanced! ({token_count}/77 tokens)"
+        
+    except Exception as e:
+        logger.error(f"AI enhancement failed: {e}")
+        # Fallback to smart template
+        return enhance_prompt_smart(prompt, style)
+
+
+def enhance_prompt_smart(prompt, style="photorealistic"):
+    """Smart enhancement that adds contextually relevant details."""
+    if not prompt or not prompt.strip():
+        return prompt, "❌ Please enter a prompt first"
+    
+    prompt_lower = prompt.lower()
+    additions = []
+    
+    # Context-aware additions based on prompt content
+    if any(word in prompt_lower for word in ["woman", "man", "person", "girl", "boy", "portrait"]):
+        additions.extend(["detailed face", "expressive eyes"])
+    if any(word in prompt_lower for word in ["landscape", "mountain", "forest", "ocean", "city"]):
+        additions.extend(["atmospheric perspective", "volumetric lighting"])
+    if any(word in prompt_lower for word in ["night", "dark", "evening"]):
+        additions.extend(["dramatic shadows", "rim lighting"])
+    if any(word in prompt_lower for word in ["sunset", "sunrise", "golden"]):
+        additions.extend(["golden hour", "warm tones"])
+    
+    # Style-specific additions
+    style_additions = {
+        "photorealistic": ["RAW photo", "8k uhd", "dslr", "natural lighting"],
+        "artistic": ["digital painting", "artstation trending", "vibrant colors"],
+        "portrait": ["studio lighting", "85mm lens", "shallow depth of field"],
+        "fantasy": ["magical atmosphere", "ethereal glow", "epic composition"],
+        "anime": ["anime style", "cel shading", "clean lines"]
+    }
+    additions.extend(style_additions.get(style, style_additions["photorealistic"])[:3])
+    
+    # Build enhanced prompt
+    enhanced = prompt.strip()
+    if additions:
+        enhanced += ", " + ", ".join(additions[:5])  # Limit to avoid token overflow
+    
+    token_count = count_clip_tokens(enhanced, None)
+    return enhanced, f"✨ Smart enhanced! ({token_count}/77 tokens)"
+
+
+def enhance_prompt_with_template(prompt, style="photorealistic"):
+    """Enhance prompt using predefined templates (no AI required)."""
+    if not prompt or not prompt.strip():
+        return prompt, "❌ Please enter a prompt first"
+    
+    template = ENHANCEMENT_TEMPLATES.get(style, ENHANCEMENT_TEMPLATES["photorealistic"])
+    
+    enhanced = prompt.strip()
+    if template["prefix"] and not enhanced.lower().startswith(template["prefix"]):
+        enhanced = template["prefix"] + enhanced
+    # Only add suffix, skip the generic "quality" terms
+    enhanced += template["suffix"]
+    
+    token_count = count_clip_tokens(enhanced, None)
+    return enhanced, f"✨ Quick {style} style! ({token_count}/77 tokens)"
+
+
+def detect_style_from_prompt(prompt):
+    """Auto-detect style from prompt content."""
+    prompt_lower = prompt.lower()
+    
+    if any(word in prompt_lower for word in ["anime", "manga", "cel shading", "cartoon"]):
+        return "anime"
+    elif any(word in prompt_lower for word in ["fantasy", "magical", "dragon", "wizard", "fairy", "ethereal"]):
+        return "fantasy"
+    elif any(word in prompt_lower for word in ["portrait", "headshot", "face", "person closeup"]):
+        return "portrait"
+    elif any(word in prompt_lower for word in ["painting", "artwork", "artistic", "illustration", "concept art"]):
+        return "artistic"
+    else:
+        return "photorealistic"
+
+
+def quick_enhance_prompt(prompt):
+    """Quick enhancement using templates only (fast, no model loading)."""
+    style = detect_style_from_prompt(prompt)
+    return enhance_prompt_with_template(prompt, style)
+
+
+def ai_enhance_prompt(prompt):
+    """Full AI enhancement (loads model if needed)."""
+    style = detect_style_from_prompt(prompt)
+    return enhance_prompt_with_ai(prompt, style)
+
+
+def update_img_model_controls(model_name):
+    """Return model info text, button visibility, slider updates, and generate button state based on model presets."""
+    # Extract model key from selection (remove status icon)
+    model_key = extract_model_key(model_name)
+    
+    if model_key not in AVAILABLE_IMAGE_MODELS:
+        return (
+            "*Select a model*", 
+            gr.update(visible=True),   # load button
+            gr.update(visible=False),  # unload button
+            gr.update(),               # steps slider
+            gr.update(),               # guidance slider
+            gr.update(),               # width slider
+            gr.update(),               # height slider
+            gr.update(),               # negative prompt
+            gr.update(interactive=False)  # generate button disabled
+        )
+
+    m = AVAILABLE_IMAGE_MODELS[model_key]
+    tips = f"\n\n💡 *{m.get('tips', '')}*" if m.get('tips') else ""
+    info = f"*{m['description']}*\n\n**VRAM:** {m['vram']}{tips}"
+    
+    # Get preset values
+    step_range = m.get('step_range', [1, 50])
+    guidance_range = m.get('guidance_range', [0.0, 20.0])
+    
+    # Build slider updates
+    steps_update = gr.update(
+        value=m.get('default_steps', 25),
+        minimum=step_range[0],
+        maximum=step_range[1]
+    )
+    guidance_update = gr.update(
+        value=m.get('default_guidance', 7.5),
+        minimum=guidance_range[0],
+        maximum=guidance_range[1]
+    )
+    width_update = gr.update(value=m.get('default_width', 512))
+    height_update = gr.update(value=m.get('default_height', 512))
+    negative_update = gr.update(value=m.get('default_negative', ''))
+    
+    if model_key in loaded_image_models:
+        # already loaded -> hide load button, show unload, enable generate
+        return info, gr.update(visible=False), gr.update(visible=True), steps_update, guidance_update, width_update, height_update, negative_update, gr.update(interactive=True)
+    else:
+        # not loaded -> show load button, hide unload, disable generate
+        return info, gr.update(visible=True), gr.update(visible=False), steps_update, guidance_update, width_update, height_update, negative_update, gr.update(interactive=False)
+
+
+def load_preview_image(path):
+    if not path:
+        return None, ""
+    try:
+        from PIL import Image
+        img = Image.open(path)
+        return img, f"📂 {os.path.basename(path)}"
+    except Exception as e:
+        return None, f"❌ Error loading preview: {e}"
+
+
+def delete_generated_image(path):
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+            return get_generated_image_choices(), None, f"🗑️ Deleted {os.path.basename(path)}"
+        return get_generated_image_choices(), None, "ℹ️ File not found"
+    except Exception as e:
+        return get_generated_image_choices(), None, f"❌ Error deleting: {e}"
+
+
+def stop_image_generation():
+    global image_gen_cancel_event
+    image_gen_cancel_event = True
+    return "🛑 Stop requested"
+
+
+def set_generating_state():
+    """Called when generation starts - disable generate, show stop."""
+    return gr.update(interactive=False), gr.update(visible=True)
+
+
+def clear_generating_state():
+    """Called when generation ends - enable generate, hide stop."""
+    return gr.update(interactive=True), gr.update(visible=False)
+
+
 def chat(message, history, model_selection, ai_character_selection, user_persona_selection):
     """Handle chat."""
     global current_conversation_id, db
     
     if not message.strip():
         return history
+    
+    # Extract model key from selection (remove status icon)
+    model_key = extract_model_key(model_selection)
     
     try:
         # Create new conversation if needed
@@ -336,13 +1920,13 @@ def chat(message, history, model_selection, ai_character_selection, user_persona
                         break
             
             current_conversation_id = db.create_conversation(
-                model=model_selection,
+                model=model_key,
                 ai_character_id=ai_char_id,
                 user_persona_id=user_persona_id
             )
             logger.info(f"Started new conversation {current_conversation_id}")
         
-        model, tokenizer, chatbot = load_model(model_selection)
+        model, tokenizer, chatbot = load_model(model_key)
         
         # Keep only last 3 exchanges to prevent context confusion
         recent_history = history[-3:] if len(history) > 3 else history
@@ -394,12 +1978,15 @@ def chat(message, history, model_selection, ai_character_selection, user_persona
         # Use higher limit for character roleplay (long system prompts)
         # truncation_side='left' keeps the most recent conversation (at the end)
         tokenizer.truncation_side = 'left'
-        inputs = tokenizer.encode(
+        encoded = tokenizer(
             prompt,
             return_tensors="pt",
             truncation=True,
-            max_length=1536  # Much higher limit for character roleplay
-        ).to(chatbot.device)
+            max_length=1536,  # Much higher limit for character roleplay
+            return_attention_mask=True
+        )
+        inputs = encoded['input_ids'].to(model.device)
+        attention_mask = encoded['attention_mask'].to(model.device)
         
         logger.info(f"Input tokens: {inputs.shape[1]}")
         
@@ -417,9 +2004,13 @@ def chat(message, history, model_selection, ai_character_selection, user_persona
                     top_k = char.get('top_k', 50)
                     break
         
+        import time
+        gen_start_time = time.time()
+        
         with torch.no_grad():
             outputs = model.generate(
                 inputs,
+                attention_mask=attention_mask,
                 max_new_tokens=150,  # Limit response length
                 temperature=temperature,
                 top_k=top_k,
@@ -430,6 +2021,8 @@ def chat(message, history, model_selection, ai_character_selection, user_persona
                 eos_token_id=tokenizer.eos_token_id,
                 num_return_sequences=1
             )
+        
+        gen_elapsed_time = time.time() - gen_start_time
         
         # Decode only the new tokens
         response = tokenizer.decode(
@@ -444,7 +2037,7 @@ def chat(message, history, model_selection, ai_character_selection, user_persona
         stop_phrases.extend(["\nUser:", "\nAssistant:", "User:", "Assistant:"])
         
         # Model-specific stop phrases
-        if "Mistral" in model_selection or "Hermes" in model_selection:
+        if "Mistral" in model_selection or "Hermes" in model_selection or "Kunoichi" in model_selection or "Dolphin" in model_selection:
             stop_phrases.extend(["[INST]", "[/INST]", "</s>"])
         elif "Vicuna" in model_selection:
             stop_phrases.extend(["USER:", "ASSISTANT:"])
@@ -472,13 +2065,16 @@ def chat(message, history, model_selection, ai_character_selection, user_persona
             if len(sentences) > 1:
                 response = '.'.join(sentences[:-1]) + '.'
         
-        logger.info(f"Generated response: {response}\n---")
+        logger.info(f"Generated response in {gen_elapsed_time:.2f}s: {response}\n---")
         
-        # Save to database
+        # Add timing info to response
+        response_with_timing = f"{response}\n\n⏱️ *Generated in {gen_elapsed_time:.2f}s*"
+        
+        # Save to database (without timing info)
         db.add_message(current_conversation_id, "user", message)
         db.add_message(current_conversation_id, "assistant", response)
         
-        history.append((message, response))
+        history.append((message, response_with_timing))
         return history
     
     except Exception as e:
@@ -567,11 +2163,11 @@ def delete_conversation():
 
 
 def unload(model_selection):
-    """Unload model."""
-    if model_selection in active_models:
-        del active_models[model_selection]
-        torch.cuda.empty_cache()
-        return get_status()
+    """Unload chat model."""
+    model_key = extract_model_key(model_selection)
+    if model_key in active_models:
+        unload_all_chat_models()
+        logger.info(f"Unloaded chat model: {model_key}")
     return get_status()
 
 
@@ -1234,11 +2830,12 @@ def create_ui():
             with gr.TabItem("💬 Chat", id="chat_tab"):
                 with gr.Row():
                     model_dropdown = gr.Dropdown(
-                        choices=list(AVAILABLE_MODELS.keys()),
-                        value=list(AVAILABLE_MODELS.keys())[0],
-                        label="🤖 Model",
+                        choices=get_chat_model_choices(),
+                        value=get_chat_model_choices()[0] if get_chat_model_choices() else None,
+                        label="🤖 Model (🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded)",
                         scale=2
                     )
+                    refresh_models_btn = gr.Button("🔄", scale=0, min_width=40)
                     
                     ai_char_dropdown = gr.Dropdown(
                         choices=ai_char_names,
@@ -1425,6 +3022,332 @@ def create_ui():
                         delete_user_btn = gr.Button("🗑️ Delete Persona", variant="stop", size="lg")
                     
                     user_create_status = gr.Markdown()
+            
+            with gr.TabItem("🎨 Image Generator", id="image_tab"):
+                
+                with gr.Tabs() as img_tabs:
+                    with gr.TabItem("🖌️ Generate", id="generate_tab"):
+                        # Status bar at top - spans full width
+                        img_status = gr.Markdown("*Select a model and click 'Load' to start*")
+                        
+                        with gr.Row():
+                            # Sidebar - Model & Settings
+                            with gr.Column(scale=1):
+                                gr.Markdown("### 🤖 Model")
+                                img_model_dropdown = gr.Dropdown(
+                                    choices=get_image_model_choices(),
+                                    value=get_image_model_choices()[0] if get_image_model_choices() else None,
+                                    label="Image Model",
+                                    info="🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded"
+                                )
+                                refresh_img_models_btn = gr.Button("🔄 Refresh", size="sm")
+                                img_model_info = gr.Markdown(f"*{AVAILABLE_IMAGE_MODELS['Dreamshaper 8']['description']}*")
+                                
+                                with gr.Row():
+                                    load_img_model_btn = gr.Button("📥 Load", variant="secondary", size="sm", visible=True)
+                                    unload_img_model_btn = gr.Button("🗑️ Unload", variant="stop", size="sm", visible=False)
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("### 🎭 LoRA")
+                                lora_dropdown = gr.Dropdown(
+                                    choices=["None"] + get_lora_choices(),
+                                    value="None",
+                                    label="Select LoRA",
+                                    info="Apply a trained LoRA to your generation"
+                                )
+                                lora_strength = gr.Slider(0.0, 1.5, value=0.8, step=0.05, label="LoRA Strength")
+                                refresh_lora_btn = gr.Button("🔄 Refresh LoRAs", size="sm")
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("### ⚙️ Settings")
+                                img_steps = gr.Slider(1, 50, value=4, step=1, label="Steps", info="SDXL Turbo: 1-4, Others: 20-30")
+                                img_guidance = gr.Slider(0, 20, value=0, step=0.5, label="Guidance Scale", info="SDXL Turbo: 0, Others: 7-9")
+                                
+                                with gr.Row():
+                                    img_width = gr.Slider(512, 1024, value=512, step=64, label="Width")
+                                    img_height = gr.Slider(512, 1024, value=512, step=64, label="Height")
+                                
+                                img_seed = gr.Number(value=-1, label="Seed", info="-1 = random")
+                            
+                            # Main area - Prompts & Output
+                            with gr.Column(scale=3):
+                                img_prompt = gr.Textbox(
+                                    label="✨ Prompt",
+                                    placeholder="A majestic dragon flying over a crystal castle at sunset, highly detailed, fantasy art, cinematic lighting",
+                                    lines=3
+                                )
+                                with gr.Row():
+                                    img_token_count = gr.Markdown("*0 / 77 tokens*", elem_id="token-counter")
+                                    quick_enhance_btn = gr.Button("⚡ Quick Enhance", size="sm", scale=0)
+                                    ai_enhance_btn = gr.Button("🧠 AI Enhance", size="sm", scale=0)
+                                    save_to_library_btn = gr.Button("💾 Save", size="sm", scale=0)
+                                
+                                img_negative = gr.Textbox(
+                                    label="🚫 Negative Prompt",
+                                    placeholder="blurry, bad quality, distorted, ugly, deformed, watermark, text",
+                                    lines=2,
+                                    value="blurry, bad quality, distorted, ugly, deformed"
+                                )
+                                
+                                with gr.Row():
+                                    generate_img_btn = gr.Button("🎨 Generate Image", variant="primary", size="lg", scale=3, interactive=False)
+                                    stop_img_btn = gr.Button("⏹ Stop", variant="stop", size="lg", scale=1, visible=False)
+                                
+                                img_output = gr.Image(label="Generated Image", type="pil", height=512)
+                    
+                    with gr.TabItem("🖼️ Gallery", id="gallery_tab"):
+                        gr.Markdown("### 📁 Your Generated Images\n*Click images in the gallery to select/deselect. Use buttons above for batch operations.*")
+                        
+                        with gr.Row():
+                            refresh_gallery_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
+                            select_all_btn = gr.Button("☑️ Select All", variant="secondary", size="sm")
+                            clear_selection_btn = gr.Button("☐ Clear Selection", variant="secondary", size="sm")
+                            download_selected_btn = gr.Button("⬇️ Download Selected", variant="primary", size="sm")
+                            delete_selected_btn = gr.Button("🗑️ Delete Selected", variant="stop", size="sm")
+                        
+                        gallery_status = gr.Markdown("")
+                        img_download_file = gr.File(visible=False)
+                        
+                        with gr.Row():
+                            with gr.Column(scale=3):
+                                # Gallery grid showing all images
+                                img_gallery = gr.Gallery(
+                                    value=get_gallery_images(),
+                                    label="Click to preview",
+                                    columns=4,
+                                    rows=3,
+                                    height=450,
+                                    object_fit="contain",
+                                    show_label=False,
+                                    allow_preview=True
+                                )
+                            with gr.Column(scale=1):
+                                gr.Markdown("### 📋 Select Images")
+                                img_checklist = gr.CheckboxGroup(
+                                    choices=get_gallery_checkbox_choices(),
+                                    value=[],
+                                    label="Select for batch operations",
+                                    info="Check images to download or delete multiple"
+                                )
+                                gr.Markdown("---")
+                                gr.Markdown("### 📄 Image Info")
+                                img_metadata_display = gr.Markdown("*Click an image to see its generation settings*")
+                                load_prompt_from_image_btn = gr.Button("📥 Load Prompt to Generator", variant="secondary", size="sm", visible=False)
+                    
+                    with gr.TabItem("📚 Prompt Library", id="prompt_library_tab"):
+                        gr.Markdown("### 📚 Saved Prompts\n*Save your favorite prompts and settings to reuse them later.*")
+                        
+                        with gr.Row():
+                            with gr.Column(scale=2):
+                                gr.Markdown("#### 💾 Save Current Settings")
+                                prompt_save_name = gr.Textbox(
+                                    label="Prompt Name",
+                                    placeholder="e.g., Epic Fantasy Portrait",
+                                    max_lines=1
+                                )
+                                save_prompt_btn = gr.Button("💾 Save to Library", variant="primary", size="sm")
+                                prompt_library_status = gr.Markdown("")
+                            
+                            with gr.Column(scale=3):
+                                gr.Markdown("#### 📖 Your Saved Prompts")
+                                prompt_library_dropdown = gr.Dropdown(
+                                    choices=get_prompt_library_choices(),
+                                    label="Select a prompt",
+                                    interactive=True
+                                )
+                                with gr.Row():
+                                    load_library_prompt_btn = gr.Button("📥 Load to Generator", variant="primary", size="sm")
+                                    delete_library_prompt_btn = gr.Button("🗑️ Delete", variant="stop", size="sm")
+                                    refresh_library_btn = gr.Button("🔄", variant="secondary", size="sm")
+                        
+                        gr.Markdown("---")
+                        prompt_preview_display = gr.Markdown("*Select a prompt to see its details*")
+                    
+                    with gr.TabItem("🎓 LoRA Training", id="lora_training_tab"):
+                        gr.Markdown("### 🎓 Train Custom LoRAs\n*Train your own LoRA models to generate specific subjects, styles, or characters.*")
+                        
+                        with gr.Tabs() as lora_tabs:
+                            with gr.TabItem("📁 Dataset", id="dataset_tab"):
+                                gr.Markdown("#### Step 1: Prepare Training Images")
+                                
+                                with gr.Row():
+                                    with gr.Column(scale=1):
+                                        gr.Markdown("**Create/Select Dataset**")
+                                        new_dataset_name = gr.Textbox(
+                                            label="New Dataset Name",
+                                            placeholder="e.g., my_alien_species",
+                                            max_lines=1
+                                        )
+                                        create_dataset_btn = gr.Button("➕ Create Dataset", variant="primary", size="sm")
+                                        
+                                        dataset_dropdown = gr.Dropdown(
+                                            choices=get_lora_dataset_choices(),
+                                            label="Select Dataset",
+                                            interactive=True
+                                        )
+                                        delete_dataset_btn = gr.Button("🗑️ Delete Dataset", variant="stop", size="sm")
+                                        dataset_status = gr.Markdown("")
+                                    
+                                    with gr.Column(scale=2):
+                                        gr.Markdown("**Upload Images**")
+                                        training_image_upload = gr.File(
+                                            label="Upload Training Images",
+                                            file_count="multiple",
+                                            file_types=["image"]
+                                        )
+                                        with gr.Row():
+                                            crop_size = gr.Dropdown(
+                                                choices=[512, 768, 1024],
+                                                value=512,
+                                                label="Size"
+                                            )
+                                            crop_mode = gr.Dropdown(
+                                                choices=[
+                                                    ("Resize & Pad (keeps all details)", "resize_pad"),
+                                                    ("Smart Crop (portrait-aware)", "smart"),
+                                                    ("Center Crop", "center"),
+                                                    ("Top Crop (for faces)", "top"),
+                                                    ("Stretch (may distort)", "resize_stretch")
+                                                ],
+                                                value="resize_pad",
+                                                label="Crop Mode",
+                                                info="How to fit non-square images"
+                                            )
+                                        auto_caption_checkbox = gr.Checkbox(
+                                            label="Auto-caption with AI",
+                                            value=False,
+                                            info="Uses BLIP model (~300MB)"
+                                        )
+                                        upload_images_btn = gr.Button("📤 Upload & Process", variant="primary")
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("**Dataset Images** *(Click image to edit caption)*")
+                                
+                                with gr.Row():
+                                    with gr.Column(scale=2):
+                                        dataset_gallery = gr.Gallery(
+                                            label="Training Images",
+                                            columns=4,
+                                            rows=2,
+                                            height=300,
+                                            object_fit="cover",
+                                            show_label=False
+                                        )
+                                        with gr.Row():
+                                            suggest_captions_btn = gr.Button("🧠 Auto-Caption All", variant="secondary", size="sm")
+                                            refresh_dataset_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
+                                    
+                                    with gr.Column(scale=1):
+                                        gr.Markdown("**Edit Caption**")
+                                        selected_image_name = gr.Textbox(label="Selected Image", interactive=False)
+                                        image_caption_edit = gr.Textbox(
+                                            label="Caption",
+                                            placeholder="Describe what's in this image...",
+                                            lines=3
+                                        )
+                                        with gr.Row():
+                                            save_caption_btn = gr.Button("💾 Save Caption", variant="primary", size="sm")
+                                            delete_image_btn = gr.Button("🗑️ Delete Image", variant="stop", size="sm")
+                                        caption_status = gr.Markdown("")
+                            
+                            with gr.TabItem("⚙️ Train", id="train_tab"):
+                                gr.Markdown("#### Step 2: Configure & Start Training")
+                                
+                                with gr.Row():
+                                    with gr.Column(scale=1):
+                                        gr.Markdown("**Training Configuration**")
+                                        
+                                        train_dataset_dropdown = gr.Dropdown(
+                                            choices=get_lora_dataset_choices(),
+                                            label="Dataset to Train",
+                                            interactive=True
+                                        )
+                                        train_output_name = gr.Textbox(
+                                            label="LoRA Name",
+                                            placeholder="e.g., twilek_species",
+                                            max_lines=1
+                                        )
+                                        train_resume_from = gr.Dropdown(
+                                            choices=["(New LoRA)"] + get_lora_choices(),
+                                            value="(New LoRA)",
+                                            label="Continue Training From",
+                                            info="Select existing LoRA to add more images/training"
+                                        )
+                                        train_trigger_word = gr.Textbox(
+                                            label="Trigger Word",
+                                            placeholder="e.g., twilek",
+                                            info="Word to use in prompts to activate this LoRA",
+                                            max_lines=1
+                                        )
+                                        train_description = gr.Textbox(
+                                            label="Description (optional)",
+                                            placeholder="Star Wars Twi'lek alien species",
+                                            max_lines=2
+                                        )
+                                        train_base_model = gr.Dropdown(
+                                            choices=get_base_model_choices(),
+                                            value="Dreamshaper 8",
+                                            label="Base Model"
+                                        )
+                                    
+                                    with gr.Column(scale=1):
+                                        gr.Markdown("**Training Parameters**")
+                                        
+                                        train_epochs = gr.Slider(10, 500, value=100, step=10, label="Epochs")
+                                        train_learning_rate = gr.Number(value=1e-4, label="Learning Rate")
+                                        train_lora_rank = gr.Slider(4, 128, value=16, step=4, label="LoRA Rank", info="Higher = more capacity, more VRAM")
+                                        train_lora_alpha = gr.Slider(8, 128, value=32, step=8, label="LoRA Alpha")
+                                        train_resolution = gr.Dropdown(
+                                            choices=[512, 768],
+                                            value=512,
+                                            label="Training Resolution"
+                                        )
+                                        train_max_steps = gr.Number(
+                                            value=0,
+                                            label="Max Steps (0 = use epochs)",
+                                            info="Override epochs with fixed step count"
+                                        )
+                                
+                                gr.Markdown("---")
+                                
+                                with gr.Row():
+                                    start_training_btn = gr.Button("🚀 Start Training", variant="primary", size="lg", scale=2)
+                                    stop_training_btn = gr.Button("⏹ Stop Training", variant="stop", size="lg", scale=1)
+                                
+                                training_status = gr.Markdown("*Ready to train*")
+                                training_progress = gr.Slider(0, 100, value=0, label="Progress", interactive=False)
+                                training_details = gr.Markdown("")
+                            
+                            with gr.TabItem("📦 My LoRAs", id="my_loras_tab"):
+                                gr.Markdown("#### Your Trained LoRAs")
+                                
+                                with gr.Row():
+                                    with gr.Column(scale=1):
+                                        lora_manage_dropdown = gr.Dropdown(
+                                            choices=get_lora_choices(),
+                                            label="Select LoRA",
+                                            interactive=True
+                                        )
+                                        refresh_loras_btn = gr.Button("🔄 Refresh", size="sm")
+                                        delete_lora_btn = gr.Button("🗑️ Delete LoRA", variant="stop", size="sm")
+                                        lora_manage_status = gr.Markdown("")
+                                    
+                                    with gr.Column(scale=2):
+                                        lora_info_display = gr.Markdown("*Select a LoRA to see details*")
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("""
+**How to Use Your LoRAs:**
+
+1. Load a compatible base model in the Generate tab
+2. Include the **trigger word** in your prompt
+3. The LoRA will automatically modify the generation
+
+*Example:* If your trigger word is `twilek`, use prompts like:
+> "a twilek standing in a cantina, star wars, detailed"
+
+**Coming Soon:** LoRA strength slider for fine-tuning the effect.
+                                """)
         
         # Chat Events
         msg.submit(chat, [msg, chatbot_ui, model_dropdown, ai_char_dropdown, user_persona_dropdown], chatbot_ui).then(
@@ -1444,8 +3367,235 @@ def create_ui():
         delete_btn.click(delete_conversation, outputs=[chatbot_ui, status])
         
         refresh.click(get_status, outputs=status)
-        unload_btn.click(unload, model_dropdown, status)
+        unload_btn.click(unload, model_dropdown, status).then(
+            refresh_chat_dropdown, inputs=model_dropdown, outputs=model_dropdown
+        )
         cancel_btn.click(cancel_download, outputs=status).then(get_status, outputs=status)
+        
+        # Chat model refresh button
+        refresh_models_btn.click(lambda: gr.update(choices=get_chat_model_choices()), outputs=model_dropdown)
+        
+        # Image Generation Events - outputs include sliders for auto-preset and generate button state
+        img_model_outputs = [img_model_info, load_img_model_btn, unload_img_model_btn, img_steps, img_guidance, img_width, img_height, img_negative, generate_img_btn]
+        img_model_dropdown.change(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs)
+        load_img_model_btn.click(load_image_model, inputs=img_model_dropdown, outputs=img_status).then(
+            refresh_image_dropdown, inputs=img_model_dropdown, outputs=img_model_dropdown
+        ).then(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs)
+        unload_img_model_btn.click(unload_image_model, inputs=img_model_dropdown, outputs=img_status).then(
+            refresh_image_dropdown, inputs=img_model_dropdown, outputs=img_model_dropdown
+        ).then(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs)
+        
+        # Image model refresh button
+        refresh_img_models_btn.click(lambda: gr.update(choices=get_image_model_choices()), outputs=img_model_dropdown)
+        
+        # LoRA refresh button
+        refresh_lora_btn.click(lambda: gr.update(choices=["None"] + get_lora_choices()), outputs=lora_dropdown)
+
+        # Live token counter for prompt
+        img_prompt.change(update_token_counter, inputs=img_prompt, outputs=img_token_count)
+
+        # Prompt enhancement buttons (auto-detect style from prompt)
+        quick_enhance_btn.click(
+            quick_enhance_prompt,
+            inputs=[img_prompt],
+            outputs=[img_prompt, img_status]
+        ).then(update_token_counter, inputs=img_prompt, outputs=img_token_count)
+        
+        ai_enhance_btn.click(
+            ai_enhance_prompt,
+            inputs=[img_prompt],
+            outputs=[img_prompt, img_status]
+        ).then(update_token_counter, inputs=img_prompt, outputs=img_token_count)
+
+        # Save to library button - switches to library tab
+        save_to_library_btn.click(
+            lambda: gr.Tabs(selected="prompt_library_tab"),
+            outputs=img_tabs
+        )
+
+        # Generate with button state management
+        generate_img_btn.click(
+            set_generating_state,
+            outputs=[generate_img_btn, stop_img_btn]
+        ).then(
+            generate_image,
+            inputs=[img_prompt, img_negative, img_steps, img_guidance, img_width, img_height, img_seed, lora_dropdown, lora_strength],
+            outputs=[img_output, img_status]
+        ).then(
+            clear_generating_state,
+            outputs=[generate_img_btn, stop_img_btn]
+        )
+        stop_img_btn.click(stop_image_generation, outputs=img_status)
+
+        # Gallery events
+        refresh_gallery_btn.click(refresh_gallery, outputs=[img_gallery, img_checklist, gallery_status])
+        select_all_btn.click(select_all_images, outputs=[img_checklist, gallery_status])
+        clear_selection_btn.click(clear_image_selection, outputs=[img_checklist, gallery_status])
+        delete_selected_btn.click(
+            delete_selected_images, 
+            inputs=img_checklist, 
+            outputs=[img_gallery, img_checklist, gallery_status]
+        )
+        download_selected_btn.click(
+            download_selected_images, 
+            inputs=img_checklist, 
+            outputs=[img_download_file, gallery_status]
+        )
+        
+        # Gallery image selection - show metadata
+        img_gallery.select(on_gallery_select, outputs=[img_metadata_display, load_prompt_from_image_btn])
+        
+        # Load prompt from selected image
+        load_prompt_from_image_btn.click(
+            load_prompt_from_gallery_image,
+            outputs=[img_prompt, img_negative, img_steps, img_guidance, img_width, img_height, img_status]
+        )
+        
+        # Prompt Library events
+        save_prompt_btn.click(
+            save_current_prompt,
+            inputs=[prompt_save_name, img_prompt, img_negative, img_steps, img_guidance, img_width, img_height],
+            outputs=[prompt_library_dropdown, prompt_library_status]
+        )
+        
+        load_library_prompt_btn.click(
+            load_prompt_from_library,
+            inputs=prompt_library_dropdown,
+            outputs=[img_prompt, img_negative, img_steps, img_guidance, img_width, img_height, prompt_save_name, prompt_library_status]
+        )
+        
+        delete_library_prompt_btn.click(
+            delete_prompt_from_library,
+            inputs=prompt_library_dropdown,
+            outputs=[prompt_library_dropdown, prompt_library_status]
+        )
+        
+        refresh_library_btn.click(
+            lambda: gr.update(choices=get_prompt_library_choices()),
+            outputs=prompt_library_dropdown
+        )
+        
+        prompt_library_dropdown.change(
+            format_prompt_preview,
+            inputs=prompt_library_dropdown,
+            outputs=prompt_preview_display
+        )
+        
+        # ==================== LoRA Training Events ====================
+        
+        # Dataset management
+        create_dataset_btn.click(
+            create_new_dataset,
+            inputs=new_dataset_name,
+            outputs=[dataset_status, dataset_dropdown]
+        ).then(
+            lambda: gr.update(choices=get_lora_dataset_choices()),
+            outputs=train_dataset_dropdown
+        )
+        
+        delete_dataset_btn.click(
+            delete_dataset,
+            inputs=dataset_dropdown,
+            outputs=[dataset_status, dataset_dropdown, dataset_gallery]
+        ).then(
+            lambda: gr.update(choices=get_lora_dataset_choices()),
+            outputs=train_dataset_dropdown
+        )
+        
+        # Image upload
+        upload_images_btn.click(
+            upload_training_images,
+            inputs=[training_image_upload, dataset_dropdown, crop_size, crop_mode, auto_caption_checkbox],
+            outputs=[dataset_status, dataset_gallery]
+        )
+        
+        # Load dataset images when selected
+        dataset_dropdown.change(
+            load_dataset_images,
+            inputs=dataset_dropdown,
+            outputs=dataset_gallery
+        )
+        
+        # Gallery image selection for caption editing
+        dataset_gallery.select(
+            get_image_caption,
+            inputs=dataset_dropdown,
+            outputs=[image_caption_edit, selected_image_name]
+        )
+        
+        # Save caption
+        save_caption_btn.click(
+            update_image_caption,
+            inputs=[dataset_dropdown, selected_image_name, image_caption_edit],
+            outputs=caption_status
+        ).then(
+            load_dataset_images,
+            inputs=dataset_dropdown,
+            outputs=dataset_gallery
+        )
+        
+        # Delete image
+        delete_image_btn.click(
+            delete_dataset_image,
+            inputs=[dataset_dropdown, selected_image_name],
+            outputs=[caption_status, dataset_gallery]
+        )
+        
+        # Auto-caption all images
+        suggest_captions_btn.click(
+            suggest_captions_for_dataset,
+            inputs=dataset_dropdown,
+            outputs=[dataset_status, dataset_gallery]
+        )
+        
+        # Refresh dataset gallery
+        refresh_dataset_btn.click(
+            load_dataset_images,
+            inputs=dataset_dropdown,
+            outputs=dataset_gallery
+        )
+        
+        # Auto-fill when selecting LoRA to continue
+        train_resume_from.change(
+            on_resume_lora_selected,
+            inputs=train_resume_from,
+            outputs=[train_output_name, train_trigger_word, train_description]
+        )
+        
+        # Training controls
+        start_training_btn.click(
+            start_lora_training,
+            inputs=[
+                train_dataset_dropdown, train_output_name, train_resume_from, train_base_model,
+                train_trigger_word, train_description, train_epochs,
+                train_learning_rate, train_lora_rank, train_lora_alpha,
+                train_resolution, train_max_steps
+            ],
+            outputs=[training_status, training_details]
+        )
+        
+        stop_training_btn.click(
+            stop_training,
+            outputs=[training_status, training_progress, training_details]
+        )
+        
+        # LoRA management (My LoRAs tab)
+        lora_manage_dropdown.change(
+            get_lora_info,
+            inputs=lora_manage_dropdown,
+            outputs=lora_info_display
+        )
+        
+        refresh_loras_btn.click(
+            lambda: gr.update(choices=get_lora_choices()),
+            outputs=lora_manage_dropdown
+        )
+        
+        delete_lora_btn.click(
+            delete_lora,
+            inputs=lora_manage_dropdown,
+            outputs=[lora_manage_status, lora_manage_dropdown]
+        )
         
         # Define helper functions for character/persona management
         def refresh_char_selector():
@@ -1610,45 +3760,45 @@ def main():
     """Main."""
     global gen_config, cache_dir, db
     
-    print("=" * 60)
-    print("KVGenius Multi-Model Chat")
-    print("=" * 60)
+    print("=" * 60, flush=True)
+    print("KVGenius Multi-Model Chat", flush=True)
+    print("=" * 60, flush=True)
     
     load_environment()
     config = load_config()
     setup_logging(config.get('app', {}).get('log_level', 'INFO'))
     
     gen_config = config.get('generation', {})
-    cache_dir = config.get('model', {}).get('cache_dir', './model_cache')
+    cache_dir = config.get('model', {}).get('cache_dir', './data/model_cache')
     
     # Initialize database
-    db = ChatHistoryDB()
+    db = ChatHistoryDB(db_path="./data/chat_history.db")
     db.init_defaults()
     
-    print(f"\n✓ Config loaded")
-    print(f"✓ Cache: {cache_dir}")
-    print(f"✓ Database: chat_history.db")
+    print(f"\n✓ Config loaded", flush=True)
+    print(f"✓ Cache: {cache_dir}", flush=True)
+    print(f"✓ Database: data/chat_history.db", flush=True)
     
     if torch.cuda.is_available():
-        print(f"✓ GPU: {torch.cuda.get_device_name(0)}")
-        print(f"✓ PyTorch: {torch.__version__}")
+        print(f"✓ GPU: {torch.cuda.get_device_name(0)}", flush=True)
+        print(f"✓ PyTorch: {torch.__version__}", flush=True)
     
-    # Pre-load your most-used model to avoid loading delay on first chat
-    default_model = "Nous-Hermes-2-Mistral-7B"  # Best for roleplay
-    print(f"\n⏳ Pre-loading {default_model}...")
-    try:
-        load_model(default_model)
-        print(f"✓ {default_model} loaded and ready")
-    except Exception as e:
-        print(f"⚠ Could not pre-load model: {e}")
-        print("  (Will load on first use instead)")
+    # Skip pre-loading to save startup time (models load on first use)
+    # default_model = "Nous-Hermes-2-Mistral-7B"
+    # print(f"\n⏳ Pre-loading {default_model}...")
+    # try:
+    #     load_model(default_model)
+    #     print(f"✓ {default_model} loaded and ready")
+    # except Exception as e:
+    #     print(f"⚠ Could not pre-load model: {e}")
+    #     print("  (Will load on first use instead)")
     
     demo = create_ui()
     
-    print("\n" + "=" * 60)
-    print("✓ Starting server on http://127.0.0.1:7860")
-    print("=" * 60)
-    print("\nPress Ctrl+C to stop\n")
+    print("\n" + "=" * 60, flush=True)
+    print("✓ Starting server on http://127.0.0.1:7860", flush=True)
+    print("=" * 60, flush=True)
+    print("\nPress Ctrl+C to stop\n", flush=True)
     
     demo.launch(
         share=False,

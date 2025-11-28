@@ -83,6 +83,24 @@ class ChatHistoryDB:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_time ON messages(timestamp)")
         
+        # Prompt Library table for saved image generation prompts
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prompt_library (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                prompt TEXT NOT NULL,
+                negative_prompt TEXT,
+                steps INTEGER DEFAULT 25,
+                guidance_scale REAL DEFAULT 7.5,
+                width INTEGER DEFAULT 512,
+                height INTEGER DEFAULT 768,
+                model TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prompt_name ON prompt_library(name)")
+        
         conn.commit()
         conn.close()
         logger.info(f"Database initialized at {self.db_path}")
@@ -515,3 +533,125 @@ class ChatHistoryDB:
                 avatar="🕵️"
             )
             logger.info("Initialized default user personas")
+
+    # ==================== Prompt Library Methods ====================
+    
+    def save_prompt(self, name: str, prompt: str, negative_prompt: str = "", 
+                    steps: int = 25, guidance_scale: float = 7.5,
+                    width: int = 512, height: int = 768, model: str = None) -> int:
+        """Save a prompt to the library."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO prompt_library (name, prompt, negative_prompt, steps, guidance_scale, width, height, model)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (name, prompt, negative_prompt, steps, guidance_scale, width, height, model))
+            
+            prompt_id = cursor.lastrowid
+            conn.commit()
+            logger.info(f"Saved prompt '{name}' with id {prompt_id}")
+            return prompt_id
+        except sqlite3.IntegrityError:
+            # Name already exists, update instead
+            cursor.execute("""
+                UPDATE prompt_library 
+                SET prompt = ?, negative_prompt = ?, steps = ?, guidance_scale = ?, 
+                    width = ?, height = ?, model = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE name = ?
+            """, (prompt, negative_prompt, steps, guidance_scale, width, height, model, name))
+            conn.commit()
+            logger.info(f"Updated existing prompt '{name}'")
+            return self.get_prompt_by_name(name)['id']
+        finally:
+            conn.close()
+    
+    def get_all_prompts(self) -> List[Dict]:
+        """Get all saved prompts."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT * FROM prompt_library ORDER BY updated_at DESC
+        """)
+        
+        prompts = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return prompts
+    
+    def get_prompt_by_id(self, prompt_id: int) -> Optional[Dict]:
+        """Get a prompt by ID."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM prompt_library WHERE id = ?", (prompt_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        return dict(row) if row else None
+    
+    def get_prompt_by_name(self, name: str) -> Optional[Dict]:
+        """Get a prompt by name."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM prompt_library WHERE name = ?", (name,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        return dict(row) if row else None
+    
+    def update_prompt(self, prompt_id: int, **kwargs) -> bool:
+        """Update a prompt's fields."""
+        if not kwargs:
+            return False
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Build update query dynamically
+        allowed_fields = ['name', 'prompt', 'negative_prompt', 'steps', 'guidance_scale', 'width', 'height', 'model']
+        updates = []
+        values = []
+        for field, value in kwargs.items():
+            if field in allowed_fields:
+                updates.append(f"{field} = ?")
+                values.append(value)
+        
+        if not updates:
+            conn.close()
+            return False
+        
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        values.append(prompt_id)
+        
+        try:
+            cursor.execute(f"""
+                UPDATE prompt_library SET {', '.join(updates)} WHERE id = ?
+            """, values)
+            conn.commit()
+            success = cursor.rowcount > 0
+            logger.info(f"Updated prompt {prompt_id}: {success}")
+            return success
+        except Exception as e:
+            logger.error(f"Error updating prompt {prompt_id}: {e}")
+            return False
+        finally:
+            conn.close()
+    
+    def delete_prompt(self, prompt_id: int) -> bool:
+        """Delete a prompt from the library."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM prompt_library WHERE id = ?", (prompt_id,))
+        conn.commit()
+        success = cursor.rowcount > 0
+        conn.close()
+        
+        logger.info(f"Deleted prompt {prompt_id}: {success}")
+        return success

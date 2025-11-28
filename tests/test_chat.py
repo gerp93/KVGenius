@@ -1,4 +1,8 @@
 """Test the chatbot with updated generation parameters."""
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import fix_dll_paths
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -7,7 +11,7 @@ from src.chat import ChatBot
 print("Loading model...")
 model = AutoModelForCausalLM.from_pretrained(
     'deepseek-ai/deepseek-coder-6.7b-instruct',
-    cache_dir='./model_cache',
+    cache_dir='./data/model_cache',
     torch_dtype=torch.float16,
     device_map='auto',
     trust_remote_code=True
@@ -15,7 +19,7 @@ model = AutoModelForCausalLM.from_pretrained(
 
 tokenizer = AutoTokenizer.from_pretrained(
     'deepseek-ai/deepseek-coder-6.7b-instruct',
-    cache_dir='./model_cache',
+    cache_dir='./data/model_cache',
     trust_remote_code=True
 )
 

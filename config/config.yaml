@@ -7,7 +7,7 @@ model:
   # "deepseek-ai/deepseek-llm-7b-chat" - General chat (7B)
   # "microsoft/DialoGPT-medium" - Smaller conversational (355M)
   # "meta-llama/Llama-2-7b-chat-hf" - Llama2 7B (requires HF token)
-  cache_dir: "./model_cache"
+  cache_dir: "./data/model_cache"
   device: "auto"  # auto = use GPU if available (RTX 5070 Ti with sm_120 support!)
   token: null  # Hugging Face token (optional). Set via env var HUGGINGFACE_TOKEN or here
   
