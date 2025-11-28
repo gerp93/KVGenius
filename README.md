@@ -1,250 +1,229 @@
-# AI Chatbot with Hugging Face 🤖
+# KVGenius - AI Studio 🎨🤖
 
-A Python-based AI chatbot application using Hugging Face transformers models for conversational AI. This project provides both CLI and web interfaces for interacting with various language models.
+A comprehensive AI creative studio combining chat, image generation, and LoRA training. Built for NVIDIA RTX 5070 Ti with custom PyTorch sm_120 (Blackwell) support.
 
 ## Features
 
-- 🚀 Support for multiple Hugging Face models (GPT-2, DialoGPT, BLOOM, etc.)
-- 💬 Conversation history management
-- 🖥️ Command-line interface (CLI)
-- 🌐 Web interface using Gradio
-- ⚙️ Configurable generation parameters
-- 📝 Conversation history saving
-- 🔧 Easy model switching via configuration
+- 🤖 **Multi-Model Chat** - Switch between multiple LLMs (Mistral, DeepSeek, Dolphin, etc.)
+- 🎨 **Image Generation** - Stable Diffusion with multiple models (Dreamshaper, SDXL Turbo, Realistic Vision)
+- 🎯 **LoRA Training** - Train custom LoRAs for specific subjects/styles
+- ✨ **Prompt Enhancement** - AI-powered prompt improvement (Flan-T5 on CPU)
+- 💾 **Prompt Library** - Save and reuse your best prompts
+- 📝 **Chat History** - SQLite-backed conversation persistence
+- 🎭 **AI Characters & Personas** - Create custom chat personalities
 
 ## Project Structure
 
 ```
 KVGenius/
+├── data/                    # User data (gitignored)
+│   ├── model_cache/         # Downloaded models
+│   ├── lora_models/         # Trained LoRAs
+│   ├── training_datasets/   # Training images
+│   ├── generated_images/    # Output images
+│   └── chat_history.db      # Chat database
+│
 ├── src/
-│   ├── models/          # Model loading and management
-│   │   ├── __init__.py
-│   │   └── model_loader.py
-│   ├── chat/            # Chat interface logic
-│   │   ├── __init__.py
-│   │   └── chatbot.py
-│   └── utils/           # Utility functions
-│       ├── __init__.py
-│       └── config_helper.py
+│   ├── chat/                # Chat logic
+│   ├── database/            # SQLite management
+│   ├── image/               # Image generation module
+│   │   ├── generator.py     # SD pipeline wrapper
+│   │   ├── enhancer.py      # Prompt enhancement
+│   │   └── presets.py       # Model presets
+│   ├── models/              # Model loading
+│   ├── training/            # LoRA training
+│   │   └── lora_trainer.py  # Full training pipeline
+│   └── utils/               # Utilities
+│
+├── scripts/                 # Utility scripts
+│   ├── download_model.py
+│   ├── download_image_models.py
+│   ├── download_civitai_lora.py
+│   ├── convert_images_to_png.py
+│   └── build_pytorch_sm120.bat
+│
 ├── config/
-│   └── config.yaml      # Configuration file
-├── examples/
-│   ├── simple_chat.py   # Simple usage example
-│   └── test_models.py   # Model testing script
-├── cli_app.py           # Command-line interface
-├── web_app.py           # Web interface
-├── requirements.txt     # Python dependencies
-├── .env.example         # Environment variables template
-└── README.md
+│   ├── config.yaml          # Main configuration
+│   └── image_model_presets.yaml  # Image model settings
+│
+├── web_app_multi.py         # Main Gradio web app
+├── cli_app.py               # CLI interface
+├── fix_dll_paths.py         # CUDA DLL path fix (required)
+├── run_kvgenius.bat         # Windows launcher
+└── requirements.txt
 ```
+
+## Requirements
+
+### Hardware
+- **GPU:** NVIDIA RTX 5070 Ti (16 GB VRAM) or similar
+- **CUDA:** 13.0+ for Blackwell/sm_120 support
+- **RAM:** 32 GB recommended
+
+### Software
+- Python 3.10+
+- Miniconda/Anaconda
+- Custom PyTorch 2.10+ with sm_120 support (see setup)
 
 ## Installation
 
-### Prerequisites
+### 1. Clone the repository
+```powershell
+git clone https://github.com/gerp93/KVGenius.git
+cd KVGenius
+```
 
-- Python 3.8 or higher
-- pip package manager
+### 2. Create conda environment
+```powershell
+conda create -n kvgen python=3.10
+conda activate kvgen
+```
 
-### Setup Steps
+### 3. Install PyTorch with sm_120 support
+For RTX 5070 Ti / Blackwell GPUs, you need custom-built PyTorch:
+```powershell
+# See scripts/build_pytorch_sm120.bat for source build instructions
+# Or install pre-built wheels if available
+```
 
-1. **Clone or navigate to the repository:**
-   ```powershell
-   cd c:\Users\kgerp\source\repos\KVGenius
-   ```
+### 4. Install dependencies
+```powershell
+pip install -r requirements.txt
+```
 
-2. **Create a virtual environment (recommended):**
-   ```powershell
-   python -m venv venv
-   .\venv\Scripts\Activate.ps1
-   ```
-
-3. **Install dependencies:**
-   ```powershell
-   pip install -r requirements.txt
-   ```
-
-4. **Configure environment (optional):**
-   ```powershell
-   copy .env.example .env
-   # Edit .env file with your settings
-   ```
+### 5. Configure (optional)
+```powershell
+copy .env.example .env
+# Edit config/config.yaml as needed
+```
 
 ## Usage
 
-### Command-Line Interface (CLI)
-
-Run the CLI application:
+### Web Interface (Recommended)
 ```powershell
+# Option 1: Use the launcher
+.\run_kvgenius.bat
+
+# Option 2: Direct Python
+conda activate kvgen
+python -u web_app_multi.py
+```
+Opens at **http://127.0.0.1:7860**
+
+### CLI Interface
+```powershell
+conda activate kvgen
 python cli_app.py
 ```
 
-Available commands:
-- Type your message to chat
-- `reset` - Clear conversation history
-- `help` - Show available commands
-- `quit` or `exit` - End the conversation
+## Tabs Overview
 
-### Web Interface
+### 💬 Chat Tab
+- Multi-model support with hot-swapping
+- AI Characters with custom system prompts
+- User Personas for roleplay
+- Conversation history with branching
 
-Launch the web interface:
+### 🎨 Image Generation Tab
+- Multiple SD models with auto-presets
+- LoRA support with adjustable strength
+- Prompt enhancement (Quick templates or AI-powered)
+- Live CLIP token counter (77 token limit)
+- Gallery with metadata viewing
+
+### 🎯 LoRA Training Tab
+- **Dataset sub-tab:** Upload and caption training images
+- **Train sub-tab:** Configure and run training
+- **My LoRAs sub-tab:** Manage trained LoRAs
+- Multiple crop modes (resize_pad, smart, center, top, stretch)
+- Resume training from existing LoRAs
+
+### 📚 Prompt Library Tab
+- Save generation settings for reuse
+- Organize prompts by category
+
+## Utility Scripts
+
 ```powershell
-python web_app.py
-```
+# Download specific model
+python scripts/download_model.py
 
-The interface will open in your browser at `http://127.0.0.1:7860`
+# Download all image generation models
+python scripts/download_image_models.py
 
-### Examples
+# Download LoRA from CivitAI
+python scripts/download_civitai_lora.py <url>
 
-Run the simple example:
-```powershell
-python examples\simple_chat.py
-```
+# Convert training images to PNG
+python scripts/convert_images_to_png.py [folder]
 
-Test different models:
-```powershell
-python examples\test_models.py
+# Inspect model architecture
+python scripts/inspect_model.py
 ```
 
 ## Configuration
 
-Edit `config/config.yaml` to customize:
-
-### Model Settings
+### config/config.yaml
 ```yaml
 model:
-  name: "microsoft/DialoGPT-medium"  # Change model here
-  cache_dir: "./model_cache"
-  device: "auto"  # auto, cpu, or cuda
-```
+  cache_dir: "./data/model_cache"
+  device: "auto"
 
-### Generation Parameters
-```yaml
 generation:
-  max_length: 1000
-  temperature: 0.7      # Higher = more random
-  top_k: 50
-  top_p: 0.9
-  repetition_penalty: 1.2
+  max_length: 150
+  temperature: 0.7
+  top_p: 0.95
 ```
 
-### Chat Settings
-```yaml
-chat:
-  max_history: 5  # Number of conversation turns to remember
-  system_prompt: "You are a helpful AI assistant."
-```
+### config/image_model_presets.yaml
+Per-model defaults for steps, guidance, resolution, etc.
 
 ## Supported Models
 
-Some popular models you can use:
+### Chat Models
+| Model | Size | Best For |
+|-------|------|----------|
+| Nous-Hermes-2-Mistral-7B | 7B | Roleplay, instructions |
+| Dolphin-2.6-Mistral-7B | 7B | Uncensored chat |
+| DeepSeek Coder 6.7B | 6.7B | Code generation |
+| Kunoichi-DPO-v2-7B | 7B | Creative writing |
+| DialoGPT Medium | 355M | Fast, lightweight |
 
-- **DialoGPT** (Conversational):
-  - `microsoft/DialoGPT-small`
-  - `microsoft/DialoGPT-medium`
-  - `microsoft/DialoGPT-large`
-
-- **GPT-2** (General text):
-  - `gpt2`
-  - `gpt2-medium`
-  - `gpt2-large`
-
-- **BLOOM** (Multilingual):
-  - `bigscience/bloom-560m`
-  - `bigscience/bloom-1b1`
-
-- **BlenderBot** (Conversational):
-  - `facebook/blenderbot-400M-distill`
-
-To use a different model, update the `model.name` in `config/config.yaml`.
-
-## Environment Variables
-
-Create a `.env` file from `.env.example`:
-
-```env
-# Hugging Face API Token (optional, for private models)
-HUGGINGFACE_TOKEN=your_token_here
-
-# Model Configuration
-DEFAULT_MODEL=microsoft/DialoGPT-medium
-MAX_LENGTH=1000
-TEMPERATURE=0.7
-
-# Application Settings
-DEBUG=False
-LOG_LEVEL=INFO
-```
-
-## Development
-
-### Running Tests
-
-```powershell
-pytest tests/
-```
-
-### Code Formatting
-
-```powershell
-black src/
-```
-
-### Linting
-
-```powershell
-flake8 src/
-```
+### Image Models
+| Model | VRAM | Speed |
+|-------|------|-------|
+| Dreamshaper 8 | ~4 GB | Medium |
+| Realistic Vision V5 | ~4 GB | Medium |
+| SDXL Turbo | ~7 GB | Fast (1-8 steps) |
+| Absolute Reality | ~4 GB | Medium |
 
 ## Troubleshooting
 
-### CUDA/GPU Issues
-If you encounter GPU-related errors:
-- Set `device: "cpu"` in `config/config.yaml`
-- Or ensure PyTorch with CUDA support is installed
+### "WinError 126" DLL errors
+Ensure `fix_dll_paths.py` is imported before torch in all scripts.
 
-### Model Download Issues
-- Models are cached in `./model_cache` by default
-- First run may take time to download models
-- Ensure stable internet connection
+### CUDA/sm_120 not supported
+You need custom-built PyTorch. See `scripts/build_pytorch_sm120.bat`.
 
-### Memory Issues
-- Use smaller models (e.g., `DialoGPT-small` or `gpt2`)
-- Reduce `max_length` in configuration
-- Use CPU instead of GPU for smaller memory footprint
+### Out of VRAM
+- Unload unused models (auto-unload is enabled)
+- Use smaller models
+- Reduce image resolution
 
-## Requirements
-
-Key dependencies:
-- `transformers` - Hugging Face transformers library
-- `torch` - PyTorch for model inference
-- `gradio` - Web interface framework
-- `pyyaml` - Configuration file parsing
-- `python-dotenv` - Environment variable management
-
-See `requirements.txt` for complete list.
+### Black images from SD
+Safety checker is disabled by default. If still getting black images, try different seeds or reduce guidance scale.
 
 ## License
 
-This project is open source and available for educational purposes.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues.
+Open source for educational purposes.
 
 ## Acknowledgments
 
-- Built with [Hugging Face Transformers](https://huggingface.co/transformers/)
-- Web interface powered by [Gradio](https://gradio.app/)
-- Uses pre-trained models from [Hugging Face Model Hub](https://huggingface.co/models)
-
-## Support
-
-For issues or questions:
-1. Check the troubleshooting section
-2. Review configuration settings
-3. Consult Hugging Face documentation
-4. Open an issue in the repository
+- [Hugging Face Transformers](https://huggingface.co/)
+- [Diffusers](https://github.com/huggingface/diffusers)
+- [Gradio](https://gradio.app/)
+- [PEFT](https://github.com/huggingface/peft) for LoRA training
 
 ---
 
-**Happy Chatting! 🎉**
+**Built for RTX 5070 Ti with ❤️**
