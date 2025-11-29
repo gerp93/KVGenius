@@ -1,0 +1,52 @@
+# LoRA Presets Configuration
+# Organized by use case: image generation, text models, CAH generation
+# Each LoRA has metadata for auto-filtering based on loaded model
+
+# Image generation LoRAs (Stable Diffusion)
+image_loras:
+  # Example format - auto-populated from lora_metadata.json files
+  # Realspice:
+  #   path: "data/lora_models/Realspice"
+  #   trigger_words: ["Realspice"]
+  #   base_model: "sdxl"  # sd15, sdxl
+  #   compatible_models: []  # Empty = works with all models of base_model type
+  #   default_weight: 0.8
+  #   category: "style"
+  #   description: "Realistic spice-inspired style"
+
+# Text model LoRAs (Chat/Roleplay)
+text_loras:
+  # Example:
+  # roleplay_enhancer:
+  #   path: "data/lora_models/text/roleplay"
+  #   base_model: "mistral"  # mistral, llama, etc.
+  #   compatible_models: ["Nous-Hermes-2-Mistral-7B", "Dolphin-2.6-Mistral-7B"]
+  #   category: "persona"
+  #   description: "Enhances roleplay capabilities"
+
+# CAH generation LoRAs (specialized for card themes)
+cah_loras:
+  # Example:
+  # dark_humor:
+  #   path: "data/lora_models/cah/dark"
+  #   base_model: "llama"
+  #   compatible_models: ["Dolphin-2.9-Llama3-8B"]
+  #   category: "theme"
+  #   description: "Dark humor style for CAH cards"
+
+# Settings
+settings:
+  # Auto-scan lora_models directory on startup
+  auto_scan: true
+  
+  # Default directories to scan
+  scan_paths:
+    image: "data/lora_models"
+    text: "data/lora_models/text"
+    cah: "data/lora_models/cah"
+  
+  # Default LoRA weight for each type
+  default_weights:
+    image: 0.8
+    text: 1.0
+    cah: 1.0

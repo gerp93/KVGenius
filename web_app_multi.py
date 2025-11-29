@@ -204,6 +204,7 @@ def load_image_model_presets():
     """Load image model presets from config file.
     
     If user config doesn't exist, copies from example template.
+    Returns both HuggingFace models and local checkpoints.
     """
     config_dir = os.path.join(os.path.dirname(__file__), "config")
     presets_path = os.path.join(config_dir, "image_model_presets.yaml")
@@ -218,14 +219,17 @@ def load_image_model_presets():
     try:
         with open(presets_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
-            return config.get('models', {}), config.get('prompt_templates', {})
+            models = config.get('models', {})
+            checkpoints = config.get('checkpoints', {})
+            prompt_templates = config.get('prompt_templates', {})
+            return models, checkpoints, prompt_templates
     except Exception as e:
         logger.warning(f"Could not load image model presets: {e}")
-        return {}, {}
+        return {}, {}, {}
 
 
 # Load image model presets from config
-IMAGE_MODEL_PRESETS, PROMPT_TEMPLATES = load_image_model_presets()
+IMAGE_MODEL_PRESETS, CHECKPOINT_PRESETS, PROMPT_TEMPLATES = load_image_model_presets()
 
 # Build AVAILABLE_IMAGE_MODELS from presets (with fallback defaults)
 AVAILABLE_IMAGE_MODELS = {}
@@ -241,8 +245,60 @@ for model_key, preset in IMAGE_MODEL_PRESETS.items():
         "step_range": preset.get("step_range", [1, 50]),
         "guidance_range": preset.get("guidance_range", [0.0, 20.0]),
         "default_negative": preset.get("default_negative", ""),
-        "tips": preset.get("tips", "")
+        "tips": preset.get("tips", ""),
+        "is_checkpoint": False,
     }
+
+# Add local checkpoints to available models
+checkpoints_dir = os.path.join(os.path.dirname(__file__), "data", "checkpoints")
+if CHECKPOINT_PRESETS:
+    for model_key, preset in CHECKPOINT_PRESETS.items():
+        checkpoint_path = preset.get("path", "")
+        full_path = os.path.join(checkpoints_dir, checkpoint_path)
+        if os.path.exists(full_path):
+            AVAILABLE_IMAGE_MODELS[f"📁 {model_key}"] = {
+                "id": full_path,  # Full path for checkpoint loading
+                "description": preset.get("description", "Local checkpoint"),
+                "vram": preset.get("vram", "~4 GB"),
+                "default_steps": preset.get("default_steps", 25),
+                "default_guidance": preset.get("default_guidance", 7.0),
+                "default_width": preset.get("default_width", 512),
+                "default_height": preset.get("default_height", 768),
+                "step_range": preset.get("step_range", [15, 50]),
+                "guidance_range": preset.get("guidance_range", [5.0, 12.0]),
+                "default_negative": preset.get("default_negative", ""),
+                "tips": preset.get("tips", ""),
+                "is_checkpoint": True,
+                "checkpoint_type": preset.get("type", "sd15"),
+            }
+            logger.info(f"Added checkpoint: {model_key} from {checkpoint_path}")
+
+# Also auto-discover checkpoints not in config
+if os.path.exists(checkpoints_dir):
+    for filename in os.listdir(checkpoints_dir):
+        if filename.endswith(('.safetensors', '.ckpt')) and not filename.startswith('.'):
+            model_name = os.path.splitext(filename)[0]
+            display_name = f"📁 {model_name}"
+            if display_name not in AVAILABLE_IMAGE_MODELS:
+                full_path = os.path.join(checkpoints_dir, filename)
+                file_size_gb = os.path.getsize(full_path) / (1024**3)
+                is_sdxl = file_size_gb > 4.0 or "xl" in filename.lower() or "sdxl" in filename.lower()
+                AVAILABLE_IMAGE_MODELS[display_name] = {
+                    "id": full_path,
+                    "description": f"Local checkpoint ({file_size_gb:.1f}GB)",
+                    "vram": "~8 GB" if is_sdxl else "~4 GB",
+                    "default_steps": 25,
+                    "default_guidance": 7.0,
+                    "default_width": 1024 if is_sdxl else 512,
+                    "default_height": 1024 if is_sdxl else 768,
+                    "step_range": [15, 50],
+                    "guidance_range": [5.0, 12.0],
+                    "default_negative": "ugly, deformed, blurry, low quality",
+                    "tips": f"Auto-detected {'SDXL' if is_sdxl else 'SD 1.5'} checkpoint",
+                    "is_checkpoint": True,
+                    "checkpoint_type": "sdxl" if is_sdxl else "sd15",
+                }
+                logger.info(f"Auto-discovered checkpoint: {model_name} ({'SDXL' if is_sdxl else 'SD15'})")
 
 # Fallback if config file not found
 if not AVAILABLE_IMAGE_MODELS:
@@ -4594,6 +4650,207 @@ def create_ui():
                 ).then(
                     lambda: gr.update(choices=get_saved_cards_with_ids()),
                     outputs=delete_card_select
+                )
+            
+            # ==================== LORA MANAGER TAB ====================
+            with gr.TabItem("🎛️ LoRA Manager", id="lora_manager_tab"):
+                gr.Markdown("### 🎛️ LoRA Manager\n*Browse, manage, and configure LoRAs for image generation and text models.*")
+                
+                with gr.Row():
+                    lora_refresh_btn = gr.Button("🔄 Refresh LoRAs", size="sm")
+                    lora_scan_status = gr.Markdown("")
+                
+                with gr.Tabs() as lora_manager_tabs:
+                    # Image LoRAs Section
+                    with gr.TabItem("🎨 Image LoRAs", id="image_loras_tab"):
+                        gr.Markdown("#### Image Generation LoRAs\n*LoRAs for Stable Diffusion models (SD 1.5, SDXL)*")
+                        
+                        image_lora_list = gr.Dataframe(
+                            headers=["Name", "Base Model", "Trigger Words", "Category"],
+                            datatype=["str", "str", "str", "str"],
+                            label="Available Image LoRAs",
+                            interactive=False,
+                            wrap=True,
+                        )
+                        
+                        with gr.Row():
+                            with gr.Column(scale=2):
+                                gr.Markdown("**Selected LoRA Details**")
+                                selected_image_lora = gr.Dropdown(
+                                    label="Select LoRA to View/Edit",
+                                    choices=["None"],
+                                    value="None"
+                                )
+                                image_lora_details = gr.Markdown("*Select a LoRA to see details*")
+                            
+                            with gr.Column(scale=1):
+                                gr.Markdown("**Quick Actions**")
+                                image_lora_preview = gr.Image(
+                                    label="Preview",
+                                    height=150,
+                                    show_label=False,
+                                    visible=False
+                                )
+                        
+                        with gr.Accordion("📝 Edit Metadata", open=False):
+                            edit_image_lora_name = gr.Textbox(label="Name", interactive=True)
+                            edit_image_lora_triggers = gr.Textbox(label="Trigger Words (comma-separated)", interactive=True)
+                            edit_image_lora_base = gr.Dropdown(
+                                label="Base Model",
+                                choices=["sd15", "sdxl", "unknown"],
+                                interactive=True
+                            )
+                            edit_image_lora_category = gr.Textbox(label="Category", interactive=True)
+                            edit_image_lora_desc = gr.Textbox(label="Description", lines=2, interactive=True)
+                            save_image_lora_btn = gr.Button("💾 Save Changes", variant="primary", size="sm")
+                            edit_lora_status = gr.Markdown("")
+                    
+                    # Text Model LoRAs Section
+                    with gr.TabItem("💬 Text LoRAs", id="text_loras_tab"):
+                        gr.Markdown("#### Text Model LoRAs\n*LoRAs for chat and text generation models (Mistral, Llama, etc.)*")
+                        
+                        text_lora_list = gr.Dataframe(
+                            headers=["Name", "Base Model", "Category"],
+                            datatype=["str", "str", "str"],
+                            label="Available Text LoRAs",
+                            interactive=False,
+                        )
+                        
+                        gr.Markdown("*Text model LoRAs coming soon - place PEFT adapters in `data/lora_models/text/`*")
+                    
+                    # CAH LoRAs Section
+                    with gr.TabItem("🃏 CAH LoRAs", id="cah_loras_tab"):
+                        gr.Markdown("#### Card Generation LoRAs\n*Specialized LoRAs for CAH-style card generation*")
+                        
+                        cah_lora_list = gr.Dataframe(
+                            headers=["Name", "Base Model", "Theme"],
+                            datatype=["str", "str", "str"],
+                            label="Available CAH LoRAs",
+                            interactive=False,
+                        )
+                        
+                        gr.Markdown("*CAH LoRAs coming soon - train custom LoRAs for specific card themes*")
+                
+                # LoRA Manager Events
+                def refresh_lora_lists():
+                    """Refresh all LoRA lists from disk."""
+                    from src.models.lora_manager import get_lora_manager
+                    lm = get_lora_manager()
+                    lm.scan_all()
+                    
+                    # Build image LoRA data
+                    image_data = []
+                    image_choices = ["None"]
+                    for name, lora in sorted(lm.image_loras.items()):
+                        triggers = ", ".join(lora.trigger_words) if lora.trigger_words else ""
+                        image_data.append([name, lora.base_model.value.upper(), triggers, lora.category])
+                        image_choices.append(name)
+                    
+                    # Build text LoRA data
+                    text_data = []
+                    for name, lora in sorted(lm.text_loras.items()):
+                        text_data.append([name, lora.base_model.value.upper(), lora.category])
+                    
+                    # Build CAH LoRA data
+                    cah_data = []
+                    for name, lora in sorted(lm.cah_loras.items()):
+                        cah_data.append([name, lora.base_model.value.upper(), lora.category])
+                    
+                    status = f"✅ Found {len(lm.image_loras)} image, {len(lm.text_loras)} text, {len(lm.cah_loras)} CAH LoRAs"
+                    
+                    return (
+                        image_data if image_data else [["No LoRAs found", "-", "-", "-"]],
+                        gr.update(choices=image_choices),
+                        text_data if text_data else [["No LoRAs found", "-", "-"]],
+                        cah_data if cah_data else [["No LoRAs found", "-", "-"]],
+                        status
+                    )
+                
+                def get_image_lora_details(lora_name):
+                    """Get details for selected image LoRA."""
+                    if not lora_name or lora_name == "None":
+                        return "*Select a LoRA to see details*", "", "", "unknown", "", "", gr.update(visible=False)
+                    
+                    from src.models.lora_manager import get_lora_manager
+                    lm = get_lora_manager()
+                    lora = lm.get_lora_info(lora_name)
+                    
+                    if not lora:
+                        return f"*LoRA '{lora_name}' not found*", "", "", "unknown", "", "", gr.update(visible=False)
+                    
+                    details = f"""
+**Name:** {lora.name}
+**Path:** `{lora.path}`
+**Base Model:** {lora.base_model.value.upper()}
+**Trigger Words:** {', '.join(lora.trigger_words) if lora.trigger_words else 'None'}
+**Category:** {lora.category}
+**Rank:** {lora.rank}
+**Description:** {lora.description or 'No description'}
+"""
+                    
+                    # Check for preview image
+                    preview_visible = False
+                    if lora.preview_image and os.path.exists(lora.preview_image):
+                        preview_visible = True
+                    
+                    return (
+                        details,
+                        lora.name,
+                        ", ".join(lora.trigger_words),
+                        lora.base_model.value,
+                        lora.category,
+                        lora.description,
+                        gr.update(visible=preview_visible, value=lora.preview_image if preview_visible else None)
+                    )
+                
+                def save_image_lora_metadata(lora_name, new_name, triggers, base_model, category, description):
+                    """Save updated LoRA metadata."""
+                    if not lora_name or lora_name == "None":
+                        return "❌ Select a LoRA first"
+                    
+                    from src.models.lora_manager import get_lora_manager, LoRABaseModel
+                    lm = get_lora_manager()
+                    
+                    trigger_list = [t.strip() for t in triggers.split(",") if t.strip()]
+                    
+                    success = lm.update_lora_metadata(lora_name, {
+                        "name": new_name,
+                        "trigger_words": trigger_list,
+                        "base_model": LoRABaseModel(base_model),
+                        "category": category,
+                        "description": description,
+                    })
+                    
+                    if success:
+                        return f"✅ Saved metadata for {new_name}"
+                    else:
+                        return f"❌ Failed to save metadata"
+                
+                # Wire up events
+                lora_refresh_btn.click(
+                    refresh_lora_lists,
+                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cah_lora_list, lora_scan_status]
+                )
+                
+                selected_image_lora.change(
+                    get_image_lora_details,
+                    inputs=selected_image_lora,
+                    outputs=[image_lora_details, edit_image_lora_name, edit_image_lora_triggers, edit_image_lora_base, edit_image_lora_category, edit_image_lora_desc, image_lora_preview]
+                )
+                
+                save_image_lora_btn.click(
+                    save_image_lora_metadata,
+                    inputs=[selected_image_lora, edit_image_lora_name, edit_image_lora_triggers, edit_image_lora_base, edit_image_lora_category, edit_image_lora_desc],
+                    outputs=edit_lora_status
+                ).then(
+                    refresh_lora_lists,
+                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cah_lora_list, lora_scan_status]
+                )
+                
+                # Auto-refresh on tab load
+                demo.load(
+                    refresh_lora_lists,
+                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cah_lora_list, lora_scan_status]
                 )
         
         # Chat Events

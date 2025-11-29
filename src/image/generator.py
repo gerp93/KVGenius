@@ -160,19 +160,96 @@ class ImageGenerator:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     
+    def _load_from_checkpoint(self, model_key, checkpoint_path, progress_callback=None):
+        """Load a Stable Diffusion model from a single checkpoint file.
+        
+        Args:
+            model_key: Display name of the model
+            checkpoint_path: Path to .safetensors or .ckpt file
+            progress_callback: Optional callback for progress updates
+        
+        Returns:
+            Status message string
+        """
+        from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
+        
+        if progress_callback:
+            progress_callback(0.4, "Loading checkpoint...")
+        
+        # Detect if SDXL based on file size (SDXL is ~6.5GB, SD1.5 is ~2GB)
+        file_size_gb = os.path.getsize(checkpoint_path) / (1024**3)
+        is_sdxl = file_size_gb > 4.0 or "xl" in checkpoint_path.lower() or "sdxl" in checkpoint_path.lower()
+        
+        logger.info(f"Loading checkpoint: {checkpoint_path} (size: {file_size_gb:.1f}GB, is_sdxl: {is_sdxl})")
+        
+        try:
+            if is_sdxl:
+                self.model = StableDiffusionXLPipeline.from_single_file(
+                    checkpoint_path,
+                    torch_dtype=torch.float16,
+                    use_safetensors=checkpoint_path.endswith('.safetensors'),
+                )
+            else:
+                self.model = StableDiffusionPipeline.from_single_file(
+                    checkpoint_path,
+                    torch_dtype=torch.float16,
+                    use_safetensors=checkpoint_path.endswith('.safetensors'),
+                )
+        except Exception as e:
+            logger.error(f"Failed to load checkpoint with auto-detect: {e}")
+            # Try the other pipeline type
+            try:
+                if is_sdxl:
+                    self.model = StableDiffusionPipeline.from_single_file(
+                        checkpoint_path,
+                        torch_dtype=torch.float16,
+                    )
+                else:
+                    self.model = StableDiffusionXLPipeline.from_single_file(
+                        checkpoint_path,
+                        torch_dtype=torch.float16,
+                    )
+            except Exception as e2:
+                raise RuntimeError(f"Failed to load checkpoint: {e}, {e2}")
+        
+        if progress_callback:
+            progress_callback(0.8, "Moving to GPU...")
+        self.model = self.model.to("cuda")
+        
+        # Disable NSFW safety checker
+        if hasattr(self.model, 'safety_checker'):
+            self.model.safety_checker = None
+        if hasattr(self.model, 'requires_safety_checker'):
+            self.model.requires_safety_checker = False
+        
+        # Enable memory optimizations
+        self.model.enable_attention_slicing()
+        
+        if progress_callback:
+            progress_callback(1.0, "Done!")
+        
+        # Track loaded model
+        self.loaded_models[model_key] = self.model
+        self.current_model_key = model_key
+        self.model_loaded = True
+        
+        checkpoint_name = os.path.basename(checkpoint_path)
+        logger.info(f"Checkpoint loaded: {model_key} from {checkpoint_name}")
+        return f"✅ **{model_key}** loaded from checkpoint!"
+
     def load_model(self, model_key, model_id, progress_callback=None):
         """Load a Stable Diffusion model.
         
         Args:
             model_key: Display name of the model
-            model_id: HuggingFace model ID
+            model_id: HuggingFace model ID OR local path to checkpoint file
             progress_callback: Optional callback for progress updates
         
         Returns:
             Status message string
         """
         try:
-            from diffusers import StableDiffusionPipeline, AutoPipelineForText2Image
+            from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, AutoPipelineForText2Image
             
             if progress_callback:
                 progress_callback(0.1, "Preparing...")
@@ -189,7 +266,34 @@ class ImageGenerator:
             if progress_callback:
                 progress_callback(0.3, "Downloading/loading pipeline...")
             
-            # Load appropriate pipeline based on model
+            # Check if this is a local checkpoint file
+            is_checkpoint = False
+            checkpoint_path = None
+            
+            # Check if model_id is a local file path
+            if os.path.isfile(model_id):
+                is_checkpoint = True
+                checkpoint_path = model_id
+            else:
+                # Check in checkpoints directory
+                checkpoints_dir = os.path.join(os.path.dirname(self.cache_dir), "checkpoints")
+                potential_path = os.path.join(checkpoints_dir, model_id)
+                if os.path.isfile(potential_path):
+                    is_checkpoint = True
+                    checkpoint_path = potential_path
+                # Also check if model_id is just a filename without path
+                for ext in ['.safetensors', '.ckpt']:
+                    potential_path = os.path.join(checkpoints_dir, f"{model_id}{ext}")
+                    if os.path.isfile(potential_path):
+                        is_checkpoint = True
+                        checkpoint_path = potential_path
+                        break
+            
+            if is_checkpoint:
+                logger.info(f"Loading checkpoint file: {checkpoint_path}")
+                return self._load_from_checkpoint(model_key, checkpoint_path, progress_callback)
+            
+            # Load appropriate pipeline based on model (HuggingFace format)
             # Detect SDXL by name hints or auto-detect from model config
             is_sdxl = "sdxl" in model_id.lower() or "xl" in model_id.lower() or "turbo" in model_key.lower()
             
@@ -321,24 +425,66 @@ class ImageGenerator:
             
             # Load LoRA if specified
             lora_loaded = False
+            loaded_lora_names = []
             if lora_name and lora_name != "None":
-                try:
-                    lora_path = os.path.join(self.lora_dir, lora_name)
-                    if os.path.exists(lora_path):
-                        if progress_callback:
-                            progress_callback(0.15, f"Loading LoRA: {lora_name}...")
-                        print(f"[LoRA] Loading from: {lora_path}")
-                        self.model.load_lora_weights(lora_path)
-                        self.model.fuse_lora(lora_scale=lora_strength)
-                        lora_loaded = True
-                        print(f"[LoRA] ✓ Loaded '{lora_name}' with strength {lora_strength}")
-                        logger.info(f"Loaded LoRA: {lora_name} with strength {lora_strength}")
-                    else:
-                        print(f"[LoRA] ✗ Path not found: {lora_path}")
-                except Exception as e:
-                    print(f"[LoRA] ✗ Failed to load: {e}")
-                    logger.warning(f"Failed to load LoRA {lora_name}: {e}")
-                    # Continue without LoRA
+                # Support single LoRA or list of LoRAs
+                lora_names = lora_name if isinstance(lora_name, list) else [lora_name]
+                lora_weights = lora_strength if isinstance(lora_strength, list) else [lora_strength] * len(lora_names)
+                
+                for idx, (ln, lw) in enumerate(zip(lora_names, lora_weights)):
+                    try:
+                        lora_path = os.path.join(self.lora_dir, ln)
+                        if os.path.exists(lora_path):
+                            if progress_callback:
+                                progress_callback(0.15 + idx * 0.02, f"Loading LoRA: {ln}...")
+                            print(f"[LoRA] Loading from: {lora_path}")
+                            
+                            # Check for PEFT format (adapter_config.json + adapter_model.safetensors)
+                            adapter_config_path = os.path.join(lora_path, "adapter_config.json")
+                            adapter_model_path = os.path.join(lora_path, "adapter_model.safetensors")
+                            
+                            if os.path.exists(adapter_config_path) and os.path.exists(adapter_model_path):
+                                # PEFT format - load with adapter_name for multi-LoRA support
+                                adapter_name = f"lora_{idx}"
+                                self.model.load_lora_weights(lora_path, adapter_name=adapter_name)
+                                loaded_lora_names.append((adapter_name, lw))
+                                print(f"[LoRA] ✓ Loaded PEFT adapter '{ln}' as '{adapter_name}'")
+                            else:
+                                # Look for .safetensors file directly
+                                safetensor_files = [f for f in os.listdir(lora_path) if f.endswith('.safetensors')]
+                                if safetensor_files:
+                                    safetensor_path = os.path.join(lora_path, safetensor_files[0])
+                                    adapter_name = f"lora_{idx}"
+                                    self.model.load_lora_weights(safetensor_path, adapter_name=adapter_name)
+                                    loaded_lora_names.append((adapter_name, lw))
+                                    print(f"[LoRA] ✓ Loaded safetensors '{ln}' as '{adapter_name}'")
+                                else:
+                                    print(f"[LoRA] ✗ No valid LoRA files found in: {lora_path}")
+                                    continue
+                            
+                            lora_loaded = True
+                            logger.info(f"Loaded LoRA: {ln} with strength {lw}")
+                        else:
+                            print(f"[LoRA] ✗ Path not found: {lora_path}")
+                    except Exception as e:
+                        print(f"[LoRA] ✗ Failed to load {ln}: {e}")
+                        logger.warning(f"Failed to load LoRA {ln}: {e}")
+                
+                # Set adapter weights if multiple LoRAs loaded
+                if len(loaded_lora_names) > 0:
+                    try:
+                        adapter_names = [name for name, _ in loaded_lora_names]
+                        adapter_weights = [weight for _, weight in loaded_lora_names]
+                        self.model.set_adapters(adapter_names, adapter_weights=adapter_weights)
+                        print(f"[LoRA] Set adapters: {list(zip(adapter_names, adapter_weights))}")
+                    except Exception as e:
+                        # Fall back to fuse_lora for single LoRA if set_adapters not supported
+                        if len(loaded_lora_names) == 1:
+                            try:
+                                self.model.fuse_lora(lora_scale=loaded_lora_names[0][1])
+                                print(f"[LoRA] Fused single LoRA with scale {loaded_lora_names[0][1]}")
+                            except Exception as e2:
+                                print(f"[LoRA] Warning: Could not set weights: {e2}")
             
             # Set seed for reproducibility
             generator = None
@@ -397,7 +543,17 @@ class ImageGenerator:
             # Unload LoRA after generation to keep model clean
             if lora_loaded:
                 try:
-                    self.model.unfuse_lora()
+                    # Disable adapters first (for multi-LoRA)
+                    try:
+                        self.model.disable_lora()
+                    except:
+                        pass
+                    # Then try unfuse (for fused single LoRA)
+                    try:
+                        self.model.unfuse_lora()
+                    except:
+                        pass
+                    # Finally unload weights
                     self.model.unload_lora_weights()
                 except Exception as e:
                     logger.warning(f"Failed to unload LoRA: {e}")
@@ -442,7 +598,14 @@ class ImageGenerator:
             # Unload LoRA on error too
             if lora_name and lora_name != "None":
                 try:
+                    self.model.disable_lora()
+                except:
+                    pass
+                try:
                     self.model.unfuse_lora()
+                except:
+                    pass
+                try:
                     self.model.unload_lora_weights()
                 except:
                     pass
