@@ -9,6 +9,8 @@ import os
 import time
 import yaml
 import json
+import requests
+from bs4 import BeautifulSoup
 
 # Force unbuffered output for conda run
 sys.stdout.reconfigure(line_buffering=True)
@@ -27,6 +29,10 @@ from src.database import ChatHistoryDB
 from src.training.lora_trainer import (
     get_dataset_manager, get_lora_manager, get_trainer,
     DatasetManager, LoRAManager, LoRATrainer, TrainingConfig, training_state
+)
+from src.cards.cah_generator import (
+    CAHGenerator, CardType, CardStyle, 
+    get_generation_prompt, get_article_extraction_prompt, ARTICLE_EXTRACTION_PROMPT
 )
 import gradio as gr
 import logging
@@ -60,6 +66,10 @@ loaded_image_models = {}  # cache of loaded image pipelines by name
 current_image_model_key = None  # track which model is currently active
 image_gen_cancel_event = False  # flag to request cancellation of a running generation
 image_gen_in_progress = False
+
+# Cards Against Humanity generator instance
+cah_generator = None
+
 
 # CPU Prompt Enhancer (lazy loaded)
 prompt_enhancer_model = None
@@ -446,7 +456,7 @@ def load_model(model_key, progress=gr.Progress()):
     # Auto-unload any previously loaded models to free VRAM
     if active_models:
         prev_models = list(active_models.keys())
-        progress(0.05, desc="Unloading previous model...")
+        progress(0.05, desc="🗑️ Unloading previous model to free VRAM...")
         unload_all_chat_models()
         logger.info(f"Auto-unloaded previous chat models: {prev_models}")
     
@@ -462,11 +472,12 @@ def load_model(model_key, progress=gr.Progress()):
     if not is_cached:
         is_downloading = True
         download_canceled = False
-        progress(0.1, desc=f"📥 Downloading {model_key}...")
+        progress(0.1, desc=f"📥 Downloading {model_key}... (this may take several minutes)")
     else:
-        progress(0.1, desc=f"⏳ Loading {model_key} from cache...")
+        progress(0.1, desc=f"📦 Found {model_key} in cache, loading...")
     
     try:
+        progress(0.15, desc="⚙️ Initializing model loader...")
         model_loader = ModelLoader(
             model_name=model_id,
             cache_dir=cache_dir,
@@ -476,16 +487,19 @@ def load_model(model_key, progress=gr.Progress()):
         
         # Simulate progress updates (Hugging Face downloads happen in background)
         if not is_cached:
+            progress(0.2, desc=f"📥 Downloading {model_key}... Please wait...")
             for i in range(5):
                 if download_canceled:
                     is_downloading = False
                     raise Exception("Download canceled by user")
-                progress((i + 1) * 0.2, desc=f"📥 Downloading {model_key}... {(i+1)*20}%")
+                progress(0.2 + (i * 0.1), desc=f"📥 Downloading {model_key}... {20 + (i*15)}%")
                 import time
                 time.sleep(0.5)
         
+        progress(0.7, desc="📦 Loading model weights...")
         model, tokenizer = model_loader.load()
         
+        progress(0.85, desc="🤖 Setting up chatbot...")
         chatbot = ChatBot(
             model=model,
             tokenizer=tokenizer,
@@ -493,6 +507,7 @@ def load_model(model_key, progress=gr.Progress()):
             max_history=5
         )
         
+        progress(0.95, desc="✨ Finalizing...")
         active_models[model_key] = (model, tokenizer, chatbot)
         logger.info(f"✓ {model_key} loaded")
         
@@ -699,21 +714,28 @@ def load_image_model(model_name, progress=gr.Progress()):
         from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, AutoPipelineForText2Image
         
         if model_key not in AVAILABLE_IMAGE_MODELS:
-            return f"❌ Unknown model: {model_key}"
+            return f"### ❌ Unknown model: {model_key}"
         
         model_id = AVAILABLE_IMAGE_MODELS[model_key]["id"]
         
-        progress(0.1, desc="Preparing...")
+        progress(0.05, desc="🔍 Checking model...")
         logger.info(f"Loading image model: {model_id}")
+        
+        # Check if already downloaded
+        model_path = os.path.join(cache_dir, f"models--{model_id.replace('/', '--')}")
+        is_cached = os.path.exists(model_path)
         
         # Auto-unload any previously loaded model to free VRAM
         if loaded_image_models:
             prev_models = list(loaded_image_models.keys())
-            progress(0.15, desc="Unloading previous model...")
+            progress(0.1, desc="🗑️ Unloading previous model to free VRAM...")
             unload_all_image_models()
             logger.info(f"Auto-unloaded previous models: {prev_models}")
         
-        progress(0.3, desc="Downloading/loading pipeline...")
+        if is_cached:
+            progress(0.15, desc=f"📦 Found {model_key} in cache, loading...")
+        else:
+            progress(0.15, desc=f"📥 Downloading {model_key}... (this may take a few minutes)")
         
         # Load appropriate pipeline based on model
         # Check for SDXL models by name hints, or auto-detect from model config
@@ -724,6 +746,7 @@ def load_image_model(model_name, progress=gr.Progress()):
             try:
                 from huggingface_hub import hf_hub_download
                 import json
+                progress(0.2, desc="🔍 Detecting model type...")
                 config_path = hf_hub_download(model_id, "model_index.json", cache_dir=cache_dir)
                 with open(config_path, 'r') as f:
                     config = json.load(f)
@@ -733,11 +756,14 @@ def load_image_model(model_name, progress=gr.Progress()):
             except:
                 pass  # Fall back to name-based detection
         
+        progress(0.25, desc=f"⚙️ Loading {'SDXL' if is_sdxl else 'SD 1.5'} pipeline...")
+        
         if is_sdxl:
             # Try StableDiffusionXLPipeline first for proper SDXL support
             try:
                 from diffusers import EulerDiscreteScheduler
                 
+                progress(0.3, desc="📥 Loading model weights...")
                 image_model = StableDiffusionXLPipeline.from_pretrained(
                     model_id,
                     torch_dtype=torch.float16,
@@ -745,6 +771,7 @@ def load_image_model(model_name, progress=gr.Progress()):
                     use_safetensors=True,
                 )
                 
+                progress(0.6, desc="⚙️ Configuring scheduler...")
                 # Some models use EDM schedulers that may cause noise output
                 # Replace with a standard Euler scheduler for compatibility
                 scheduler_type = type(image_model.scheduler).__name__
@@ -757,44 +784,46 @@ def load_image_model(model_name, progress=gr.Progress()):
                 
             except Exception as e:
                 logger.warning(f"SDXL pipeline failed, trying AutoPipeline: {e}")
+                progress(0.4, desc="🔄 Trying alternative loader...")
                 image_model = AutoPipelineForText2Image.from_pretrained(
                     model_id,
                     torch_dtype=torch.float16,
                     cache_dir=cache_dir,
                 )
         else:
+            progress(0.3, desc="📥 Loading model weights...")
             image_model = StableDiffusionPipeline.from_pretrained(
                 model_id,
                 torch_dtype=torch.float16,
                 cache_dir=cache_dir,
             )
         
-        progress(0.8, desc="Moving to GPU...")
+        progress(0.75, desc="🚀 Moving to GPU...")
         image_model = image_model.to("cuda")
         
-        # Disable NSFW safety checker (causes black images on false positives)
+        progress(0.85, desc="🔧 Applying optimizations...")
+        # Disable safety checker for unrestricted generation
         if hasattr(image_model, 'safety_checker'):
             image_model.safety_checker = None
-        if hasattr(image_model, 'requires_safety_checker'):
-            image_model.requires_safety_checker = False
         
         # Enable memory optimizations
         image_model.enable_attention_slicing()
         
-        progress(1.0, desc="Done!")
+        progress(0.95, desc="✨ Finalizing...")
         # Track loaded model
         loaded_image_models[model_key] = image_model
         current_image_model_key = model_key
         image_model_loaded = True
         logger.info(f"Image model loaded: {model_key}")
-
-        return f"✅ **{model_key}** loaded successfully!"
+        
+        progress(1.0, desc="Done!")
+        return f"### ✅ {model_key} loaded and ready!"
         
     except ImportError:
-        return "❌ Please install diffusers: `pip install diffusers transformers accelerate`"
+        return "### ❌ Please install diffusers: `pip install diffusers transformers accelerate`"
     except Exception as e:
         logger.error(f"Error loading image model: {e}")
-        return f"❌ Error loading model: {str(e)}"
+        return f"### ❌ Error loading model: {str(e)}"
 
 
 def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, height, seed, lora_name, lora_strength, progress=gr.Progress()):
@@ -893,9 +922,11 @@ def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, he
             except Exception as e:
                 logger.warning(f"Failed to unload LoRA: {e}")
         
-        progress(0.96, desc="Saving image...")
+        progress(0.94, desc="Processing image...")
         
         image = result.images[0]
+        
+        progress(0.96, desc="Saving image...")
         
         # Save to file with metadata
         os.makedirs("data/generated_images", exist_ok=True)
@@ -958,10 +989,10 @@ def unload_image_model(model_name=None):
     if loaded_image_models or image_model is not None:
         unload_all_image_models()
         if model_key:
-            return f"✅ Unloaded image model: {model_key}"
-        return "✅ Image model unloaded. VRAM freed."
+            return f"### ✅ Unloaded {model_key} - VRAM freed"
+        return "### ✅ Image model unloaded - VRAM freed"
 
-    return "ℹ️ No image model was loaded."
+    return "### ℹ️ No image model was loaded"
 
 
 def get_image_status():
@@ -1698,6 +1729,412 @@ def import_lora(file, lora_name, trigger_word):
         return f"❌ Error: {str(e)}", gr.update()
 
 
+# ==================== Cards Against Humanity Generator Functions ====================
+
+def get_cah_generator():
+    """Get or create the CAH generator instance."""
+    global cah_generator
+    if cah_generator is None:
+        cah_generator = CAHGenerator()
+    return cah_generator
+
+
+def get_cah_style_choices():
+    """Get style choices for dropdown."""
+    return [
+        ("🎭 Classic CAH - Irreverent & crude humor", "classic"),
+        ("🌀 Absurd - Surreal & nonsensical", "absurd"),
+        ("🖤 Dark - Gallows humor & morbid", "dark"),
+        ("✨ Wholesome - Family-friendly", "wholesome"),
+        ("🎮 Nerdy - Gaming, tech, pop culture", "nerdy"),
+        ("✏️ Custom - Define your own style", "custom"),
+    ]
+
+
+def get_cah_type_choices():
+    """Get card type choices for dropdown."""
+    return [
+        ("⬛ Black Cards (Prompts with blanks)", "black"),
+        ("⬜ White Cards (Answer cards)", "white"),
+        ("🃏 Both Types", "both"),
+    ]
+
+
+def generate_cah_cards(topic, card_type, quantity, style, custom_style, progress=gr.Progress()):
+    """Generate CAH-style cards using the loaded chat model."""
+    global active_models
+    
+    if not topic or not topic.strip():
+        return [], "❌ Please enter a topic or theme"
+    
+    if not active_models:
+        return [], "❌ No chat model loaded. Please load a model in the Chat tab first."
+    
+    # Get the first loaded model
+    model_key = list(active_models.keys())[0]
+    model, tokenizer, chatbot = active_models[model_key]
+    
+    progress(0.1, desc="Preparing generation...")
+    
+    # Build the prompts
+    cah = get_cah_generator()
+    style_enum = CardStyle(style)
+    type_enum = CardType(card_type)
+    
+    system_prompt = cah.get_system_prompt(style_enum, custom_style if style == "custom" else "")
+    user_prompt = get_generation_prompt(topic, type_enum, quantity, style_enum, custom_style if style == "custom" else "")
+    
+    progress(0.2, desc=f"Generating {quantity} cards with {model_key}...")
+    
+    try:
+        # Format prompt for the model
+        if hasattr(tokenizer, 'chat_template') and tokenizer.chat_template:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        else:
+            full_prompt = f"{system_prompt}\n\nUser: {user_prompt}\nAssistant:"
+        
+        # Generate
+        inputs = tokenizer(full_prompt, return_tensors="pt", truncation=True, max_length=2048)
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        
+        progress(0.4, desc="Generating response...")
+        
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=1500,
+                temperature=0.8,
+                top_p=0.9,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        
+        response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+        
+        progress(0.8, desc="Parsing cards...")
+        
+        # Parse the response into cards - pass force_type if user selected specific type
+        force_type = type_enum if type_enum != CardType.BOTH else None
+        cards = cah.parse_generated_cards(response, topic, style_enum, force_type)
+        
+        if cards:
+            # Save the cards
+            cah.add_cards(cards)
+            progress(1.0, desc="Done!")
+            
+            # Format for display
+            display_cards = []
+            for card in cards:
+                card_emoji = "⬛" if card.card_type == "black" else "⬜"
+                display_cards.append(f"{card_emoji} {card.text}")
+            
+            return display_cards, f"✅ Generated {len(cards)} cards! ({len([c for c in cards if c.card_type == 'black'])} black, {len([c for c in cards if c.card_type == 'white'])} white)"
+        else:
+            return [], "⚠️ Could not parse cards from response. Try again or adjust the topic."
+            
+    except Exception as e:
+        logger.error(f"Error generating cards: {e}")
+        import traceback
+        traceback.print_exc()
+        return [], f"❌ Error: {str(e)}"
+
+
+def fetch_article_from_url(url):
+    """Fetch and extract article text from a URL."""
+    if not url or not url.strip():
+        return "", "❌ Please enter a URL"
+    
+    url = url.strip()
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Remove script, style, nav, header, footer elements
+        for element in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'iframe']):
+            element.decompose()
+        
+        # Try to find the main article content
+        article_text = ""
+        
+        # Look for common article containers
+        article_selectors = [
+            'article',
+            '[role="article"]',
+            '.article-content',
+            '.post-content',
+            '.entry-content',
+            '.story-body',
+            '.article-body',
+            'main',
+            '.content'
+        ]
+        
+        for selector in article_selectors:
+            content = soup.select_one(selector)
+            if content:
+                # Get all paragraph text
+                paragraphs = content.find_all(['p', 'h1', 'h2', 'h3', 'li'])
+                if paragraphs:
+                    article_text = '\n\n'.join(p.get_text().strip() for p in paragraphs if p.get_text().strip())
+                    if len(article_text) > 200:  # Found substantial content
+                        break
+        
+        # Fallback: get all paragraphs
+        if len(article_text) < 200:
+            paragraphs = soup.find_all('p')
+            article_text = '\n\n'.join(p.get_text().strip() for p in paragraphs if p.get_text().strip())
+        
+        if len(article_text) < 100:
+            return "", "⚠️ Could not extract enough text from this URL. Try pasting the article text manually."
+        
+        # Get title if available
+        title = ""
+        title_tag = soup.find('h1') or soup.find('title')
+        if title_tag:
+            title = title_tag.get_text().strip()
+        
+        if title:
+            article_text = f"# {title}\n\n{article_text}"
+        
+        return article_text, f"✅ Fetched article ({len(article_text)} characters)"
+        
+    except requests.exceptions.Timeout:
+        return "", "❌ Request timed out. Try again or paste the article text manually."
+    except requests.exceptions.RequestException as e:
+        return "", f"❌ Failed to fetch URL: {str(e)}"
+    except Exception as e:
+        logger.error(f"Error fetching article: {e}")
+        return "", f"❌ Error: {str(e)}"
+
+
+def extract_cah_from_article(article_text, card_type, quantity, progress=gr.Progress()):
+    """Extract CAH-style cards from an article using the loaded chat model."""
+    global active_models
+    
+    if not article_text or not article_text.strip():
+        return [], "❌ Please paste an article to extract jokes from"
+    
+    if len(article_text.strip()) < 100:
+        return [], "❌ Article seems too short. Please paste a full article."
+    
+    if not active_models:
+        return [], "❌ No chat model loaded. Please load a model in the Chat tab first."
+    
+    # Get the first loaded model
+    model_key = list(active_models.keys())[0]
+    model, tokenizer, chatbot = active_models[model_key]
+    
+    progress(0.1, desc="Analyzing article...")
+    
+    # Build the prompts
+    cah = get_cah_generator()
+    type_enum = CardType(card_type)
+    
+    system_prompt = ARTICLE_EXTRACTION_PROMPT
+    user_prompt = get_article_extraction_prompt(article_text, type_enum, quantity)
+    
+    progress(0.2, desc=f"Extracting jokes with {model_key}...")
+    
+    try:
+        # Format prompt for the model
+        if hasattr(tokenizer, 'chat_template') and tokenizer.chat_template:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        else:
+            full_prompt = f"{system_prompt}\n\nUser: {user_prompt}\nAssistant:"
+        
+        # Generate
+        inputs = tokenizer(full_prompt, return_tensors="pt", truncation=True, max_length=4096)
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        
+        progress(0.4, desc="Generating response...")
+        
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=1500,
+                temperature=0.7,  # Slightly lower for more faithful extraction
+                top_p=0.9,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        
+        response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+        
+        progress(0.8, desc="Parsing cards...")
+        
+        # Parse the response into cards - pass force_type if user selected specific type
+        force_type = type_enum if type_enum != CardType.BOTH else None
+        cards = cah.parse_generated_cards(response, "Article extraction", CardStyle.ABSURD, force_type)
+        
+        if cards:
+            # Save the cards
+            cah.add_cards(cards)
+            progress(1.0, desc="Done!")
+            
+            # Format for display
+            display_cards = []
+            for card in cards:
+                card_emoji = "⬛" if card.card_type == "black" else "⬜"
+                display_cards.append(f"{card_emoji} {card.text}")
+            
+            return display_cards, f"✅ Extracted {len(cards)} cards from article! ({len([c for c in cards if c.card_type == 'black'])} black, {len([c for c in cards if c.card_type == 'white'])} white)"
+        else:
+            return [], "⚠️ Could not extract cards from article. Try a different article or adjust quantity."
+            
+    except Exception as e:
+        logger.error(f"Error extracting cards: {e}")
+        import traceback
+        traceback.print_exc()
+        return [], f"❌ Error: {str(e)}"
+
+
+def get_saved_cards_display():
+    """Get saved cards for display in gallery with IDs for deletion."""
+    cah = get_cah_generator()
+    cards = cah.get_cards()
+    
+    display = []
+    for card in reversed(cards):  # Most recent first
+        card_emoji = "⬛" if card.card_type == "black" else "⬜"
+        star = "⭐ " if card.favorited else ""
+        display.append(f"{star}{card_emoji} {card.text}")
+    
+    return display
+
+
+def get_saved_cards_with_ids():
+    """Get saved cards with IDs for the deletion dropdown."""
+    cah = get_cah_generator()
+    cards = cah.get_cards()
+    
+    choices = []
+    for card in reversed(cards):  # Most recent first
+        card_emoji = "⬛" if card.card_type == "black" else "⬜"
+        # Truncate long cards for the dropdown
+        text_preview = card.text[:50] + "..." if len(card.text) > 50 else card.text
+        choices.append(f"{card_emoji} {text_preview} [{card.id}]")
+    
+    return choices
+
+
+def delete_selected_cards(selected_cards):
+    """Delete selected cards from the library."""
+    if not selected_cards:
+        return get_saved_cards_display(), "⚠️ No cards selected"
+    
+    cah = get_cah_generator()
+    deleted = 0
+    
+    for selection in selected_cards:
+        # Extract card ID from the selection string - it's in brackets at the end
+        if '[' in selection and ']' in selection:
+            card_id = selection[selection.rfind('[')+1:selection.rfind(']')]
+            if cah.delete_card(card_id):
+                deleted += 1
+    
+    return get_saved_cards_display(), f"✅ Deleted {deleted} card(s)"
+
+
+def delete_last_n_cards(n):
+    """Delete the last N generated cards."""
+    cah = get_cah_generator()
+    cards = cah.get_cards()
+    
+    if not cards:
+        return get_saved_cards_display(), "⚠️ No cards to delete"
+    
+    n = min(n, len(cards))
+    deleted = 0
+    
+    # Get the last N card IDs (most recent are at the end of the list)
+    cards_to_delete = cards[-n:]
+    for card in cards_to_delete:
+        if cah.delete_card(card.id):
+            deleted += 1
+    
+    return get_saved_cards_display(), f"✅ Deleted {deleted} most recent card(s)"
+
+
+def get_cah_stats():
+    """Get stats about saved cards."""
+    cah = get_cah_generator()
+    stats = cah.get_stats()
+    
+    if stats['total'] == 0:
+        return "### 📊 Card Statistics\n\n*No cards generated yet. Create some!*"
+    
+    lines = [
+        "### 📊 Card Statistics",
+        "",
+        f"**Total Cards:** {stats['total']}",
+        f"- ⬛ Black Cards: {stats['black_cards']}",
+        f"- ⬜ White Cards: {stats['white_cards']}",
+        f"- ⭐ Favorited: {stats['favorited']}",
+        "",
+        "**By Style:**"
+    ]
+    
+    for style, count in stats['styles'].items():
+        lines.append(f"- {style}: {count}")
+    
+    if stats['topics']:
+        lines.append("")
+        lines.append("**Top Topics:**")
+        for topic, count in list(stats['topics'].items())[:5]:
+            lines.append(f"- {topic}: {count}")
+    
+    return "\n".join(lines)
+
+
+def export_cah_cards(format_type):
+    """Export all cards in the specified format."""
+    cah = get_cah_generator()
+    
+    if not cah.cards:
+        return None, "⚠️ No cards to export"
+    
+    export_data = cah.export_cards(format=format_type)
+    
+    # Save to temp file
+    import tempfile
+    ext = {"json": ".json", "txt": ".txt", "csv": ".csv"}.get(format_type, ".txt")
+    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix=ext, delete=False, encoding='utf-8')
+    temp_file.write(export_data)
+    temp_file.close()
+    
+    return temp_file.name, f"✅ Exported {len(cah.cards)} cards as {format_type.upper()}"
+
+
+def clear_all_cah_cards():
+    """Clear all saved cards."""
+    cah = get_cah_generator()
+    count = len(cah.cards)
+    cah.cards = []
+    cah._save_cards()
+    return [], f"🗑️ Deleted {count} cards"
+
+
+def refresh_cah_cards():
+    """Refresh the cards display."""
+    return get_saved_cards_display(), get_cah_stats()
+
+
 # Initialize BLIP model variables
 blip_model = None
 blip_processor = None
@@ -2315,15 +2752,27 @@ def load_chat_model(model_name, progress=gr.Progress()):
     model_key = extract_model_key(model_name)
     
     if model_key not in AVAILABLE_MODELS:
-        return f"❌ Model '{model_key}' not found"
+        return f"### ❌ Model '{model_key}' not found"
     
     try:
-        progress(0.1, desc=f"Loading {model_key}...")
+        progress(0.05, desc=f"🔍 Preparing to load {model_key}...")
         model, tokenizer, chatbot = load_model(model_key, progress)
-        return f"✅ {model_key} loaded successfully"
+        return f"### ✅ {model_key} loaded and ready to chat!"
     except Exception as e:
         logger.error(f"Failed to load {model_key}: {e}")
-        return f"❌ Failed to load: {str(e)}"
+        return f"### ❌ Failed to load: {str(e)}"
+
+
+def start_chat_loading(model_name):
+    """Show loading state when chat model load begins."""
+    model_key = extract_model_key(model_name)
+    return f"### ⏳ Loading {model_key}... Please wait"
+
+
+def start_image_loading(model_name):
+    """Show loading state when image model load begins."""
+    model_key = extract_model_key(model_name)
+    return f"### ⏳ Loading {model_key}... Please wait"
 
 
 def unload(model_selection):
@@ -2913,6 +3362,47 @@ def create_ui():
             max-height: 700px !important;
         }
         
+        /* Loading status bar - prominent styling */
+        .loading-status {
+            padding: 15px 20px !important;
+            border-radius: 10px !important;
+            font-size: 16px !important;
+            font-weight: 500 !important;
+            text-align: center !important;
+            margin-bottom: 15px !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        .loading-status.idle {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
+            border: 2px solid #0f3460 !important;
+            color: #94a3b8 !important;
+        }
+        
+        .loading-status.loading {
+            background: linear-gradient(135deg, #1e3a5f 0%, #0d47a1 100%) !important;
+            border: 2px solid #2196f3 !important;
+            color: #90caf9 !important;
+            animation: pulse-loading 1.5s ease-in-out infinite !important;
+        }
+        
+        .loading-status.success {
+            background: linear-gradient(135deg, #1b4332 0%, #2d6a4f 100%) !important;
+            border: 2px solid #40c057 !important;
+            color: #8ce99a !important;
+        }
+        
+        .loading-status.error {
+            background: linear-gradient(135deg, #4a1a1a 0%, #6b2121 100%) !important;
+            border: 2px solid #e74c3c !important;
+            color: #ff8a80 !important;
+        }
+        
+        @keyframes pulse-loading {
+            0%, 100% { box-shadow: 0 0 10px rgba(33, 150, 243, 0.3); }
+            50% { box-shadow: 0 0 25px rgba(33, 150, 243, 0.6); }
+        }
+        
         /* Tile-style radio buttons */
         .tile-radio label {
             display: grid !important;
@@ -2994,8 +3484,11 @@ def create_ui():
             with gr.TabItem("💬 Chat", id="chat_tab"):
                 with gr.Tabs() as chat_tabs:
                     with gr.TabItem("💬 Conversation", id="conversation_tab"):
-                        # Status bar at top - spans full width
-                        chat_status = gr.Markdown("*Select a model and click 'Load' to start chatting*")
+                        # Loading status bar - prominent and visible
+                        chat_status = gr.Markdown(
+                            "### 💡 Select a model and click 'Load' to start chatting",
+                            elem_classes=["loading-status", "idle"]
+                        )
                         
                         with gr.Row():
                             # Sidebar - Model & Settings (LEFT side, matching Image Generator)
@@ -3011,7 +3504,7 @@ def create_ui():
                                 model_info = gr.Markdown("*Select a model to see details*")
                                 
                                 with gr.Row():
-                                    load_model_btn = gr.Button("📥 Load", variant="secondary", size="sm", visible=True)
+                                    load_model_btn = gr.Button("📥 Load Model", variant="primary", size="sm", visible=True)
                                     unload_btn = gr.Button("🗑️ Unload", variant="stop", size="sm", visible=False)
                                 
                                 gr.Markdown("---")
@@ -3175,8 +3668,11 @@ def create_ui():
                 
                 with gr.Tabs() as img_tabs:
                     with gr.TabItem("🖌️ Generate", id="generate_tab"):
-                        # Status bar at top - spans full width
-                        img_status = gr.Markdown("*Select a model and click 'Load' to start*")
+                        # Loading status bar - prominent and visible
+                        img_status = gr.Markdown(
+                            "### 💡 Select a model and click 'Load' to start generating",
+                            elem_classes=["loading-status", "idle"]
+                        )
                         
                         with gr.Row():
                             # Sidebar - Model & Settings
@@ -3192,7 +3688,7 @@ def create_ui():
                                 img_model_info = gr.Markdown(f"*{AVAILABLE_IMAGE_MODELS['Dreamshaper 8']['description']}*")
                                 
                                 with gr.Row():
-                                    load_img_model_btn = gr.Button("📥 Load", variant="secondary", size="sm", visible=True)
+                                    load_img_model_btn = gr.Button("📥 Load Model", variant="primary", size="sm", visible=True)
                                     unload_img_model_btn = gr.Button("🗑️ Unload", variant="stop", size="sm", visible=False)
                                 
                                 gr.Markdown("---")
@@ -3521,17 +4017,348 @@ def create_ui():
 *Example:* If your trigger word is `twilek`, use prompts like:
 > "a twilek standing in a cantina, star wars, detailed"
                                 """)
+            
+            # ==================== CARD GENERATOR TAB ====================
+            with gr.TabItem("🃏 Card Generator", id="card_tab"):
+                gr.Markdown("### 🃏 Cards Against Humanity Generator\n*Generate custom CAH-style cards using AI. Requires a chat model to be loaded.*")
+                
+                with gr.Tabs() as card_tabs:
+                    with gr.TabItem("🎴 Generate", id="card_generate_tab"):
+                        with gr.Row():
+                            with gr.Column(scale=1):
+                                gr.Markdown("### ⚙️ Settings")
+                                
+                                cah_topic = gr.Textbox(
+                                    label="📝 Topic / Theme",
+                                    placeholder="e.g., Office life, Dating apps, Video games...",
+                                    lines=2,
+                                    info="What should the cards be about?"
+                                )
+                                
+                                cah_card_type = gr.Dropdown(
+                                    choices=get_cah_type_choices(),
+                                    value="both",
+                                    label="🃏 Card Type"
+                                )
+                                
+                                cah_quantity = gr.Slider(
+                                    minimum=1,
+                                    maximum=20,
+                                    value=10,
+                                    step=1,
+                                    label="📊 Quantity",
+                                    info="Number of cards to generate"
+                                )
+                                
+                                cah_style = gr.Dropdown(
+                                    choices=get_cah_style_choices(),
+                                    value="classic",
+                                    label="🎨 Style"
+                                )
+                                
+                                cah_custom_style = gr.Textbox(
+                                    label="✏️ Custom Style Instructions",
+                                    placeholder="Describe your custom style...",
+                                    lines=2,
+                                    visible=False
+                                )
+                                
+                                generate_cards_btn = gr.Button("🎴 Generate Cards", variant="primary", size="lg")
+                                cah_status = gr.Markdown("")
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("""
+**💡 Tips:**
+- Load a chat model first (Chat tab)
+- Be specific with your topic
+- Classic style works best for humor
+- Try Nerdy for gaming/tech references
+- Wholesome for family-friendly cards
+                                """)
+                            
+                            with gr.Column(scale=2):
+                                gr.Markdown("### 🎴 Generated Cards")
+                                cah_output = gr.Dataframe(
+                                    headers=["Generated Cards"],
+                                    datatype=["str"],
+                                    col_count=(1, "fixed"),
+                                    row_count=(10, "dynamic"),
+                                    wrap=True,
+                                    interactive=False
+                                )
+                    
+                    with gr.TabItem("📰 From Article", id="card_article_tab"):
+                        gr.Markdown("### 📰 Extract Cards from Articles\n*Paste an article or enter a URL (like from Clickhole, The Onion, etc.) and extract the funniest lines as CAH cards.*")
+                        
+                        with gr.Row():
+                            with gr.Column(scale=1):
+                                gr.Markdown("### ⚙️ Settings")
+                                
+                                # Toggle between URL and Text input
+                                article_input_mode = gr.Radio(
+                                    choices=["📄 Paste Text", "🔗 Enter URL"],
+                                    value="📄 Paste Text",
+                                    label="Input Mode",
+                                    interactive=True
+                                )
+                                
+                                # URL input (initially hidden)
+                                article_url_input = gr.Textbox(
+                                    label="🔗 Article URL",
+                                    placeholder="https://clickhole.com/article-name...",
+                                    lines=1,
+                                    visible=False,
+                                    info="Enter a URL to fetch article text automatically"
+                                )
+                                fetch_url_btn = gr.Button("🔗 Fetch Article", variant="secondary", size="sm", visible=False)
+                                fetch_status = gr.Markdown("", visible=False)
+                                
+                                # Text input (initially visible)
+                                article_input = gr.Textbox(
+                                    label="📄 Article Text",
+                                    placeholder="Paste the full article text here...\n\nThe AI will extract the funniest jokes and phrases, adjusting verb tenses to work as CAH cards.",
+                                    lines=12,
+                                    max_lines=20,
+                                    visible=True,
+                                    info="Paste articles from comedy sites like Clickhole, The Onion, etc."
+                                )
+                                
+                                article_card_type = gr.Dropdown(
+                                    choices=get_cah_type_choices(),
+                                    value="both",
+                                    label="🃏 Card Type"
+                                )
+                                
+                                article_quantity = gr.Slider(
+                                    minimum=3,
+                                    maximum=15,
+                                    value=8,
+                                    step=1,
+                                    label="📊 Cards to Extract",
+                                    info="How many cards to extract from the article"
+                                )
+                                
+                                extract_cards_btn = gr.Button("📰 Extract Cards", variant="primary", size="lg")
+                                article_status = gr.Markdown("")
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("""
+**💡 How it works:**
+- Paste text OR enter a URL to fetch
+- AI finds the funniest lines/jokes
+- Adjusts verb tenses for CAH format
+- Converts to black (prompt) or white (answer) cards
+- Great for Clickhole, The Onion, etc.
+
+**Tips:**
+- Longer articles = more material
+- Articles with absurd premises work best
+- Choose "Both" for variety
+                                """)
+                            
+                            with gr.Column(scale=2):
+                                gr.Markdown("### 🎴 Extracted Cards")
+                                article_output = gr.Dataframe(
+                                    headers=["Extracted Cards"],
+                                    datatype=["str"],
+                                    col_count=(1, "fixed"),
+                                    row_count=(10, "dynamic"),
+                                    wrap=True,
+                                    interactive=False
+                                )
+                    
+                    with gr.TabItem("📚 My Cards", id="card_library_tab"):
+                        gr.Markdown("### 📚 Saved Cards\n*All your generated cards are automatically saved here.*")
+                        
+                        with gr.Row():
+                            refresh_cards_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
+                            export_json_btn = gr.Button("📥 Export JSON", variant="secondary", size="sm")
+                            export_txt_btn = gr.Button("📥 Export TXT", variant="secondary", size="sm")
+                            export_csv_btn = gr.Button("📥 Export CSV", variant="secondary", size="sm")
+                            clear_cards_btn = gr.Button("🗑️ Clear All", variant="stop", size="sm")
+                        
+                        cah_export_file = gr.File(visible=False)
+                        cah_library_status = gr.Markdown("")
+                        
+                        with gr.Row():
+                            with gr.Column(scale=2):
+                                cah_library_list = gr.Dataframe(
+                                    value=[[card] for card in get_saved_cards_display()],
+                                    headers=["Saved Cards"],
+                                    datatype=["str"],
+                                    col_count=(1, "fixed"),
+                                    row_count=(15, "dynamic"),
+                                    wrap=True,
+                                    interactive=False
+                                )
+                            
+                            with gr.Column(scale=1):
+                                cah_stats_display = gr.Markdown(get_cah_stats())
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("### 🗑️ Delete Cards")
+                                
+                                # Quick delete last N cards
+                                with gr.Row():
+                                    delete_last_n = gr.Slider(
+                                        minimum=1,
+                                        maximum=20,
+                                        value=1,
+                                        step=1,
+                                        label="Delete last N cards"
+                                    )
+                                    delete_last_btn = gr.Button("🗑️ Delete", variant="stop", size="sm")
+                                
+                                gr.Markdown("---")
+                                
+                                # Select specific cards to delete
+                                delete_card_select = gr.Dropdown(
+                                    choices=get_saved_cards_with_ids(),
+                                    label="Select cards to delete",
+                                    multiselect=True,
+                                    interactive=True
+                                )
+                                delete_selected_btn = gr.Button("🗑️ Delete Selected", variant="stop", size="sm")
+                
+                # Card Generator Events
+                def toggle_custom_style(style):
+                    return gr.update(visible=(style == "custom"))
+                
+                cah_style.change(toggle_custom_style, inputs=cah_style, outputs=cah_custom_style)
+                
+                generate_cards_btn.click(
+                    generate_cah_cards,
+                    inputs=[cah_topic, cah_card_type, cah_quantity, cah_style, cah_custom_style],
+                    outputs=[cah_output, cah_status]
+                ).then(
+                    refresh_cah_cards,
+                    outputs=[cah_library_list, cah_stats_display]
+                )
+                
+                # Article Extraction Events
+                
+                # Toggle between URL and text input modes
+                def toggle_article_input_mode(mode):
+                    if mode == "🔗 Enter URL":
+                        return (
+                            gr.update(visible=True),   # URL input
+                            gr.update(visible=True),   # Fetch button
+                            gr.update(visible=True),   # Fetch status
+                            gr.update(visible=False),  # Text input
+                        )
+                    else:
+                        return (
+                            gr.update(visible=False),  # URL input
+                            gr.update(visible=False),  # Fetch button
+                            gr.update(visible=False),  # Fetch status
+                            gr.update(visible=True),   # Text input
+                        )
+                
+                article_input_mode.change(
+                    toggle_article_input_mode,
+                    inputs=article_input_mode,
+                    outputs=[article_url_input, fetch_url_btn, fetch_status, article_input]
+                )
+                
+                # Fetch article from URL
+                fetch_url_btn.click(
+                    fetch_article_from_url,
+                    inputs=article_url_input,
+                    outputs=[article_input, fetch_status]
+                ).then(
+                    lambda: gr.update(visible=True),
+                    outputs=article_input
+                )
+                
+                extract_cards_btn.click(
+                    extract_cah_from_article,
+                    inputs=[article_input, article_card_type, article_quantity],
+                    outputs=[article_output, article_status]
+                ).then(
+                    refresh_cah_cards,
+                    outputs=[cah_library_list, cah_stats_display]
+                )
+                
+                export_json_btn.click(
+                    lambda: export_cah_cards("json"),
+                    outputs=[cah_export_file, cah_library_status]
+                )
+                
+                export_txt_btn.click(
+                    lambda: export_cah_cards("txt"),
+                    outputs=[cah_export_file, cah_library_status]
+                )
+                
+                export_csv_btn.click(
+                    lambda: export_cah_cards("csv"),
+                    outputs=[cah_export_file, cah_library_status]
+                )
+                
+                clear_cards_btn.click(
+                    clear_all_cah_cards,
+                    outputs=[cah_library_list, cah_library_status]
+                ).then(
+                    get_cah_stats,
+                    outputs=cah_stats_display
+                ).then(
+                    lambda: gr.update(choices=[]),
+                    outputs=delete_card_select
+                )
+                
+                # Delete last N cards
+                delete_last_btn.click(
+                    delete_last_n_cards,
+                    inputs=delete_last_n,
+                    outputs=[cah_library_list, cah_library_status]
+                ).then(
+                    get_cah_stats,
+                    outputs=cah_stats_display
+                ).then(
+                    lambda: gr.update(choices=get_saved_cards_with_ids()),
+                    outputs=delete_card_select
+                )
+                
+                # Delete selected cards
+                delete_selected_btn.click(
+                    delete_selected_cards,
+                    inputs=delete_card_select,
+                    outputs=[cah_library_list, cah_library_status]
+                ).then(
+                    get_cah_stats,
+                    outputs=cah_stats_display
+                ).then(
+                    lambda: gr.update(choices=get_saved_cards_with_ids(), value=[]),
+                    outputs=delete_card_select
+                )
+                
+                # Refresh also updates delete dropdown
+                refresh_cards_btn.click(
+                    refresh_cah_cards,
+                    outputs=[cah_library_list, cah_stats_display]
+                ).then(
+                    lambda: gr.update(choices=get_saved_cards_with_ids()),
+                    outputs=delete_card_select
+                )
         
         # Chat Events
         # Model controls - outputs for model_info and button visibility
         chat_model_outputs = [model_info, load_model_btn, unload_btn]
         model_dropdown.change(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
-        load_model_btn.click(load_chat_model, inputs=model_dropdown, outputs=chat_status).then(
+        
+        # Load model with status updates
+        load_model_btn.click(
+            start_chat_loading, inputs=model_dropdown, outputs=chat_status
+        ).then(
+            load_chat_model, inputs=model_dropdown, outputs=chat_status
+        ).then(
             refresh_chat_dropdown, inputs=model_dropdown, outputs=model_dropdown
         ).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
+        
         unload_btn.click(unload, model_dropdown, status).then(
             refresh_chat_dropdown, inputs=model_dropdown, outputs=model_dropdown
-        ).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
+        ).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs).then(
+            lambda: "### 💡 Select a model and click 'Load' to start chatting", outputs=chat_status
+        )
         
         msg.submit(chat, [msg, chatbot_ui, model_dropdown, ai_char_dropdown, user_persona_dropdown], chatbot_ui).then(
             lambda: "", outputs=msg
@@ -3558,12 +4385,22 @@ def create_ui():
         # Image Generation Events - outputs include sliders for auto-preset and generate button state
         img_model_outputs = [img_model_info, load_img_model_btn, unload_img_model_btn, img_steps, img_guidance, img_width, img_height, img_negative, generate_img_btn]
         img_model_dropdown.change(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs)
-        load_img_model_btn.click(load_image_model, inputs=img_model_dropdown, outputs=img_status).then(
+        
+        # Load image model with status updates
+        load_img_model_btn.click(
+            start_image_loading, inputs=img_model_dropdown, outputs=img_status
+        ).then(
+            load_image_model, inputs=img_model_dropdown, outputs=img_status
+        ).then(
             refresh_image_dropdown, inputs=img_model_dropdown, outputs=img_model_dropdown
         ).then(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs)
+        
         unload_img_model_btn.click(unload_image_model, inputs=img_model_dropdown, outputs=img_status).then(
             refresh_image_dropdown, inputs=img_model_dropdown, outputs=img_model_dropdown
-        ).then(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs)
+        ).then(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs).then(
+            lambda: "### 💡 Select a model and click 'Load' to start generating", 
+            outputs=img_status
+        )
         
         # Image model refresh button
         refresh_img_models_btn.click(lambda: gr.update(choices=get_image_model_choices()), outputs=img_model_dropdown)

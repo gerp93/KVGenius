@@ -1,0 +1,59 @@
+# Cards Against Humanity Generator Configuration
+
+# Default generation settings
+defaults:
+  quantity: 10
+  card_type: "both"  # black, white, or both
+  style: "classic"
+
+# Available styles with descriptions
+styles:
+  classic:
+    name: "Classic CAH"
+    description: "Irreverent, crude, and boundary-pushing humor"
+    emoji: "🎭"
+  absurd:
+    name: "Absurd"
+    description: "Surreal, bizarre, and nonsensical humor"
+    emoji: "🌀"
+  dark:
+    name: "Dark"
+    description: "Gallows humor and morbid comedy"
+    emoji: "🖤"
+  wholesome:
+    name: "Wholesome"
+    description: "Family-friendly and clean humor"
+    emoji: "✨"
+  nerdy:
+    name: "Nerdy"
+    description: "Gaming, tech, sci-fi, and pop culture references"
+    emoji: "🎮"
+  custom:
+    name: "Custom"
+    description: "Define your own style with custom instructions"
+    emoji: "✏️"
+
+# Example topics for inspiration
+example_topics:
+  - "Office life and corporate culture"
+  - "Dating apps and modern romance"
+  - "Video games and gaming culture"
+  - "Social media addiction"
+  - "Working from home"
+  - "Artificial intelligence"
+  - "Space exploration"
+  - "Holiday family gatherings"
+  - "College life"
+  - "Pets and pet owners"
+
+# Generation limits
+limits:
+  min_quantity: 1
+  max_quantity: 50
+  max_topic_length: 500
+
+# Export formats
+export_formats:
+  - json
+  - txt
+  - csv
