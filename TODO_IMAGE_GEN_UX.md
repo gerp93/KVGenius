@@ -1,54 +1,46 @@
-# Image Generator UX Improvements TODO
+# KVGenius - Feature Roadmap
 
-## 1. Model Presets Config File ✅ DONE
-- [x] Create `config/image_model_presets.yaml` with per-model settings
-- [x] Load presets at startup
-- [x] Auto-update sliders when model changes
-- [x] Update AVAILABLE_IMAGE_MODELS to use config file
+## Completed ✅
 
-## 2. Button State Management ✅ DONE
-- [x] Hide Stop button when generation is not running
-- [x] Disable Generate button when generation is running
-- [x] Hide Unload button if selected model is not loaded
-- [x] Disable Generate button when no model is loaded or loading
-
-## 3. Image Metadata Storage ✅ DONE
-- [x] Save PNG metadata with each generated image
-- [x] Store: prompt, negative_prompt, model, steps, guidance, seed, dimensions, lora, generation_time
-- [x] Update generate_image to track and save metadata
-
-## 4. Gallery Improvements ✅ DONE
-- [x] Show image metadata when viewing in gallery
-- [x] Add "Load Settings" button to reuse settings from image
-- [x] Multi-select with checkboxes
-- [x] Bulk delete and download (ZIP)
-- [x] Better selection UI with visual feedback
-
-## 5. Prompt Enhancement ✅ DONE
-- [x] Add Flan-T5-Small model loader (CPU-only, ~300MB)
-- [x] Lazy load on first use (not at startup)
-- [x] Quick enhance (templates only - instant)
-- [x] AI enhance (Flan-T5 powered)
-- [x] Auto-detect style from prompt content
+### Phase 1: Core Image Generation
+- [x] Model presets config file with per-model settings
+- [x] Button state management (show/hide based on state)
+- [x] Image metadata storage (PNG with full settings)
+- [x] Gallery with metadata viewing and bulk operations
+- [x] Prompt enhancement (Quick + AI-powered with Flan-T5)
+- [x] LoRA training system (dataset, train, manage)
+- [x] Prompt library (save/load prompts)
 - [x] Live CLIP token counter (77 token limit)
 
-## 6. LoRA Training System ✅ DONE
-- [x] Dataset management (create, upload, caption images)
-- [x] Training UI with progress tracking
-- [x] Multiple crop modes (resize_pad, smart, center, top, stretch)
-- [x] Resume training from existing LoRA
-- [x] LoRA selector in image generator
-- [x] My LoRAs management tab
+### Phase 2: Project Organization
+- [x] Reorganized folder structure (data/, scripts/, src/)
+- [x] Model-agnostic configuration (user configs git-ignored)
+- [x] Chat model presets (`config/chat_model_presets.yaml`)
+- [x] Image model presets (`config/image_model_presets.yaml`)
+- [x] Consistent config pattern for chat and image models
 
-## 7. Prompt Library ✅ DONE
-- [x] Save prompts with all settings
-- [x] Load prompts back to generator
-- [x] Delete saved prompts
-- [x] Preview prompt details
+### Phase 3: UI/UX Improvements
+- [x] Restructured Chat tab with sub-tabs (Conversation, Characters, Personas)
+- [x] Image Generator has sub-tabs (Generate, Gallery, Prompt Library, LoRA Training)
+- [x] Consistent layouts between Chat and Image Generator
+- [x] Better progress bar with step-by-step updates
+- [x] LoRA import from .safetensors files
+- [x] Auto-refresh LoRA dropdown after import/delete
 
 ---
 
-## Future Improvements (Not Started)
+## In Progress 🔄
+
+### Character Appearance System
+- [ ] Link chat characters to visual appearance descriptions
+- [ ] Store appearance prompts (hair, eyes, clothing, style)
+- [ ] Optional LoRA association per character
+- [ ] Auto-fill image prompts when character selected
+- [ ] Character portrait generation workflow
+
+---
+
+## Planned 📋
 
 ### Image Generation
 - [ ] Img2Img support
@@ -58,18 +50,53 @@
 - [ ] Upscaling (Real-ESRGAN)
 
 ### LoRA Training
-- [ ] Auto-captioning with BLIP (partially implemented)
+- [ ] Auto-captioning with BLIP
 - [ ] Training preview images
 - [ ] Learning rate finder
 - [ ] Multi-concept training
+- [ ] Chat model LoRA training (personality fine-tuning)
 
 ### UI/UX
 - [ ] Dark/light theme toggle
 - [ ] Keyboard shortcuts
-- [ ] Drag & drop image upload
+- [ ] Drag & drop improvements
 - [ ] Side-by-side comparison view
+- [ ] Move LoRA Training to top-level tab (when chat LoRAs added)
 
 ### Performance
 - [ ] Model quantization (8-bit, 4-bit)
 - [ ] TensorRT optimization
 - [ ] Batch inference
+
+---
+
+## Future Ideas 💡
+
+### Character Appearance System (Detailed Plan)
+```yaml
+# Example character with linked appearance
+name: "Luna"
+personality: "A mysterious space explorer..."
+appearance:
+  base_prompt: "young woman, silver hair, violet eyes"
+  style: "sci-fi, futuristic"
+  clothing: "black flight suit, utility belt"
+  lora: "Luna_v1"
+  trigger_word: "luna_char"
+```
+
+**Workflow:**
+1. Create character in Chat → Characters
+2. Add visual appearance details
+3. Generate reference images
+4. Train LoRA on best images
+5. Link LoRA to character
+6. Auto-apply when generating images of that character
+
+### Chat Model LoRA Training
+Fine-tune chat models on character-specific conversations:
+1. Export chat history with character
+2. Format as training data
+3. Train LoRA on personality/style
+4. Apply to base chat model
+5. More consistent character responses
