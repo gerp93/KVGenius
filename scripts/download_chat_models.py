@@ -1,16 +1,15 @@
 """
-Download all image generation models with resume support.
-Reads models from config/image_model_presets.yaml
+Download all chat models from config with resume support.
+Reads models from config/chat_model_presets.yaml
 Skips models that are already downloaded (unless --force is used).
 Uses single-threaded downloads to avoid timeout issues.
 
 Usage:
-  python download_image_models.py          # Download missing models only
-  python download_image_models.py --force  # Re-download all models
+  python download_chat_models.py          # Download missing models only
+  python download_chat_models.py --force  # Re-download all models
 """
 import os
 import sys
-import glob
 import argparse
 
 # Add parent directory to path for imports
@@ -29,8 +28,8 @@ CACHE_DIR = "./data/model_cache"
 
 def load_models_from_config():
     """Load model list from user's config file."""
-    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "image_model_presets.yaml")
-    example_path = os.path.join(os.path.dirname(__file__), "..", "config", "image_model_presets.example.yaml")
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "chat_model_presets.yaml")
+    example_path = os.path.join(os.path.dirname(__file__), "..", "config", "chat_model_presets.example.yaml")
     
     # Try user config first, fall back to example
     if os.path.exists(config_path):
@@ -63,13 +62,15 @@ def get_downloaded_models():
     try:
         cache_info = scan_cache_dir(CACHE_DIR)
         for repo in cache_info.repos:
-            # repo.repo_id is like "Lykon/dreamshaper-8"
+            # repo.repo_id is like "NousResearch/Nous-Hermes-2-Mistral-7B-DPO"
             downloaded.add(repo.repo_id)
     except Exception as e:
         print(f"⚠️ Could not scan cache: {e}")
         # Fallback: check directory names
+        models_dir = os.path.join(CACHE_DIR, "models--*")
+        import glob
         for path in glob.glob(os.path.join(CACHE_DIR, "models--*")):
-            # Convert "models--Lykon--dreamshaper-8" to "Lykon/dreamshaper-8"
+            # Convert "models--NousResearch--Nous-Hermes-2-Mistral-7B-DPO" to "NousResearch/Nous-Hermes-2-Mistral-7B-DPO"
             dirname = os.path.basename(path)
             if dirname.startswith("models--"):
                 repo_id = dirname[8:].replace("--", "/", 1)
@@ -104,16 +105,16 @@ def download_model(name: str, repo_id: str, description: str = ""):
 
 def main():
     # Parse arguments
-    parser = argparse.ArgumentParser(description="Download all image models from config")
+    parser = argparse.ArgumentParser(description="Download all chat models from config")
     parser.add_argument("--force", action="store_true", 
                         help="Force re-download all models, even if already cached")
     args = parser.parse_args()
     
     # Load models from config
-    IMAGE_MODELS = load_models_from_config()
+    CHAT_MODELS = load_models_from_config()
     
-    if not IMAGE_MODELS:
-        print("No models found in config. Please check your image_model_presets.yaml")
+    if not CHAT_MODELS:
+        print("No models found in config. Please check your chat_model_presets.yaml")
         return
     
     # Get already downloaded models (unless forcing)
@@ -124,10 +125,10 @@ def main():
         downloaded = get_downloaded_models()
     
     print("="*60)
-    print("Image Model Downloader")
+    print("Chat Model Downloader")
     print("="*60)
     print(f"Cache directory: {os.path.abspath(CACHE_DIR)}")
-    print(f"Models in config: {len(IMAGE_MODELS)}")
+    print(f"Models in config: {len(CHAT_MODELS)}")
     if not args.force:
         print(f"Already downloaded: {len(downloaded)}")
     print()
@@ -136,7 +137,7 @@ def main():
     to_download = {}
     already_have = {}
     
-    for name, preset in IMAGE_MODELS.items():
+    for name, preset in CHAT_MODELS.items():
         repo_id = preset.get('id')
         if repo_id in downloaded:
             already_have[name] = preset
@@ -159,9 +160,12 @@ def main():
     print(f"📥 Models to download ({len(to_download)}):")
     for name, preset in to_download.items():
         desc = preset.get('description', '')
+        vram = preset.get('vram', '')
         print(f"   • {name}: {preset.get('id')}")
         if desc:
             print(f"     {desc}")
+        if vram:
+            print(f"     VRAM: {vram}")
     
     print()
     response = input("Download these models? [Y/n]: ").strip().lower()

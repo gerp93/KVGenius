@@ -202,32 +202,41 @@ def get_generation_prompt(topic: str, card_type: CardType, quantity: int, style:
     
     type_instruction = ""
     if card_type == CardType.BLACK:
-        type_instruction = f"Generate {quantity} BLACK cards (prompts with ___ blanks)"
+        type_instruction = f"Generate {quantity} BLACK cards (prompt cards)"
+        type_rules = """BLACK CARD RULES:
+- BLACK cards are PROMPTS that need answers
+- MUST contain "___" (three underscores) as a blank for answers
+- Questions ending with ? should ALSO have a blank, e.g. "What does ___ fear most?"
+- Can be statements with blanks like "___ is the reason I drink."
+- 1-3 blanks per card"""
     elif card_type == CardType.WHITE:
-        type_instruction = f"Generate {quantity} WHITE cards (answer cards)"
+        type_instruction = f"Generate {quantity} WHITE cards (answer cards) ONLY"
+        type_rules = """WHITE CARD RULES - IMPORTANT:
+- WHITE cards are SHORT ANSWER PHRASES ONLY (2-8 words)
+- NEVER generate questions - NO question marks allowed
+- NO blanks (no ___)
+- Just nouns, phrases, concepts, or funny things
+- Examples: "A disappointing handjob", "Grandma's dentures", "Elon Musk's ego"
+- DO NOT include any setup questions, ONLY the answer phrases"""
     else:
         half = quantity // 2
         type_instruction = f"Generate {half} BLACK cards and {quantity - half} WHITE cards"
+        type_rules = """BLACK CARD RULES: Prompts with ___ blanks (questions should also have blanks)
+WHITE CARD RULES: Short answers (2-8 words), NO blanks, NO questions"""
     
-    prompt = f"""{type_instruction} about the following topic/theme:
+    prompt = f"""{type_instruction} about: {topic}
 
-TOPIC: {topic}
+{type_rules}
 
-Format your response as a JSON array with objects containing:
-- "text": the card text
-- "type": "black" or "white"
-- "blanks": number of ___ in the card (0 for white cards)
-
-Example format:
+OUTPUT FORMAT - JSON array only, no extra text:
 [
-  {{"text": "What's the secret ingredient in grandma's cookies? ___.", "type": "black", "blanks": 1}},
-  {{"text": "Aggressive taxation", "type": "white", "blanks": 0}}
+  {{"text": "card text here", "type": "{card_type.value if card_type != CardType.BOTH else 'black'}", "blanks": 0}}
 ]
 
-Generate exactly {quantity} cards. Be creative and match the requested style."""
+Generate exactly {quantity} cards. Output ONLY the JSON array."""
 
     if custom_instructions:
-        prompt += f"\n\nAdditional instructions: {custom_instructions}"
+        prompt += f"\n\nAdditional style: {custom_instructions}"
     
     return prompt
 
@@ -351,16 +360,71 @@ Format output as JSON array."""
         cards = []
         lines = response.strip().split('\n')
         
+        # Phrases that indicate model commentary, not actual cards
+        skip_phrases = [
+            'i have generated', 'here are', 'here they are', 'as requested',
+            'json format', 'following cards', 'cards about', 'hope you',
+            'let me know', 'enjoy', 'here\'s', 'note:', 'disclaimer'
+        ]
+        
         for line in lines:
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
+            
+            # Skip model commentary
+            line_lower = line.lower()
+            if any(phrase in line_lower for phrase in skip_phrases):
+                continue
+            
+            # Try to parse line as JSON object (model may output one JSON per line)
+            if line.startswith('{') and '"text"' in line:
+                try:
+                    # Clean up trailing comma if present
+                    clean_line = line.rstrip(',')
+                    item = json.loads(clean_line)
+                    text = item.get('text', '')
+                    if text:
+                        # Skip questions if we're generating WHITE cards only
+                        if force_type == CardType.WHITE and '?' in text:
+                            logger.debug(f"Skipping question in WHITE mode: {text}")
+                            continue
+                        
+                        # Determine card type
+                        if force_type and force_type != CardType.BOTH:
+                            card_type = force_type.value
+                            blanks = 0 if force_type == CardType.WHITE else text.count('___')
+                        else:
+                            card_type = item.get('type', 'white')
+                            blanks = item.get('blanks', text.count('___'))
+                        
+                        card = Card(
+                            id="",
+                            text=text,
+                            card_type=card_type,
+                            style=style.value,
+                            topic=topic,
+                            blanks=blanks
+                        )
+                        cards.append(card)
+                        continue
+                except json.JSONDecodeError:
+                    pass  # Fall through to regular parsing
             
             # Remove common prefixes
             for prefix in ['- ', '* ', '• ', '1. ', '2. ', '3. ', '4. ', '5. ', 
                           '6. ', '7. ', '8. ', '9. ', '10. ']:
                 if line.startswith(prefix):
                     line = line[len(prefix):]
+            
+            # Skip JSON-like fragments that didn't parse
+            if line.startswith('{') or line.startswith('[') or line.startswith(']'):
+                continue
+            
+            # Skip questions if we're generating WHITE cards only
+            if force_type == CardType.WHITE and '?' in line:
+                logger.debug(f"Skipping question in WHITE mode: {line}")
+                continue
             
             # Determine card type - respect force_type if set
             if force_type and force_type != CardType.BOTH:

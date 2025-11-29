@@ -1,0 +1,49 @@
+# Utility Model Presets Configuration
+# These models run on CPU to preserve GPU VRAM for main models
+# They handle auxiliary tasks like prompt enhancement, image captioning, and content filtering
+
+models:
+  # Prompt Enhancement - improves image generation prompts
+  prompt_enhancer:
+    id: "google/flan-t5-small"
+    description: "Small T5 model for AI-powered prompt enhancement"
+    task: "text2text-generation"
+    device: "cpu"
+    size: "~300 MB"
+    notes: "Lightweight, runs well on CPU. Used to expand and improve image prompts."
+
+  # Image Captioning - generates descriptions of images
+  image_captioner:
+    id: "Salesforce/blip-image-captioning-base"
+    description: "BLIP model for generating image descriptions"
+    task: "image-to-text"
+    device: "cpu"
+    size: "~1 GB"
+    notes: "Used for auto-captioning uploaded images. Runs on CPU."
+
+  # NSFW Detection - content safety filter
+  nsfw_detector:
+    id: "Falconsai/nsfw_image_detection"
+    description: "Image classification for NSFW content detection"
+    task: "image-classification"
+    device: "cpu"
+    size: "~350 MB"
+    notes: "Optional safety filter. Disabled by default for unrestricted generation."
+
+# Alternative models (can swap in if needed)
+alternatives:
+  prompt_enhancer:
+    - id: "google/flan-t5-base"
+      description: "Larger T5 for better enhancement (slower)"
+      size: "~1 GB"
+    - id: "Qwen/Qwen2-0.5B-Instruct"
+      description: "Small instruction-tuned LLM alternative"
+      size: "~1 GB"
+
+  image_captioner:
+    - id: "Salesforce/blip-image-captioning-large"
+      description: "Larger BLIP for better captions"
+      size: "~2 GB"
+    - id: "microsoft/git-base"
+      description: "GIT model alternative"
+      size: "~700 MB"

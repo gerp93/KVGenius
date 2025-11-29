@@ -79,6 +79,17 @@ prompt_enhancer_tokenizer = None
 CLIP_MAX_TOKENS = 77
 
 
+def get_gpu_info():
+    """Get GPU name and compute capability for display."""
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        # Get compute capability
+        major, minor = torch.cuda.get_device_capability(0)
+        return f"{gpu_name} (sm_{major}{minor})"
+    else:
+        return "CPU (No GPU detected)"
+
+
 def count_clip_tokens(text, tokenizer=None):
     """Count actual CLIP tokens using the model's tokenizer, or estimate if not available."""
     if not text:
@@ -164,6 +175,29 @@ def format_image_metadata(metadata):
         lines.append(f"**Generated:** {metadata['generated_at']}")
     
     return "\n\n".join(lines)
+
+
+def load_utility_model_presets():
+    """Load utility model presets from config file."""
+    config_dir = os.path.join(os.path.dirname(__file__), "config")
+    presets_path = os.path.join(config_dir, "utility_model_presets.yaml")
+    
+    try:
+        with open(presets_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            return config.get('models', {})
+    except Exception as e:
+        logger.warning(f"Could not load utility model presets: {e}")
+        # Return defaults
+        return {
+            'prompt_enhancer': {'id': 'google/flan-t5-small', 'device': 'cpu'},
+            'image_captioner': {'id': 'Salesforce/blip-image-captioning-base', 'device': 'cpu'},
+            'nsfw_detector': {'id': 'Falconsai/nsfw_image_detection', 'device': 'cpu'}
+        }
+
+
+# Load utility model presets from config
+UTILITY_MODELS = load_utility_model_presets()
 
 
 def load_image_model_presets():
@@ -710,6 +744,17 @@ def load_image_model(model_name, progress=gr.Progress()):
     # Extract model key from selection (remove status icon)
     model_key = extract_model_key(model_name)
     
+    logger.info(f"load_image_model called with model_name={model_name}, model_key={model_key}")
+    logger.info(f"progress type: {type(progress)}")
+    
+    # Handle case where progress isn't callable (when called from .then() chain)
+    def safe_progress(value, desc=""):
+        try:
+            if callable(progress):
+                progress(value, desc=desc)
+        except Exception as e:
+            logger.debug(f"Progress update skipped: {e}")
+    
     try:
         from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, AutoPipelineForText2Image
         
@@ -718,7 +763,7 @@ def load_image_model(model_name, progress=gr.Progress()):
         
         model_id = AVAILABLE_IMAGE_MODELS[model_key]["id"]
         
-        progress(0.05, desc="🔍 Checking model...")
+        safe_progress(0.05, desc="🔍 Checking model...")
         logger.info(f"Loading image model: {model_id}")
         
         # Check if already downloaded
@@ -728,14 +773,14 @@ def load_image_model(model_name, progress=gr.Progress()):
         # Auto-unload any previously loaded model to free VRAM
         if loaded_image_models:
             prev_models = list(loaded_image_models.keys())
-            progress(0.1, desc="🗑️ Unloading previous model to free VRAM...")
+            safe_progress(0.1, desc="🗑️ Unloading previous model to free VRAM...")
             unload_all_image_models()
             logger.info(f"Auto-unloaded previous models: {prev_models}")
         
         if is_cached:
-            progress(0.15, desc=f"📦 Found {model_key} in cache, loading...")
+            safe_progress(0.15, desc=f"📦 Found {model_key} in cache, loading...")
         else:
-            progress(0.15, desc=f"📥 Downloading {model_key}... (this may take a few minutes)")
+            safe_progress(0.15, desc=f"📥 Downloading {model_key}... (this may take a few minutes)")
         
         # Load appropriate pipeline based on model
         # Check for SDXL models by name hints, or auto-detect from model config
@@ -746,7 +791,7 @@ def load_image_model(model_name, progress=gr.Progress()):
             try:
                 from huggingface_hub import hf_hub_download
                 import json
-                progress(0.2, desc="🔍 Detecting model type...")
+                safe_progress(0.2, desc="🔍 Detecting model type...")
                 config_path = hf_hub_download(model_id, "model_index.json", cache_dir=cache_dir)
                 with open(config_path, 'r') as f:
                     config = json.load(f)
@@ -756,14 +801,14 @@ def load_image_model(model_name, progress=gr.Progress()):
             except:
                 pass  # Fall back to name-based detection
         
-        progress(0.25, desc=f"⚙️ Loading {'SDXL' if is_sdxl else 'SD 1.5'} pipeline...")
+        safe_progress(0.25, desc=f"⚙️ Loading {'SDXL' if is_sdxl else 'SD 1.5'} pipeline...")
         
         if is_sdxl:
             # Try StableDiffusionXLPipeline first for proper SDXL support
             try:
                 from diffusers import EulerDiscreteScheduler
                 
-                progress(0.3, desc="📥 Loading model weights...")
+                safe_progress(0.3, desc="📥 Loading model weights...")
                 image_model = StableDiffusionXLPipeline.from_pretrained(
                     model_id,
                     torch_dtype=torch.float16,
@@ -771,7 +816,7 @@ def load_image_model(model_name, progress=gr.Progress()):
                     use_safetensors=True,
                 )
                 
-                progress(0.6, desc="⚙️ Configuring scheduler...")
+                safe_progress(0.6, desc="⚙️ Configuring scheduler...")
                 # Some models use EDM schedulers that may cause noise output
                 # Replace with a standard Euler scheduler for compatibility
                 scheduler_type = type(image_model.scheduler).__name__
@@ -784,24 +829,24 @@ def load_image_model(model_name, progress=gr.Progress()):
                 
             except Exception as e:
                 logger.warning(f"SDXL pipeline failed, trying AutoPipeline: {e}")
-                progress(0.4, desc="🔄 Trying alternative loader...")
+                safe_progress(0.4, desc="🔄 Trying alternative loader...")
                 image_model = AutoPipelineForText2Image.from_pretrained(
                     model_id,
                     torch_dtype=torch.float16,
                     cache_dir=cache_dir,
                 )
         else:
-            progress(0.3, desc="📥 Loading model weights...")
+            safe_progress(0.3, desc="📥 Loading model weights...")
             image_model = StableDiffusionPipeline.from_pretrained(
                 model_id,
                 torch_dtype=torch.float16,
                 cache_dir=cache_dir,
             )
         
-        progress(0.75, desc="🚀 Moving to GPU...")
+        safe_progress(0.75, desc="🚀 Moving to GPU...")
         image_model = image_model.to("cuda")
         
-        progress(0.85, desc="🔧 Applying optimizations...")
+        safe_progress(0.85, desc="🔧 Applying optimizations...")
         # Disable safety checker for unrestricted generation
         if hasattr(image_model, 'safety_checker'):
             image_model.safety_checker = None
@@ -809,15 +854,16 @@ def load_image_model(model_name, progress=gr.Progress()):
         # Enable memory optimizations
         image_model.enable_attention_slicing()
         
-        progress(0.95, desc="✨ Finalizing...")
+        safe_progress(0.95, desc="✨ Finalizing...")
         # Track loaded model
         loaded_image_models[model_key] = image_model
         current_image_model_key = model_key
         image_model_loaded = True
         logger.info(f"Image model loaded: {model_key}")
         
-        progress(1.0, desc="Done!")
-        return f"### ✅ {model_key} loaded and ready!"
+        safe_progress(1.0, desc="Done!")
+        # Return full model info with loaded status
+        return get_image_model_info(model_name)
         
     except ImportError:
         return "### ❌ Please install diffusers: `pip install diffusers transformers accelerate`"
@@ -831,10 +877,10 @@ def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, he
     global image_model, image_gen_cancel_event, image_gen_in_progress
     
     if image_model is None:
-        return None, "❌ No image model loaded. Please load a model first."
+        return None, "**❌ No image model loaded**\n\nPlease select and load an image model first."
     
     if not prompt.strip():
-        return None, "❌ Please enter a prompt."
+        return None, "**❌ Missing prompt**\n\nPlease enter a prompt to generate an image."
     
     # Check for CLIP token limit using actual tokenizer if available
     tokenizer = getattr(image_model, 'tokenizer', None)
@@ -1437,15 +1483,20 @@ def auto_caption_image(image):
         if 'blip_model' not in globals() or blip_model is None:
             from transformers import BlipProcessor, BlipForConditionalGeneration
             
-            logger.info("Loading BLIP captioning model...")
+            # Get model config from utility presets
+            captioner_config = UTILITY_MODELS.get('image_captioner', {})
+            model_id = captioner_config.get('id', 'Salesforce/blip-image-captioning-base')
+            device = captioner_config.get('device', 'cpu')
+            
+            logger.info(f"Loading BLIP captioning model: {model_id} on {device}...")
             blip_processor = BlipProcessor.from_pretrained(
-                "Salesforce/blip-image-captioning-base",
+                model_id,
                 cache_dir=cache_dir
             )
             blip_model = BlipForConditionalGeneration.from_pretrained(
-                "Salesforce/blip-image-captioning-base",
+                model_id,
                 cache_dir=cache_dir
-            ).to("cpu")  # Keep on CPU to save VRAM
+            ).to(device)
             blip_model.eval()
         
         inputs = blip_processor(image, return_tensors="pt")
@@ -1763,16 +1814,24 @@ def get_cah_type_choices():
 def generate_cah_cards(topic, card_type, quantity, style, custom_style, progress=gr.Progress()):
     """Generate CAH-style cards using the loaded chat model."""
     global active_models
+    import time
     
     if not topic or not topic.strip():
         return [], "❌ Please enter a topic or theme"
     
     if not active_models:
-        return [], "❌ No chat model loaded. Please load a model in the Chat tab first."
+        return [], "❌ No text model loaded. Please load a model first."
     
     # Get the first loaded model
     model_key = list(active_models.keys())[0]
     model, tokenizer, chatbot = active_models[model_key]
+    
+    # Diagnostic: Check model device
+    model_device = next(model.parameters()).device
+    logger.info(f"[CARD-GEN] Model '{model_key}' is on device: {model_device}")
+    if str(model_device) == "cpu":
+        logger.warning("[CARD-GEN] ⚠️ MODEL IS ON CPU - THIS WILL BE VERY SLOW!")
+        return [], f"**⚠️ Model is on CPU!**\n\n{model_key} loaded on CPU instead of GPU. This would take 10+ minutes. Please unload and reload the model."
     
     progress(0.1, desc="Preparing generation...")
     
@@ -1801,19 +1860,36 @@ def generate_cah_cards(topic, card_type, quantity, style, custom_style, progress
         inputs = tokenizer(full_prompt, return_tensors="pt", truncation=True, max_length=2048)
         inputs = {k: v.to(model.device) for k, v in inputs.items()}
         
+        logger.info(f"[CARD-GEN] Input tokens: {inputs['input_ids'].shape[1]}")
+        logger.info(f"[CARD-GEN] Inputs on device: {inputs['input_ids'].device}")
+        
         progress(0.4, desc="Generating response...")
+        
+        gen_start = time.time()
+        
+        # Scale max tokens based on quantity requested (~40 tokens per card is plenty)
+        max_tokens = min(100 + (quantity * 50), 800)
+        logger.info(f"[CARD-GEN] Starting generation (max {max_tokens} tokens for {quantity} cards)...")
         
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=1500,
+                max_new_tokens=max_tokens,
                 temperature=0.8,
                 top_p=0.9,
                 do_sample=True,
                 pad_token_id=tokenizer.eos_token_id,
             )
         
+        gen_elapsed = time.time() - gen_start
+        output_tokens = outputs.shape[1] - inputs['input_ids'].shape[1]
+        tokens_per_sec = output_tokens / gen_elapsed if gen_elapsed > 0 else 0
+        logger.info(f"[CARD-GEN] Generation completed in {gen_elapsed:.2f}s ({output_tokens} tokens, {tokens_per_sec:.1f} tok/s)")
+        
         response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+        
+        # Log first 500 chars of response for debugging
+        logger.info(f"[CARD-GEN] Raw response (first 500 chars):\n{response[:500]}")
         
         progress(0.8, desc="Parsing cards...")
         
@@ -1930,7 +2006,7 @@ def extract_cah_from_article(article_text, card_type, quantity, progress=gr.Prog
         return [], "❌ Article seems too short. Please paste a full article."
     
     if not active_models:
-        return [], "❌ No chat model loaded. Please load a model in the Chat tab first."
+        return [], "❌ No text model loaded. Please load a model first."
     
     # Get the first loaded model
     model_key = list(active_models.keys())[0]
@@ -2182,8 +2258,12 @@ def load_prompt_enhancer():
     try:
         from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
         
-        logger.info("Loading prompt enhancer model on CPU...")
-        model_name = "google/flan-t5-small"  # Small model, ~300MB, runs well on CPU
+        # Get model from utility config
+        config = UTILITY_MODELS.get('prompt_enhancer', {})
+        model_name = config.get('id', 'google/flan-t5-small')
+        device = config.get('device', 'cpu')
+        
+        logger.info(f"Loading prompt enhancer ({model_name}) on {device}...")
         
         prompt_enhancer_tokenizer = AutoTokenizer.from_pretrained(
             model_name, 
@@ -2193,11 +2273,11 @@ def load_prompt_enhancer():
             model_name,
             cache_dir=cache_dir
         )
-        # Keep on CPU explicitly
-        prompt_enhancer_model = prompt_enhancer_model.to("cpu")
+        # Keep on CPU explicitly to preserve GPU VRAM
+        prompt_enhancer_model = prompt_enhancer_model.to(device)
         prompt_enhancer_model.eval()
         
-        logger.info("Prompt enhancer loaded successfully")
+        logger.info(f"Prompt enhancer loaded successfully on {device}")
         return True
     except Exception as e:
         logger.error(f"Failed to load prompt enhancer: {e}")
@@ -2747,6 +2827,165 @@ def update_chat_model_controls(model_name):
         return info, gr.update(visible=True), gr.update(visible=False)
 
 
+def update_global_chat_controls(model_name):
+    """Return button visibility for the global chat model controls."""
+    model_key = extract_model_key(model_name)
+    
+    if model_key not in AVAILABLE_MODELS:
+        return gr.update(visible=True), gr.update(visible=False)
+    
+    if model_key in active_models:
+        # Model is loaded -> hide load, show unload
+        return gr.update(visible=False), gr.update(visible=True)
+    else:
+        # Model not loaded -> show load, hide unload
+        return gr.update(visible=True), gr.update(visible=False)
+
+
+def get_chat_model_info(model_name):
+    """Get formatted info string for a chat model."""
+    model_key = extract_model_key(model_name)
+    
+    if model_key not in AVAILABLE_MODELS:
+        return "💡 Select a model to see details"
+    
+    m = AVAILABLE_MODELS[model_key]
+    
+    # Determine status
+    if model_key in active_models:
+        status = "🟢 **LOADED** - Ready!"
+    elif is_model_downloaded(m.get('id', ''), is_image_model=False):
+        status = "🟡 **Downloaded** - Click Load to use"
+    else:
+        status = "🔴 **Not Downloaded** - Will download on first load"
+    
+    desc = m.get('description', '')
+    vram = m.get('vram', 'Unknown')
+    best_for = m.get('best_for', '')
+    
+    info = f"**🧠 Text: {model_key}** | {status}\n\n"
+    if desc:
+        info += f"{desc} "
+    if vram:
+        info += f"• **VRAM:** {vram}"
+    if best_for:
+        info += f" • **Best for:** {best_for}"
+    
+    return info
+
+
+def get_image_model_info(model_name):
+    """Get formatted info string for an image model."""
+    model_key = extract_model_key(model_name)
+    
+    if model_key not in AVAILABLE_IMAGE_MODELS:
+        return "💡 Select a model to see details"
+    
+    m = AVAILABLE_IMAGE_MODELS[model_key]
+    
+    # Determine status
+    if model_key in loaded_image_models:
+        status = "🟢 **LOADED** - Ready to generate!"
+    elif is_model_downloaded(m.get('id', ''), is_image_model=True):
+        status = "🟡 **Downloaded** - Click Load to use"
+    else:
+        status = "🔴 **Not Downloaded** - Will download on first load"
+    
+    desc = m.get('description', '')
+    model_type = m.get('type', 'SD 1.5')
+    
+    info = f"**🎨 {model_key}** | {status}\n\n"
+    if desc:
+        info += f"{desc} "
+    info += f"• **Type:** {model_type}"
+    
+    return info
+
+
+def update_global_img_controls(model_name):
+    """Return button visibility for the global image model controls."""
+    model_key = extract_model_key(model_name)
+    
+    if model_key not in AVAILABLE_IMAGE_MODELS:
+        return gr.update(visible=True), gr.update(visible=False)
+    
+    if model_key in loaded_image_models:
+        # Model is loaded -> hide load, show unload
+        return gr.update(visible=False), gr.update(visible=True)
+    else:
+        # Model not loaded -> show load, hide unload
+        return gr.update(visible=True), gr.update(visible=False)
+
+
+def get_global_status():
+    """Get current model status for the global status display with full details."""
+    chat_loaded = list(active_models.keys())
+    img_loaded = list(loaded_image_models.keys())
+    
+    if chat_loaded:
+        # Return full chat model info
+        return get_chat_model_info(chat_loaded[0])
+    elif img_loaded:
+        # Return full image model info
+        return get_image_model_info(img_loaded[0])
+    else:
+        return "💡 *Select and load a model to start*"
+
+
+def unload_all_chat_models():
+    """Unload all chat models to free VRAM."""
+    global active_models
+    for key in list(active_models.keys()):
+        try:
+            del active_models[key]
+        except:
+            pass
+    # Force garbage collection
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def unload_all_image_models():
+    """Unload all image models to free VRAM."""
+    global image_model, loaded_image_models, current_image_model_key
+    for key in list(loaded_image_models.keys()):
+        try:
+            del loaded_image_models[key]
+        except:
+            pass
+    image_model = None
+    current_image_model_key = None
+    # Force garbage collection
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def load_chat_model_exclusive(model_name, progress=gr.Progress()):
+    """Load a chat model, first unloading any image models."""
+    # Unload image models first
+    if loaded_image_models:
+        logger.info("Unloading image models to free VRAM for chat model...")
+        unload_all_image_models()
+    
+    # Now load the chat model
+    return load_chat_model(model_name, progress)
+
+
+def load_image_model_exclusive(model_name):
+    """Load an image model, first unloading any chat models."""
+    # Unload chat models first
+    if active_models:
+        logger.info("Unloading chat models to free VRAM for image model...")
+        unload_all_chat_models()
+    
+    # Now load the image model (let it handle its own progress)
+    return load_image_model(model_name)
+
+
 def load_chat_model(model_name, progress=gr.Progress()):
     """Explicitly load a chat model."""
     model_key = extract_model_key(model_name)
@@ -2757,7 +2996,8 @@ def load_chat_model(model_name, progress=gr.Progress()):
     try:
         progress(0.05, desc=f"🔍 Preparing to load {model_key}...")
         model, tokenizer, chatbot = load_model(model_key, progress)
-        return f"### ✅ {model_key} loaded and ready to chat!"
+        # Return full model info with loaded status
+        return get_chat_model_info(model_name)
     except Exception as e:
         logger.error(f"Failed to load {model_key}: {e}")
         return f"### ❌ Failed to load: {str(e)}"
@@ -3476,38 +3716,74 @@ def create_ui():
             border-color: #ff8555 !important;
             transform: scale(1.05) !important;
         }
+        
+        /* Compact header styling */
+        .header-row {
+            align-items: flex-end !important;
+            padding-bottom: 10px !important;
+        }
+        .status-bar {
+            font-size: 14px !important;
+            padding: 10px 16px !important;
+            border-radius: 8px !important;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
+            border: 1px solid #0f3460 !important;
+            text-align: left !important;
+        }
+        .status-key {
+            font-size: 11px !important;
+            color: #888 !important;
+            margin-top: 5px !important;
+        }
     """) as demo:
         
-        gr.Markdown("# 🤖 KVGenius - Multi-Model AI Chat\n### RTX 5070 Ti (sm_120 Blackwell)")
+        # ==================== HEADER WITH INLINE MODEL SELECTORS ====================
+        with gr.Row(elem_classes=["header-row"]):
+            # Left side - Title
+            with gr.Column(scale=1, min_width=200):
+                gr.Markdown(f"# 🤖 KVGenius AI Studio\n*{get_gpu_info()}*")
+                gr.Markdown("🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded", elem_classes=["status-key"])
+            
+            # Text Model selector with button below
+            with gr.Column(scale=1, min_width=220):
+                global_chat_dropdown = gr.Dropdown(
+                    choices=get_chat_model_choices(),
+                    value=get_chat_model_choices()[0] if get_chat_model_choices() else None,
+                    label="🧠 Text Model",
+                    container=True
+                )
+                with gr.Row():
+                    global_chat_load_btn = gr.Button("📥 Load", variant="primary", size="sm")
+                    global_chat_unload_btn = gr.Button("🗑️ Unload", variant="stop", size="sm", visible=False)
+                    global_chat_refresh_btn = gr.Button("🔄", size="sm", variant="secondary")
+            
+            # Image Model selector with button below
+            with gr.Column(scale=1, min_width=220):
+                global_img_dropdown = gr.Dropdown(
+                    choices=get_image_model_choices(),
+                    value=get_image_model_choices()[0] if get_image_model_choices() else None,
+                    label="🎨 Image Model",
+                    container=True
+                )
+                with gr.Row():
+                    global_img_load_btn = gr.Button("📥 Load", variant="primary", size="sm")
+                    global_img_unload_btn = gr.Button("🗑️ Unload", variant="stop", size="sm", visible=False)
+                    global_img_refresh_btn = gr.Button("🔄", size="sm", variant="secondary")
+        
+        # Status bar - full width below header (shows model info when selected)
+        global_model_status = gr.Markdown(
+            "💡 Select a model to see details, then click Load to start",
+            elem_classes=["status-bar"]
+        )
         
         with gr.Tabs() as main_tabs:
             with gr.TabItem("💬 Chat", id="chat_tab"):
                 with gr.Tabs() as chat_tabs:
                     with gr.TabItem("💬 Conversation", id="conversation_tab"):
-                        # Loading status bar - prominent and visible
-                        chat_status = gr.Markdown(
-                            "### 💡 Select a model and click 'Load' to start chatting",
-                            elem_classes=["loading-status", "idle"]
-                        )
                         
                         with gr.Row():
-                            # Sidebar - Model & Settings (LEFT side, matching Image Generator)
+                            # Sidebar - Settings (LEFT side)
                             with gr.Column(scale=1):
-                                gr.Markdown("### 🤖 Model")
-                                model_dropdown = gr.Dropdown(
-                                    choices=get_chat_model_choices(),
-                                    value=get_chat_model_choices()[0] if get_chat_model_choices() else None,
-                                    label="Chat Model",
-                                    info="🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded"
-                                )
-                                refresh_models_btn = gr.Button("🔄 Refresh", size="sm")
-                                model_info = gr.Markdown("*Select a model to see details*")
-                                
-                                with gr.Row():
-                                    load_model_btn = gr.Button("📥 Load Model", variant="primary", size="sm", visible=True)
-                                    unload_btn = gr.Button("🗑️ Unload", variant="stop", size="sm", visible=False)
-                                
-                                gr.Markdown("---")
                                 gr.Markdown("### 🎭 Character & Persona")
                                 ai_char_dropdown = gr.Dropdown(
                                     choices=ai_char_names,
@@ -3668,30 +3944,10 @@ def create_ui():
                 
                 with gr.Tabs() as img_tabs:
                     with gr.TabItem("🖌️ Generate", id="generate_tab"):
-                        # Loading status bar - prominent and visible
-                        img_status = gr.Markdown(
-                            "### 💡 Select a model and click 'Load' to start generating",
-                            elem_classes=["loading-status", "idle"]
-                        )
                         
                         with gr.Row():
-                            # Sidebar - Model & Settings
+                            # Sidebar - Settings
                             with gr.Column(scale=1):
-                                gr.Markdown("### 🤖 Model")
-                                img_model_dropdown = gr.Dropdown(
-                                    choices=get_image_model_choices(),
-                                    value=get_image_model_choices()[0] if get_image_model_choices() else None,
-                                    label="Image Model",
-                                    info="🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded"
-                                )
-                                refresh_img_models_btn = gr.Button("🔄 Refresh", size="sm")
-                                img_model_info = gr.Markdown(f"*{AVAILABLE_IMAGE_MODELS['Dreamshaper 8']['description']}*")
-                                
-                                with gr.Row():
-                                    load_img_model_btn = gr.Button("📥 Load Model", variant="primary", size="sm", visible=True)
-                                    unload_img_model_btn = gr.Button("🗑️ Unload", variant="stop", size="sm", visible=False)
-                                
-                                gr.Markdown("---")
                                 gr.Markdown("### 🎭 LoRA")
                                 lora_dropdown = gr.Dropdown(
                                     choices=["None"] + get_lora_choices(),
@@ -4020,7 +4276,7 @@ def create_ui():
             
             # ==================== CARD GENERATOR TAB ====================
             with gr.TabItem("🃏 Card Generator", id="card_tab"):
-                gr.Markdown("### 🃏 Cards Against Humanity Generator\n*Generate custom CAH-style cards using AI. Requires a chat model to be loaded.*")
+                gr.Markdown("### 🃏 Card Generator\n*Generate custom party game cards using the text model loaded above.*")
                 
                 with gr.Tabs() as card_tabs:
                     with gr.TabItem("🎴 Generate", id="card_generate_tab"):
@@ -4341,34 +4597,169 @@ def create_ui():
                 )
         
         # Chat Events
-        # Model controls - outputs for model_info and button visibility
-        chat_model_outputs = [model_info, load_model_btn, unload_btn]
-        model_dropdown.change(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
+        # Model controls - outputs for button visibility + status
+        chat_model_outputs = [global_chat_load_btn, global_chat_unload_btn, global_model_status]
         
-        # Load model with status updates
-        load_model_btn.click(
-            start_chat_loading, inputs=model_dropdown, outputs=chat_status
-        ).then(
-            load_chat_model, inputs=model_dropdown, outputs=chat_status
-        ).then(
-            refresh_chat_dropdown, inputs=model_dropdown, outputs=model_dropdown
-        ).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
+        def update_global_chat_controls_with_info(model_name):
+            """Return button visibility and model info for status bar."""
+            controls = update_global_chat_controls(model_name)
+            info = get_chat_model_info(model_name)
+            return controls[0], controls[1], info
         
-        unload_btn.click(unload, model_dropdown, status).then(
-            refresh_chat_dropdown, inputs=model_dropdown, outputs=model_dropdown
-        ).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs).then(
-            lambda: "### 💡 Select a model and click 'Load' to start chatting", outputs=chat_status
+        global_chat_dropdown.change(
+            update_global_chat_controls_with_info,
+            inputs=global_chat_dropdown, 
+            outputs=chat_model_outputs
         )
         
-        msg.submit(chat, [msg, chatbot_ui, model_dropdown, ai_char_dropdown, user_persona_dropdown], chatbot_ui).then(
-            lambda: "", outputs=msg
-        ).then(get_status, outputs=status).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
+        # Image model controls - outputs for button visibility and slider presets + status
+        img_model_outputs = [global_img_load_btn, global_img_unload_btn, img_steps, img_guidance, img_width, img_height, img_negative, generate_img_btn, global_model_status]
         
-        send.click(chat, [msg, chatbot_ui, model_dropdown, ai_char_dropdown, user_persona_dropdown], chatbot_ui).then(
-            lambda: "", outputs=msg
-        ).then(get_status, outputs=status).then(update_chat_model_controls, inputs=model_dropdown, outputs=chat_model_outputs)
+        def update_global_img_controls_full(model_name):
+            """Return button visibility, slider presets, and model info for global image controls."""
+            model_key = extract_model_key(model_name)
+            info = get_image_model_info(model_name)
+            
+            if model_key not in AVAILABLE_IMAGE_MODELS:
+                return (
+                    gr.update(visible=True),   # load button
+                    gr.update(visible=False),  # unload button
+                    gr.update(),               # steps slider
+                    gr.update(),               # guidance slider
+                    gr.update(),               # width slider
+                    gr.update(),               # height slider
+                    gr.update(),               # negative prompt
+                    gr.update(interactive=False),  # generate button disabled
+                    info                       # status info
+                )
+            
+            m = AVAILABLE_IMAGE_MODELS[model_key]
+            step_range = m.get('step_range', [1, 50])
+            guidance_range = m.get('guidance_range', [0.0, 20.0])
+            
+            steps_update = gr.update(value=m.get('default_steps', 25), minimum=step_range[0], maximum=step_range[1])
+            guidance_update = gr.update(value=m.get('default_guidance', 7.5), minimum=guidance_range[0], maximum=guidance_range[1])
+            width_update = gr.update(value=m.get('default_width', 512))
+            height_update = gr.update(value=m.get('default_height', 512))
+            negative_update = gr.update(value=m.get('default_negative', ''))
+            
+            if model_key in loaded_image_models:
+                return gr.update(visible=False), gr.update(visible=True), steps_update, guidance_update, width_update, height_update, negative_update, gr.update(interactive=True), info
+            else:
+                return gr.update(visible=True), gr.update(visible=False), steps_update, guidance_update, width_update, height_update, negative_update, gr.update(interactive=False), info
         
-        clear_btn.click(clear_chat, model_dropdown, chatbot_ui)
+        global_img_dropdown.change(
+            update_global_img_controls_full,
+            inputs=global_img_dropdown, 
+            outputs=img_model_outputs
+        )
+        
+        # Button-only outputs for .then() chains (no status update)
+        chat_btn_outputs = [global_chat_load_btn, global_chat_unload_btn]
+        img_btn_outputs = [global_img_load_btn, global_img_unload_btn, img_steps, img_guidance, img_width, img_height, img_negative, generate_img_btn]
+        
+        def update_global_img_controls_no_status(model_name):
+            """Return button visibility and slider presets without status update."""
+            model_key = extract_model_key(model_name)
+            
+            if model_key not in AVAILABLE_IMAGE_MODELS:
+                return (
+                    gr.update(visible=True),   # load button
+                    gr.update(visible=False),  # unload button
+                    gr.update(),               # steps slider
+                    gr.update(),               # guidance slider
+                    gr.update(),               # width slider
+                    gr.update(),               # height slider
+                    gr.update(),               # negative prompt
+                    gr.update(interactive=False)  # generate button disabled
+                )
+            
+            m = AVAILABLE_IMAGE_MODELS[model_key]
+            step_range = m.get('step_range', [1, 50])
+            guidance_range = m.get('guidance_range', [0.0, 20.0])
+            
+            steps_update = gr.update(value=m.get('default_steps', 25), minimum=step_range[0], maximum=step_range[1])
+            guidance_update = gr.update(value=m.get('default_guidance', 7.5), minimum=guidance_range[0], maximum=guidance_range[1])
+            width_update = gr.update(value=m.get('default_width', 512))
+            height_update = gr.update(value=m.get('default_height', 512))
+            negative_update = gr.update(value=m.get('default_negative', ''))
+            
+            if model_key in loaded_image_models:
+                return gr.update(visible=False), gr.update(visible=True), steps_update, guidance_update, width_update, height_update, negative_update, gr.update(interactive=True)
+            else:
+                return gr.update(visible=True), gr.update(visible=False), steps_update, guidance_update, width_update, height_update, negative_update, gr.update(interactive=False)
+        
+        # Load chat model (exclusive - unloads image model first)
+        global_chat_load_btn.click(
+            start_chat_loading, inputs=global_chat_dropdown, outputs=global_model_status
+        ).then(
+            load_chat_model_exclusive, inputs=global_chat_dropdown, outputs=global_model_status
+        ).then(
+            refresh_chat_dropdown, inputs=global_chat_dropdown, outputs=global_chat_dropdown
+        ).then(
+            lambda m: update_global_chat_controls(m), inputs=global_chat_dropdown, outputs=chat_btn_outputs
+        ).then(
+            lambda: (gr.update(choices=get_image_model_choices()), gr.update(visible=True), gr.update(visible=False)),
+            outputs=[global_img_dropdown, global_img_load_btn, global_img_unload_btn]
+        ).then(
+            get_global_status, outputs=global_model_status
+        )
+        
+        global_chat_unload_btn.click(
+            unload, global_chat_dropdown, status
+        ).then(
+            refresh_chat_dropdown, inputs=global_chat_dropdown, outputs=global_chat_dropdown
+        ).then(
+            lambda m: update_global_chat_controls(m), inputs=global_chat_dropdown, outputs=chat_btn_outputs
+        ).then(
+            get_global_status, outputs=global_model_status
+        )
+        
+        # Load image model (exclusive - unloads chat model first)
+        global_img_load_btn.click(
+            start_image_loading, inputs=global_img_dropdown, outputs=global_model_status
+        ).then(
+            load_image_model_exclusive, inputs=global_img_dropdown, outputs=global_model_status
+        ).then(
+            refresh_image_dropdown, inputs=global_img_dropdown, outputs=global_img_dropdown
+        ).then(
+            update_global_img_controls_no_status, inputs=global_img_dropdown, outputs=img_btn_outputs
+        ).then(
+            lambda: (gr.update(choices=get_chat_model_choices()), gr.update(visible=True), gr.update(visible=False)),
+            outputs=[global_chat_dropdown, global_chat_load_btn, global_chat_unload_btn]
+        ).then(
+            get_global_status, outputs=global_model_status
+        )
+        
+        global_img_unload_btn.click(
+            unload_image_model, inputs=global_img_dropdown, outputs=global_model_status
+        ).then(
+            refresh_image_dropdown, inputs=global_img_dropdown, outputs=global_img_dropdown
+        ).then(
+            update_global_img_controls_no_status, inputs=global_img_dropdown, outputs=img_btn_outputs
+        ).then(
+            get_global_status, outputs=global_model_status
+        )
+        
+        # Separate refresh buttons for each model type
+        global_chat_refresh_btn.click(
+            lambda: gr.update(choices=get_chat_model_choices()),
+            outputs=global_chat_dropdown
+        )
+        global_img_refresh_btn.click(
+            lambda: gr.update(choices=get_image_model_choices()),
+            outputs=global_img_dropdown
+        )
+        
+        msg.submit(chat, [msg, chatbot_ui, global_chat_dropdown, ai_char_dropdown, user_persona_dropdown], chatbot_ui).then(
+            lambda: "", outputs=msg
+        ).then(get_status, outputs=status).then(lambda m: update_global_chat_controls(m), inputs=global_chat_dropdown, outputs=chat_model_outputs)
+        
+        send.click(chat, [msg, chatbot_ui, global_chat_dropdown, ai_char_dropdown, user_persona_dropdown], chatbot_ui).then(
+            lambda: "", outputs=msg
+        ).then(get_status, outputs=status).then(lambda m: update_global_chat_controls(m), inputs=global_chat_dropdown, outputs=chat_model_outputs)
+        
+        clear_btn.click(clear_chat, global_chat_dropdown, chatbot_ui)
         new_chat_btn.click(new_chat, outputs=[chatbot_ui, status])
         
         load_conv_dropdown.change(load_conversation, load_conv_dropdown, [chatbot_ui, status])
@@ -4378,32 +4769,6 @@ def create_ui():
         
         refresh.click(get_status, outputs=status)
         cancel_btn.click(cancel_download, outputs=status).then(get_status, outputs=status)
-        
-        # Chat model refresh button
-        refresh_models_btn.click(lambda: gr.update(choices=get_chat_model_choices()), outputs=model_dropdown)
-        
-        # Image Generation Events - outputs include sliders for auto-preset and generate button state
-        img_model_outputs = [img_model_info, load_img_model_btn, unload_img_model_btn, img_steps, img_guidance, img_width, img_height, img_negative, generate_img_btn]
-        img_model_dropdown.change(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs)
-        
-        # Load image model with status updates
-        load_img_model_btn.click(
-            start_image_loading, inputs=img_model_dropdown, outputs=img_status
-        ).then(
-            load_image_model, inputs=img_model_dropdown, outputs=img_status
-        ).then(
-            refresh_image_dropdown, inputs=img_model_dropdown, outputs=img_model_dropdown
-        ).then(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs)
-        
-        unload_img_model_btn.click(unload_image_model, inputs=img_model_dropdown, outputs=img_status).then(
-            refresh_image_dropdown, inputs=img_model_dropdown, outputs=img_model_dropdown
-        ).then(update_img_model_controls, inputs=img_model_dropdown, outputs=img_model_outputs).then(
-            lambda: "### 💡 Select a model and click 'Load' to start generating", 
-            outputs=img_status
-        )
-        
-        # Image model refresh button
-        refresh_img_models_btn.click(lambda: gr.update(choices=get_image_model_choices()), outputs=img_model_dropdown)
         
         # LoRA refresh button
         refresh_lora_btn.click(lambda: gr.update(choices=["None"] + get_lora_choices()), outputs=lora_dropdown)
@@ -4415,13 +4780,13 @@ def create_ui():
         quick_enhance_btn.click(
             quick_enhance_prompt,
             inputs=[img_prompt],
-            outputs=[img_prompt, img_status]
+            outputs=[img_prompt, global_model_status]
         ).then(update_token_counter, inputs=img_prompt, outputs=img_token_count)
         
         ai_enhance_btn.click(
             ai_enhance_prompt,
             inputs=[img_prompt],
-            outputs=[img_prompt, img_status]
+            outputs=[img_prompt, global_model_status]
         ).then(update_token_counter, inputs=img_prompt, outputs=img_token_count)
 
         # Save to library button - switches to library tab
@@ -4437,12 +4802,12 @@ def create_ui():
         ).then(
             generate_image,
             inputs=[img_prompt, img_negative, img_steps, img_guidance, img_width, img_height, img_seed, lora_dropdown, lora_strength],
-            outputs=[img_output, img_status]
+            outputs=[img_output, global_model_status]
         ).then(
             clear_generating_state,
             outputs=[generate_img_btn, stop_img_btn]
         )
-        stop_img_btn.click(stop_image_generation, outputs=img_status)
+        stop_img_btn.click(stop_image_generation, outputs=global_model_status)
 
         # Gallery events
         refresh_gallery_btn.click(refresh_gallery, outputs=[img_gallery, img_checklist, gallery_status])
@@ -4465,7 +4830,7 @@ def create_ui():
         # Load prompt from selected image
         load_prompt_from_image_btn.click(
             load_prompt_from_gallery_image,
-            outputs=[img_prompt, img_negative, img_steps, img_guidance, img_width, img_height, img_status]
+            outputs=[img_prompt, img_negative, img_steps, img_guidance, img_width, img_height, global_model_status]
         )
         
         # Prompt Library events
