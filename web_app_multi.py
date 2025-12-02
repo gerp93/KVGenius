@@ -4119,216 +4119,7 @@ def create_ui():
                         gr.Markdown("---")
                         prompt_preview_display = gr.Markdown("*Select a prompt to see its details*")
                     
-                    with gr.TabItem("🎓 LoRA Training", id="lora_training_tab"):
-                        gr.Markdown("### 🎓 Train Custom LoRAs\n*Train your own LoRA models to generate specific subjects, styles, or characters.*")
-                        
-                        with gr.Tabs() as lora_tabs:
-                            with gr.TabItem("📁 Dataset", id="dataset_tab"):
-                                gr.Markdown("#### Step 1: Prepare Training Images")
-                                
-                                with gr.Row():
-                                    with gr.Column(scale=1):
-                                        gr.Markdown("**Create/Select Dataset**")
-                                        new_dataset_name = gr.Textbox(
-                                            label="New Dataset Name",
-                                            placeholder="e.g., my_alien_species",
-                                            max_lines=1
-                                        )
-                                        create_dataset_btn = gr.Button("➕ Create Dataset", variant="primary", size="sm")
-                                        
-                                        dataset_dropdown = gr.Dropdown(
-                                            choices=get_lora_dataset_choices(),
-                                            label="Select Dataset",
-                                            interactive=True
-                                        )
-                                        delete_dataset_btn = gr.Button("🗑️ Delete Dataset", variant="stop", size="sm")
-                                        dataset_status = gr.Markdown("")
-                                    
-                                    with gr.Column(scale=2):
-                                        gr.Markdown("**Upload Images**")
-                                        training_image_upload = gr.File(
-                                            label="Upload Training Images",
-                                            file_count="multiple",
-                                            file_types=["image"]
-                                        )
-                                        with gr.Row():
-                                            crop_size = gr.Dropdown(
-                                                choices=[512, 768, 1024],
-                                                value=512,
-                                                label="Size"
-                                            )
-                                            crop_mode = gr.Dropdown(
-                                                choices=[
-                                                    ("Resize & Pad (keeps all details)", "resize_pad"),
-                                                    ("Smart Crop (portrait-aware)", "smart"),
-                                                    ("Center Crop", "center"),
-                                                    ("Top Crop (for faces)", "top"),
-                                                    ("Stretch (may distort)", "resize_stretch")
-                                                ],
-                                                value="resize_pad",
-                                                label="Crop Mode",
-                                                info="How to fit non-square images"
-                                            )
-                                        auto_caption_checkbox = gr.Checkbox(
-                                            label="Auto-caption with AI",
-                                            value=False,
-                                            info="Uses BLIP model (~300MB)"
-                                        )
-                                        upload_images_btn = gr.Button("📤 Upload & Process", variant="primary")
-                                
-                                gr.Markdown("---")
-                                gr.Markdown("**Dataset Images** *(Click image to edit caption)*")
-                                
-                                with gr.Row():
-                                    with gr.Column(scale=2):
-                                        dataset_gallery = gr.Gallery(
-                                            label="Training Images",
-                                            columns=4,
-                                            rows=2,
-                                            height=300,
-                                            object_fit="cover",
-                                            show_label=False
-                                        )
-                                        with gr.Row():
-                                            suggest_captions_btn = gr.Button("🧠 Auto-Caption All", variant="secondary", size="sm")
-                                            refresh_dataset_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
-                                    
-                                    with gr.Column(scale=1):
-                                        gr.Markdown("**Edit Caption**")
-                                        selected_image_name = gr.Textbox(label="Selected Image", interactive=False)
-                                        image_caption_edit = gr.Textbox(
-                                            label="Caption",
-                                            placeholder="Describe what's in this image...",
-                                            lines=3
-                                        )
-                                        with gr.Row():
-                                            save_caption_btn = gr.Button("💾 Save Caption", variant="primary", size="sm")
-                                            delete_image_btn = gr.Button("🗑️ Delete Image", variant="stop", size="sm")
-                                        caption_status = gr.Markdown("")
-                            
-                            with gr.TabItem("⚙️ Train", id="train_tab"):
-                                gr.Markdown("#### Step 2: Configure & Start Training")
-                                
-                                with gr.Row():
-                                    with gr.Column(scale=1):
-                                        gr.Markdown("**Training Configuration**")
-                                        
-                                        train_dataset_dropdown = gr.Dropdown(
-                                            choices=get_lora_dataset_choices(),
-                                            label="Dataset to Train",
-                                            interactive=True
-                                        )
-                                        train_output_name = gr.Textbox(
-                                            label="LoRA Name",
-                                            placeholder="e.g., twilek_species",
-                                            max_lines=1
-                                        )
-                                        train_resume_from = gr.Dropdown(
-                                            choices=["(New LoRA)"] + get_lora_choices(),
-                                            value="(New LoRA)",
-                                            label="Continue Training From",
-                                            info="Select existing LoRA to add more images/training"
-                                        )
-                                        train_trigger_word = gr.Textbox(
-                                            label="Trigger Word",
-                                            placeholder="e.g., twilek",
-                                            info="Word to use in prompts to activate this LoRA",
-                                            max_lines=1
-                                        )
-                                        train_description = gr.Textbox(
-                                            label="Description (optional)",
-                                            placeholder="Star Wars Twi'lek alien species",
-                                            max_lines=2
-                                        )
-                                        train_base_model = gr.Dropdown(
-                                            choices=get_base_model_choices(),
-                                            value="Dreamshaper 8",
-                                            label="Base Model"
-                                        )
-                                    
-                                    with gr.Column(scale=1):
-                                        gr.Markdown("**Training Parameters**")
-                                        
-                                        train_epochs = gr.Slider(10, 500, value=100, step=10, label="Epochs")
-                                        train_learning_rate = gr.Number(value=1e-4, label="Learning Rate")
-                                        train_lora_rank = gr.Slider(4, 128, value=16, step=4, label="LoRA Rank", info="Higher = more capacity, more VRAM")
-                                        train_lora_alpha = gr.Slider(8, 128, value=32, step=8, label="LoRA Alpha")
-                                        train_resolution = gr.Dropdown(
-                                            choices=[512, 768],
-                                            value=512,
-                                            label="Training Resolution"
-                                        )
-                                        train_max_steps = gr.Number(
-                                            value=0,
-                                            label="Max Steps (0 = use epochs)",
-                                            info="Override epochs with fixed step count"
-                                        )
-                                
-                                gr.Markdown("---")
-                                
-                                with gr.Row():
-                                    start_training_btn = gr.Button("🚀 Start Training", variant="primary", size="lg", scale=2)
-                                    stop_training_btn = gr.Button("⏹ Stop Training", variant="stop", size="lg", scale=1)
-                                
-                                training_status = gr.Markdown("*Ready to train*")
-                                training_progress = gr.Slider(0, 100, value=0, label="Progress", interactive=False)
-                                training_details = gr.Markdown("")
-                            
-                            with gr.TabItem("📦 My LoRAs", id="my_loras_tab"):
-                                gr.Markdown("#### Manage LoRAs")
-                                
-                                with gr.Row():
-                                    with gr.Column(scale=1):
-                                        lora_manage_dropdown = gr.Dropdown(
-                                            choices=get_lora_choices(),
-                                            label="Select LoRA",
-                                            interactive=True
-                                        )
-                                        refresh_loras_btn = gr.Button("🔄 Refresh", size="sm")
-                                        delete_lora_btn = gr.Button("🗑️ Delete LoRA", variant="stop", size="sm")
-                                        lora_manage_status = gr.Markdown("")
-                                    
-                                    with gr.Column(scale=2):
-                                        lora_info_display = gr.Markdown("*Select a LoRA to see details*")
-                                
-                                gr.Markdown("---")
-                                gr.Markdown("#### 📥 Import Pre-built LoRA")
-                                gr.Markdown("*Import .safetensors files from CivitAI or other sources*")
-                                
-                                with gr.Row():
-                                    with gr.Column(scale=2):
-                                        import_lora_file = gr.File(
-                                            label="LoRA File (.safetensors)",
-                                            file_types=[".safetensors"],
-                                            type="filepath"
-                                        )
-                                    with gr.Column(scale=1):
-                                        import_lora_name = gr.Textbox(
-                                            label="LoRA Name",
-                                            placeholder="e.g., TwilekStyle",
-                                            info="Name to identify this LoRA"
-                                        )
-                                        import_trigger_word = gr.Textbox(
-                                            label="Trigger Word",
-                                            placeholder="e.g., twilek",
-                                            info="Word to use in prompts (optional)"
-                                        )
-                                        import_lora_btn = gr.Button("📥 Import LoRA", variant="primary")
-                                
-                                import_lora_status = gr.Markdown("")
-                                
-                                gr.Markdown("---")
-                                gr.Markdown("""
-**How to Use LoRAs:**
-
-1. Load a compatible base model in the Generate tab
-2. Select your LoRA from the dropdown
-3. Include the **trigger word** in your prompt
-4. Adjust LoRA strength (0.5-1.0 recommended)
-
-*Example:* If your trigger word is `twilek`, use prompts like:
-> "a twilek standing in a cantina, star wars, detailed"
-                                """)
+                    # Note: LoRA Training has been moved to the LoRA Manager tab
             
             # ==================== CARD GENERATOR TAB ====================
             with gr.TabItem("🃏 Card Generator", id="card_tab"):
@@ -4654,82 +4445,311 @@ def create_ui():
             
             # ==================== LORA MANAGER TAB ====================
             with gr.TabItem("🎛️ LoRA Manager", id="lora_manager_tab"):
-                gr.Markdown("### 🎛️ LoRA Manager\n*Browse, manage, and configure LoRAs for image generation and text models.*")
+                gr.Markdown("### 🎛️ LoRA Manager\n*Browse, train, and manage LoRAs for image generation, text models, and card generation.*")
                 
                 with gr.Row():
                     lora_refresh_btn = gr.Button("🔄 Refresh LoRAs", size="sm")
                     lora_scan_status = gr.Markdown("")
                 
                 with gr.Tabs() as lora_manager_tabs:
-                    # Image LoRAs Section
+                    # ==================== IMAGE LORAS SECTION ====================
                     with gr.TabItem("🎨 Image LoRAs", id="image_loras_tab"):
-                        gr.Markdown("#### Image Generation LoRAs\n*LoRAs for Stable Diffusion models (SD 1.5, SDXL)*")
-                        
-                        image_lora_list = gr.Dataframe(
-                            headers=["Name", "Base Model", "Trigger Words", "Category"],
-                            datatype=["str", "str", "str", "str"],
-                            label="Available Image LoRAs",
-                            interactive=False,
-                            wrap=True,
-                        )
-                        
-                        with gr.Row():
-                            with gr.Column(scale=2):
-                                gr.Markdown("**Selected LoRA Details**")
-                                selected_image_lora = gr.Dropdown(
-                                    label="Select LoRA to View/Edit",
-                                    choices=["None"],
-                                    value="None"
+                        with gr.Tabs() as image_lora_subtabs:
+                            # Browse Image LoRAs
+                            with gr.TabItem("📦 Browse", id="image_lora_browse"):
+                                gr.Markdown("#### Available Image LoRAs\n*LoRAs for Stable Diffusion models (SD 1.5, SDXL)*")
+                                
+                                image_lora_list = gr.Dataframe(
+                                    headers=["Name", "Base Model", "Trigger Words", "Category"],
+                                    datatype=["str", "str", "str", "str"],
+                                    label="Available Image LoRAs",
+                                    interactive=False,
+                                    wrap=True,
                                 )
-                                image_lora_details = gr.Markdown("*Select a LoRA to see details*")
+                                
+                                with gr.Row():
+                                    with gr.Column(scale=2):
+                                        gr.Markdown("**Selected LoRA Details**")
+                                        selected_image_lora = gr.Dropdown(
+                                            label="Select LoRA to View/Edit",
+                                            choices=["None"],
+                                            value="None"
+                                        )
+                                        image_lora_details = gr.Markdown("*Select a LoRA to see details*")
+                                    
+                                    with gr.Column(scale=1):
+                                        gr.Markdown("**Quick Actions**")
+                                        image_lora_preview = gr.Image(
+                                            label="Preview",
+                                            height=150,
+                                            show_label=False,
+                                            visible=False
+                                        )
+                                
+                                with gr.Accordion("📝 Edit Metadata", open=False):
+                                    edit_image_lora_name = gr.Textbox(label="Name", interactive=True)
+                                    edit_image_lora_triggers = gr.Textbox(label="Trigger Words (comma-separated)", interactive=True)
+                                    edit_image_lora_base = gr.Dropdown(
+                                        label="Base Model",
+                                        choices=["sd15", "sdxl", "unknown"],
+                                        interactive=True
+                                    )
+                                    edit_image_lora_category = gr.Textbox(label="Category", interactive=True)
+                                    edit_image_lora_desc = gr.Textbox(label="Description", lines=2, interactive=True)
+                                    save_image_lora_btn = gr.Button("💾 Save Changes", variant="primary", size="sm")
+                                    edit_lora_status = gr.Markdown("")
+                                
+                                with gr.Accordion("📥 Import LoRA", open=False):
+                                    gr.Markdown("*Import .safetensors files from CivitAI or other sources*")
+                                    with gr.Row():
+                                        with gr.Column(scale=2):
+                                            import_lora_file = gr.File(
+                                                label="LoRA File (.safetensors)",
+                                                file_types=[".safetensors"],
+                                                type="filepath"
+                                            )
+                                        with gr.Column(scale=1):
+                                            import_lora_name = gr.Textbox(
+                                                label="LoRA Name",
+                                                placeholder="e.g., TwilekStyle"
+                                            )
+                                            import_trigger_word = gr.Textbox(
+                                                label="Trigger Word",
+                                                placeholder="e.g., twilek"
+                                            )
+                                            import_lora_btn = gr.Button("📥 Import LoRA", variant="primary")
+                                    import_lora_status = gr.Markdown("")
                             
-                            with gr.Column(scale=1):
-                                gr.Markdown("**Quick Actions**")
-                                image_lora_preview = gr.Image(
-                                    label="Preview",
-                                    height=150,
-                                    show_label=False,
-                                    visible=False
-                                )
-                        
-                        with gr.Accordion("📝 Edit Metadata", open=False):
-                            edit_image_lora_name = gr.Textbox(label="Name", interactive=True)
-                            edit_image_lora_triggers = gr.Textbox(label="Trigger Words (comma-separated)", interactive=True)
-                            edit_image_lora_base = gr.Dropdown(
-                                label="Base Model",
-                                choices=["sd15", "sdxl", "unknown"],
-                                interactive=True
-                            )
-                            edit_image_lora_category = gr.Textbox(label="Category", interactive=True)
-                            edit_image_lora_desc = gr.Textbox(label="Description", lines=2, interactive=True)
-                            save_image_lora_btn = gr.Button("💾 Save Changes", variant="primary", size="sm")
-                            edit_lora_status = gr.Markdown("")
+                            # Train Image LoRAs - Dataset
+                            with gr.TabItem("📁 Dataset", id="image_lora_dataset"):
+                                gr.Markdown("#### Step 1: Prepare Training Images")
+                                
+                                with gr.Row():
+                                    with gr.Column(scale=1):
+                                        gr.Markdown("**Create/Select Dataset**")
+                                        new_dataset_name = gr.Textbox(
+                                            label="New Dataset Name",
+                                            placeholder="e.g., my_alien_species",
+                                            max_lines=1
+                                        )
+                                        create_dataset_btn = gr.Button("➕ Create Dataset", variant="primary", size="sm")
+                                        
+                                        dataset_dropdown = gr.Dropdown(
+                                            choices=get_lora_dataset_choices(),
+                                            label="Select Dataset",
+                                            interactive=True
+                                        )
+                                        delete_dataset_btn = gr.Button("🗑️ Delete Dataset", variant="stop", size="sm")
+                                        dataset_status = gr.Markdown("")
+                                    
+                                    with gr.Column(scale=2):
+                                        gr.Markdown("**Upload Images**")
+                                        training_image_upload = gr.File(
+                                            label="Upload Training Images",
+                                            file_count="multiple",
+                                            file_types=["image"]
+                                        )
+                                        with gr.Row():
+                                            crop_size = gr.Dropdown(
+                                                choices=[512, 768, 1024],
+                                                value=512,
+                                                label="Size"
+                                            )
+                                            crop_mode = gr.Dropdown(
+                                                choices=[
+                                                    ("Resize & Pad (keeps all details)", "resize_pad"),
+                                                    ("Smart Crop (portrait-aware)", "smart"),
+                                                    ("Center Crop", "center"),
+                                                    ("Top Crop (for faces)", "top"),
+                                                    ("Stretch (may distort)", "resize_stretch")
+                                                ],
+                                                value="resize_pad",
+                                                label="Crop Mode",
+                                                info="How to fit non-square images"
+                                            )
+                                        auto_caption_checkbox = gr.Checkbox(
+                                            label="Auto-caption with AI",
+                                            value=False,
+                                            info="Uses BLIP model (~300MB)"
+                                        )
+                                        upload_images_btn = gr.Button("📤 Upload & Process", variant="primary")
+                                
+                                gr.Markdown("---")
+                                gr.Markdown("**Dataset Images** *(Click image to edit caption)*")
+                                
+                                with gr.Row():
+                                    with gr.Column(scale=2):
+                                        dataset_gallery = gr.Gallery(
+                                            label="Training Images",
+                                            columns=4,
+                                            rows=2,
+                                            height=300,
+                                            object_fit="cover",
+                                            show_label=False
+                                        )
+                                        with gr.Row():
+                                            suggest_captions_btn = gr.Button("🧠 Auto-Caption All", variant="secondary", size="sm")
+                                            refresh_dataset_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
+                                    
+                                    with gr.Column(scale=1):
+                                        gr.Markdown("**Edit Caption**")
+                                        selected_image_name = gr.Textbox(label="Selected Image", interactive=False)
+                                        image_caption_edit = gr.Textbox(
+                                            label="Caption",
+                                            placeholder="Describe what's in this image...",
+                                            lines=3
+                                        )
+                                        with gr.Row():
+                                            save_caption_btn = gr.Button("💾 Save Caption", variant="primary", size="sm")
+                                            delete_image_btn = gr.Button("🗑️ Delete Image", variant="stop", size="sm")
+                                        caption_status = gr.Markdown("")
+                            
+                            # Train Image LoRAs - Training
+                            with gr.TabItem("🎓 Train", id="image_lora_train"):
+                                gr.Markdown("#### Step 2: Configure & Start Training")
+                                
+                                with gr.Row():
+                                    with gr.Column(scale=1):
+                                        gr.Markdown("**Training Configuration**")
+                                        
+                                        train_dataset_dropdown = gr.Dropdown(
+                                            choices=get_lora_dataset_choices(),
+                                            label="Dataset to Train",
+                                            interactive=True
+                                        )
+                                        train_output_name = gr.Textbox(
+                                            label="LoRA Name",
+                                            placeholder="e.g., twilek_species",
+                                            max_lines=1
+                                        )
+                                        train_resume_from = gr.Dropdown(
+                                            choices=["(New LoRA)"] + get_lora_choices(),
+                                            value="(New LoRA)",
+                                            label="Continue Training From",
+                                            info="Select existing LoRA to add more images/training"
+                                        )
+                                        train_trigger_word = gr.Textbox(
+                                            label="Trigger Word",
+                                            placeholder="e.g., twilek",
+                                            info="Word to use in prompts to activate this LoRA",
+                                            max_lines=1
+                                        )
+                                        train_description = gr.Textbox(
+                                            label="Description (optional)",
+                                            placeholder="Star Wars Twi'lek alien species",
+                                            max_lines=2
+                                        )
+                                        train_base_model = gr.Dropdown(
+                                            choices=get_base_model_choices(),
+                                            value="Dreamshaper 8",
+                                            label="Base Model"
+                                        )
+                                    
+                                    with gr.Column(scale=1):
+                                        gr.Markdown("**Training Parameters**")
+                                        
+                                        train_epochs = gr.Slider(10, 500, value=100, step=10, label="Epochs")
+                                        train_learning_rate = gr.Number(value=1e-4, label="Learning Rate")
+                                        train_lora_rank = gr.Slider(4, 128, value=16, step=4, label="LoRA Rank", info="Higher = more capacity, more VRAM")
+                                        train_lora_alpha = gr.Slider(8, 128, value=32, step=8, label="LoRA Alpha")
+                                        train_resolution = gr.Dropdown(
+                                            choices=[512, 768],
+                                            value=512,
+                                            label="Training Resolution"
+                                        )
+                                        train_max_steps = gr.Number(
+                                            value=0,
+                                            label="Max Steps (0 = use epochs)",
+                                            info="Override epochs with fixed step count"
+                                        )
+                                
+                                gr.Markdown("---")
+                                
+                                with gr.Row():
+                                    start_training_btn = gr.Button("🚀 Start Training", variant="primary", size="lg", scale=2)
+                                    stop_training_btn = gr.Button("⏹ Stop Training", variant="stop", size="lg", scale=1)
+                                
+                                training_status = gr.Markdown("*Ready to train*")
+                                training_progress = gr.Slider(0, 100, value=0, label="Progress", interactive=False)
+                                training_details = gr.Markdown("")
                     
-                    # Text Model LoRAs Section
+                    # ==================== TEXT LORAS SECTION ====================
                     with gr.TabItem("💬 Text LoRAs", id="text_loras_tab"):
-                        gr.Markdown("#### Text Model LoRAs\n*LoRAs for chat and text generation models (Mistral, Llama, etc.)*")
-                        
-                        text_lora_list = gr.Dataframe(
-                            headers=["Name", "Base Model", "Category"],
-                            datatype=["str", "str", "str"],
-                            label="Available Text LoRAs",
-                            interactive=False,
-                        )
-                        
-                        gr.Markdown("*Text model LoRAs coming soon - place PEFT adapters in `data/lora_models/text/`*")
+                        with gr.Tabs() as text_lora_subtabs:
+                            with gr.TabItem("📦 Browse", id="text_lora_browse"):
+                                gr.Markdown("#### Text Model LoRAs\n*LoRAs for chat and text generation models (Mistral, Llama, etc.)*")
+                                
+                                text_lora_list = gr.Dataframe(
+                                    headers=["Name", "Base Model", "Category"],
+                                    datatype=["str", "str", "str"],
+                                    label="Available Text LoRAs",
+                                    interactive=False,
+                                )
+                                
+                                gr.Markdown("""
+**How Text LoRAs Work:**
+- Train on conversation/persona data to customize chat behavior
+- Use for specific character voices, writing styles, or expertise areas
+- Compatible with Mistral, Llama, and similar transformer models
+
+*Place PEFT adapters in `data/lora_models/text/`*
+                                """)
+                            
+                            with gr.TabItem("🎓 Train", id="text_lora_train"):
+                                gr.Markdown("#### Train Text Model LoRAs\n*Coming soon - train custom personas and chat styles*")
+                                
+                                gr.Markdown("""
+**Planned Features:**
+- 📝 Upload conversation examples or persona descriptions
+- 🎭 Train character-specific LoRAs for roleplay
+- 💡 Fine-tune for specific knowledge domains
+- 🔄 Continue training from existing LoRAs
+
+*Text LoRA training requires PEFT library and will use the loaded text model as base.*
+                                """)
+                                
+                                # Placeholder for future text LoRA training UI
+                                with gr.Row(visible=False):
+                                    text_train_status = gr.Markdown("*Text LoRA training coming soon*")
                     
-                    # CAH LoRAs Section
-                    with gr.TabItem("🃏 CAH LoRAs", id="cah_loras_tab"):
-                        gr.Markdown("#### Card Generation LoRAs\n*Specialized LoRAs for CAH-style card generation*")
-                        
-                        cah_lora_list = gr.Dataframe(
-                            headers=["Name", "Base Model", "Theme"],
-                            datatype=["str", "str", "str"],
-                            label="Available CAH LoRAs",
-                            interactive=False,
-                        )
-                        
-                        gr.Markdown("*CAH LoRAs coming soon - train custom LoRAs for specific card themes*")
+                    # ==================== CARD GEN LORAS SECTION ====================
+                    with gr.TabItem("🃏 Card Gen LoRAs", id="cardgen_loras_tab"):
+                        with gr.Tabs() as cardgen_lora_subtabs:
+                            with gr.TabItem("📦 Browse", id="cardgen_lora_browse"):
+                                gr.Markdown("#### Card Generation LoRAs\n*Specialized LoRAs for party game card generation themes and styles*")
+                                
+                                cardgen_lora_list = gr.Dataframe(
+                                    headers=["Name", "Base Model", "Theme"],
+                                    datatype=["str", "str", "str"],
+                                    label="Available Card Gen LoRAs",
+                                    interactive=False,
+                                )
+                                
+                                gr.Markdown("""
+**How Card Gen LoRAs Work:**
+- Train on card example datasets for specific themes
+- Create LoRAs for humor styles: dark, absurd, pop culture, etc.
+- Mix with base text model to generate themed cards
+
+*Place card gen LoRAs in `data/lora_models/cardgen/`*
+                                """)
+                            
+                            with gr.TabItem("🎓 Train", id="cardgen_lora_train"):
+                                gr.Markdown("#### Train Card Generation LoRAs\n*Coming soon - train custom card themes and styles*")
+                                
+                                gr.Markdown("""
+**Planned Features:**
+- 📝 Upload example cards for your theme
+- 🎯 Train for specific humor styles or topics
+- 🔄 Fine-tune existing card gen styles
+- 📊 Preview generated cards during training
+
+*Card Gen LoRA training will allow you to create custom card themes.*
+                                """)
+                                
+                                # Placeholder for future card gen LoRA training UI
+                                with gr.Row(visible=False):
+                                    cardgen_train_status = gr.Markdown("*Card Gen LoRA training coming soon*")
                 
                 # LoRA Manager Events
                 def refresh_lora_lists():
@@ -4751,18 +4771,18 @@ def create_ui():
                     for name, lora in sorted(lm.text_loras.items()):
                         text_data.append([name, lora.base_model.value.upper(), lora.category])
                     
-                    # Build CAH LoRA data
-                    cah_data = []
+                    # Build Card Gen LoRA data
+                    cardgen_data = []
                     for name, lora in sorted(lm.cah_loras.items()):
-                        cah_data.append([name, lora.base_model.value.upper(), lora.category])
+                        cardgen_data.append([name, lora.base_model.value.upper(), lora.category])
                     
-                    status = f"✅ Found {len(lm.image_loras)} image, {len(lm.text_loras)} text, {len(lm.cah_loras)} CAH LoRAs"
+                    status = f"✅ Found {len(lm.image_loras)} image, {len(lm.text_loras)} text, {len(lm.cah_loras)} card gen LoRAs"
                     
                     return (
                         image_data if image_data else [["No LoRAs found", "-", "-", "-"]],
                         gr.update(choices=image_choices),
                         text_data if text_data else [["No LoRAs found", "-", "-"]],
-                        cah_data if cah_data else [["No LoRAs found", "-", "-"]],
+                        cardgen_data if cardgen_data else [["No LoRAs found", "-", "-"]],
                         status
                     )
                 
@@ -4829,7 +4849,7 @@ def create_ui():
                 # Wire up events
                 lora_refresh_btn.click(
                     refresh_lora_lists,
-                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cah_lora_list, lora_scan_status]
+                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cardgen_lora_list, lora_scan_status]
                 )
                 
                 selected_image_lora.change(
@@ -4844,13 +4864,13 @@ def create_ui():
                     outputs=edit_lora_status
                 ).then(
                     refresh_lora_lists,
-                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cah_lora_list, lora_scan_status]
+                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cardgen_lora_list, lora_scan_status]
                 )
                 
                 # Auto-refresh on tab load
                 demo.load(
                     refresh_lora_lists,
-                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cah_lora_list, lora_scan_status]
+                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cardgen_lora_list, lora_scan_status]
                 )
         
         # Chat Events
@@ -5218,36 +5238,17 @@ def create_ui():
             outputs=[training_status, training_progress, training_details]
         )
         
-        # LoRA management (My LoRAs tab)
-        lora_manage_dropdown.change(
-            get_lora_info,
-            inputs=lora_manage_dropdown,
-            outputs=lora_info_display
-        )
-        
-        refresh_loras_btn.click(
-            lambda: gr.update(choices=get_lora_choices()),
-            outputs=lora_manage_dropdown
-        )
-        
-        # Delete LoRA button - update BOTH dropdowns
-        delete_lora_btn.click(
-            delete_lora,
-            inputs=lora_manage_dropdown,
-            outputs=[lora_manage_status, lora_manage_dropdown]
-        ).then(
-            lambda: gr.update(choices=["None"] + get_lora_choices()),
-            outputs=lora_dropdown
-        )
-        
-        # Import LoRA button - update BOTH dropdowns (manage tab AND generate tab)
+        # Import LoRA button - update both LoRA Manager and Image Gen dropdown
         import_lora_btn.click(
             import_lora,
             inputs=[import_lora_file, import_lora_name, import_trigger_word],
-            outputs=[import_lora_status, lora_manage_dropdown]
+            outputs=[import_lora_status, selected_image_lora]
         ).then(
             lambda: gr.update(choices=["None"] + get_lora_choices()),
             outputs=lora_dropdown
+        ).then(
+            refresh_lora_lists,
+            outputs=[image_lora_list, selected_image_lora, text_lora_list, cardgen_lora_list, lora_scan_status]
         )
         
         # Define helper functions for character/persona management
