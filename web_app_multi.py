@@ -38,19 +38,102 @@ import gradio as gr
 import logging
 import torch
 
-# Configure logging to show in console with unbuffered handler
+# Configure logging to show in console AND write to logs/kvgenius.log
+from logging.handlers import RotatingFileHandler
+
 class FlushHandler(logging.StreamHandler):
     def emit(self, record):
         super().emit(record)
         self.flush()
 
+# Ensure logs directory exists
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "kvgenius.log")
+
+# Create handlers
+console_handler = FlushHandler(sys.stdout)
+file_handler = RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=10*1024*1024,  # 10MB per file
+    backupCount=5,          # Keep 5 backup files
+    encoding='utf-8'
+)
+
+# Set format for both handlers
+log_format = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(log_format)
+file_handler.setFormatter(log_format)
+
+# Configure root logger
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[FlushHandler(sys.stdout)]
+    handlers=[console_handler, file_handler]
 )
 logger = logging.getLogger(__name__)
-print("[KVGenius] Logging configured", flush=True)
+print(f"[KVGenius] Logging configured - logs at: {LOG_FILE}", flush=True)
+
+
+def log_banner(message: str, is_download: bool = False):
+    """
+    Log an extremely visible banner message.
+    Used to make DOWNLOAD vs LOAD operations crystal clear in logs.
+    
+    Args:
+        message: The message to display
+        is_download: True for downloads (will show DOWNLOAD banner), False for loads
+    """
+    banner_char = "=" if is_download else "-"
+    action = "DOWNLOADING" if is_download else "LOADING FROM CACHE"
+    
+    banner_line = banner_char * 80
+    
+    # Build the banner
+    lines = [
+        "",
+        banner_line,
+        banner_line,
+        f"{'':^10}{'*** ' + action + ' ***':^60}{'':^10}",
+        banner_line,
+        f"{'':^10}{message:^60}{'':^10}",
+        banner_line,
+        banner_line,
+        "",
+    ]
+    
+    for line in lines:
+        if is_download:
+            logger.warning(line)  # WARNING level for downloads (more visible)
+        else:
+            logger.info(line)
+
+
+def log_completion_banner(message: str, was_download: bool = False):
+    """
+    Log an extremely visible COMPLETION banner message.
+    Used to clearly indicate when a model has finished loading/downloading.
+    
+    Args:
+        message: The message to display (model name)
+        was_download: True if this was a download, False if loaded from cache
+    """
+    action = "DOWNLOAD COMPLETE" if was_download else "LOAD COMPLETE"
+    
+    banner_line = "*" * 80
+    
+    # Build the banner
+    lines = [
+        "",
+        banner_line,
+        f"{'':^10}{'*** ' + action + ' ***':^60}{'':^10}",
+        f"{'':^10}{message:^60}{'':^10}",
+        f"{'':^10}{'MODEL READY TO USE':^60}{'':^10}",
+        banner_line,
+        "",
+    ]
+    
+    for line in lines:
+        logger.info(line)
 
 # Global variables
 active_models = {}
@@ -204,7 +287,7 @@ def load_image_model_presets():
     """Load image model presets from config file.
     
     If user config doesn't exist, copies from example template.
-    Returns both HuggingFace models and local checkpoints.
+    Returns both HuggingFace checkpoints and local checkpoints.
     """
     config_dir = os.path.join(os.path.dirname(__file__), "config")
     presets_path = os.path.join(config_dir, "image_model_presets.yaml")
@@ -219,23 +302,29 @@ def load_image_model_presets():
     try:
         with open(presets_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
-            models = config.get('models', {})
-            checkpoints = config.get('checkpoints', {})
+            # Support both old and new config keys for backwards compatibility
+            huggingface = config.get('huggingface', {}) or config.get('models', {})
+            local = config.get('local', {}) or config.get('checkpoints', {})
             prompt_templates = config.get('prompt_templates', {})
-            return models, checkpoints, prompt_templates
+            return huggingface, local, prompt_templates
     except Exception as e:
         logger.warning(f"Could not load image model presets: {e}")
         return {}, {}, {}
 
 
 # Load image model presets from config
-IMAGE_MODEL_PRESETS, CHECKPOINT_PRESETS, PROMPT_TEMPLATES = load_image_model_presets()
+# HUGGINGFACE_CHECKPOINTS: Auto-downloaded from HuggingFace (Dreamshaper, SDXL Turbo, etc.)
+# LOCAL_CHECKPOINTS: Manual .safetensors files from CivitAI etc.
+HUGGINGFACE_CHECKPOINTS, LOCAL_CHECKPOINTS, PROMPT_TEMPLATES = load_image_model_presets()
 
 # Build AVAILABLE_IMAGE_MODELS from presets (with fallback defaults)
 AVAILABLE_IMAGE_MODELS = {}
-for model_key, preset in IMAGE_MODEL_PRESETS.items():
+
+# Add HuggingFace checkpoints (downloaded automatically)
+for model_key, preset in HUGGINGFACE_CHECKPOINTS.items():
     AVAILABLE_IMAGE_MODELS[model_key] = {
         "id": preset.get("id", ""),
+        "type": preset.get("type", "sd"),  # sd, sdxl, or flux
         "description": preset.get("description", ""),
         "vram": preset.get("vram", "~6 GB"),
         "default_steps": preset.get("default_steps", 25),
@@ -246,18 +335,19 @@ for model_key, preset in IMAGE_MODEL_PRESETS.items():
         "guidance_range": preset.get("guidance_range", [0.0, 20.0]),
         "default_negative": preset.get("default_negative", ""),
         "tips": preset.get("tips", ""),
-        "is_checkpoint": False,
+        "is_local": False,  # HuggingFace - loaded via from_pretrained()
     }
 
-# Add local checkpoints to available models
+# Add local checkpoints (from config file)
 checkpoints_dir = os.path.join(os.path.dirname(__file__), "data", "checkpoints")
-if CHECKPOINT_PRESETS:
-    for model_key, preset in CHECKPOINT_PRESETS.items():
+if LOCAL_CHECKPOINTS:
+    for model_key, preset in LOCAL_CHECKPOINTS.items():
         checkpoint_path = preset.get("path", "")
         full_path = os.path.join(checkpoints_dir, checkpoint_path)
         if os.path.exists(full_path):
             AVAILABLE_IMAGE_MODELS[f"📁 {model_key}"] = {
                 "id": full_path,  # Full path for checkpoint loading
+                "type": preset.get("type", "sd15"),  # sd15, sdxl, or flux
                 "description": preset.get("description", "Local checkpoint"),
                 "vram": preset.get("vram", "~4 GB"),
                 "default_steps": preset.get("default_steps", 25),
@@ -268,8 +358,7 @@ if CHECKPOINT_PRESETS:
                 "guidance_range": preset.get("guidance_range", [5.0, 12.0]),
                 "default_negative": preset.get("default_negative", ""),
                 "tips": preset.get("tips", ""),
-                "is_checkpoint": True,
-                "checkpoint_type": preset.get("type", "sd15"),
+                "is_local": True,  # Local file - loaded via from_single_file()
             }
             logger.info(f"Added checkpoint: {model_key} from {checkpoint_path}")
 
@@ -562,8 +651,14 @@ def load_model(model_key, progress=gr.Progress()):
     if not is_cached:
         is_downloading = True
         download_canceled = False
+        log_banner(f"CHAT MODEL: {model_key}", is_download=True)
+        logger.warning(f"MODEL ID: {model_id}")
+        logger.warning(f"THIS WILL DOWNLOAD FROM HUGGINGFACE - MAY TAKE SEVERAL MINUTES!")
         progress(0.1, desc=f"📥 Downloading {model_key}... (this may take several minutes)")
     else:
+        log_banner(f"CHAT MODEL: {model_key}", is_download=False)
+        logger.info(f"MODEL ID: {model_id}")
+        logger.info(f"Model found in cache at: {model_path}")
         progress(0.1, desc=f"📦 Found {model_key} in cache, loading...")
     
     try:
@@ -599,7 +694,9 @@ def load_model(model_key, progress=gr.Progress()):
         
         progress(0.95, desc="✨ Finalizing...")
         active_models[model_key] = (model, tokenizer, chatbot)
-        logger.info(f"✓ {model_key} loaded")
+        
+        # Log completion banner
+        log_completion_banner(f"CHAT MODEL: {model_key}", was_download=not is_cached)
         
         is_downloading = False
         progress(1.0, desc=f"✅ {model_key} ready!")
@@ -818,13 +915,30 @@ def load_image_model(model_name, progress=gr.Progress()):
             return f"### ❌ Unknown model: {model_key}"
         
         model_id = AVAILABLE_IMAGE_MODELS[model_key]["id"]
+        is_local_file = AVAILABLE_IMAGE_MODELS[model_key].get("is_local", False)
+        model_type = AVAILABLE_IMAGE_MODELS[model_key].get("type", "sd")  # sd, sdxl, or flux
+        
+        # Check if model is cached (for HuggingFace models)
+        model_path = os.path.join(cache_dir, f"models--{model_id.replace('/', '--')}")
+        is_cached = os.path.exists(model_path) or is_local_file
+        
+        # Log a big visible banner
+        if not is_cached:
+            log_banner(f"IMAGE MODEL: {model_key}", is_download=True)
+            logger.warning(f"MODEL ID: {model_id}")
+            logger.warning(f"MODEL TYPE: {model_type.upper()}")
+            logger.warning(f"THIS WILL DOWNLOAD FROM HUGGINGFACE - MAY TAKE A LONG TIME!")
+        else:
+            log_banner(f"IMAGE MODEL: {model_key}", is_download=False)
+            logger.info(f"MODEL ID: {model_id}")
+            logger.info(f"MODEL TYPE: {model_type.upper()}")
+            if is_local_file:
+                logger.info(f"Loading from LOCAL FILE")
+            else:
+                logger.info(f"Model found in cache at: {model_path}")
         
         safe_progress(0.05, desc="🔍 Checking model...")
-        logger.info(f"Loading image model: {model_id}")
-        
-        # Check if already downloaded
-        model_path = os.path.join(cache_dir, f"models--{model_id.replace('/', '--')}")
-        is_cached = os.path.exists(model_path)
+        logger.info(f"Loading image model: {model_id} (local={is_local_file}, type={model_type})")
         
         # Auto-unload any previously loaded model to free VRAM
         if loaded_image_models:
@@ -833,71 +947,235 @@ def load_image_model(model_name, progress=gr.Progress()):
             unload_all_image_models()
             logger.info(f"Auto-unloaded previous models: {prev_models}")
         
-        if is_cached:
-            safe_progress(0.15, desc=f"📦 Found {model_key} in cache, loading...")
-        else:
-            safe_progress(0.15, desc=f"📥 Downloading {model_key}... (this may take a few minutes)")
-        
-        # Load appropriate pipeline based on model
-        # Check for SDXL models by name hints, or auto-detect from model config
-        is_sdxl = "sdxl" in model_id.lower() or "xl" in model_id.lower() or "turbo" in model_key.lower()
-        
-        # Also check if model has SDXL structure (text_encoder_2 folder)
-        if not is_sdxl:
+        # Handle Flux models
+        if model_type == "flux":
             try:
-                from huggingface_hub import hf_hub_download
-                import json
-                safe_progress(0.2, desc="🔍 Detecting model type...")
-                config_path = hf_hub_download(model_id, "model_index.json", cache_dir=cache_dir)
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-                if config.get('_class_name') == 'StableDiffusionXLPipeline' or 'text_encoder_2' in config:
-                    is_sdxl = True
-                    logger.info(f"Auto-detected SDXL model from config: {model_id}")
-            except:
-                pass  # Fall back to name-based detection
-        
-        safe_progress(0.25, desc=f"⚙️ Loading {'SDXL' if is_sdxl else 'SD 1.5'} pipeline...")
-        
-        if is_sdxl:
-            # Try StableDiffusionXLPipeline first for proper SDXL support
-            try:
-                from diffusers import EulerDiscreteScheduler
+                from diffusers import FluxPipeline
                 
-                safe_progress(0.3, desc="📥 Loading model weights...")
-                image_model = StableDiffusionXLPipeline.from_pretrained(
+                if is_cached:
+                    safe_progress(0.15, desc=f"📦 Loading Flux from cache...")
+                else:
+                    safe_progress(0.15, desc=f"📥 DOWNLOADING Flux (~23GB, this will take a while)...")
+                
+                image_model = FluxPipeline.from_pretrained(
                     model_id,
                     torch_dtype=torch.float16,
                     cache_dir=cache_dir,
-                    use_safetensors=True,
                 )
                 
-                safe_progress(0.6, desc="⚙️ Configuring scheduler...")
-                # Some models use EDM schedulers that may cause noise output
-                # Replace with a standard Euler scheduler for compatibility
-                scheduler_type = type(image_model.scheduler).__name__
-                if "EDM" in scheduler_type:
-                    logger.info(f"Replacing {scheduler_type} with EulerDiscreteScheduler for compatibility")
-                    image_model.scheduler = EulerDiscreteScheduler.from_config(
-                        image_model.scheduler.config,
-                        timestep_spacing="trailing",
-                    )
+                safe_progress(0.5, desc="🚀 Moving to GPU...")
+                image_model = image_model.to("cuda")
+                
+                # DEBUG: Log actual dtypes and devices
+                logger.info(f"Flux transformer dtype: {image_model.transformer.dtype}")
+                logger.info(f"Flux transformer device: {next(image_model.transformer.parameters()).device}")
+                logger.info(f"Flux text_encoder dtype: {image_model.text_encoder.dtype}")
+                logger.info(f"Flux text_encoder device: {next(image_model.text_encoder.parameters()).device}")
+                if hasattr(image_model, 'text_encoder_2') and image_model.text_encoder_2 is not None:
+                    logger.info(f"Flux text_encoder_2 dtype: {image_model.text_encoder_2.dtype}")
+                
+                # Enable memory optimizations for Flux
+                safe_progress(0.7, desc="🔧 Applying optimizations...")
+                
+                # Enable VAE slicing and tiling for memory efficiency
+                if hasattr(image_model, 'vae') and image_model.vae is not None:
+                    image_model.vae.enable_slicing()
+                    image_model.vae.enable_tiling()
+                
+                safe_progress(0.9, desc="✨ Finalizing...")
+                log_completion_banner(f"FLUX MODEL: {model_key}", was_download=not is_cached)
+                
+            except ImportError:
+                return "### ❌ Flux requires diffusers >= 0.30.0\n\nRun: `pip install --upgrade diffusers`"
+            except Exception as e:
+                logger.error(f"Error loading Flux model: {e}")
+                return f"### ❌ Error loading Flux: {str(e)}"
+        
+        # Handle SD3 models
+        elif model_type == "sd3":
+            try:
+                from diffusers import StableDiffusion3Pipeline
+                
+                if is_cached:
+                    safe_progress(0.15, desc=f"📦 Loading SD3 from cache...")
+                else:
+                    safe_progress(0.15, desc=f"📥 DOWNLOADING SD3 (~5GB, please wait)...")
+                
+                image_model = StableDiffusion3Pipeline.from_pretrained(
+                    model_id,
+                    torch_dtype=torch.float16,
+                    cache_dir=cache_dir,
+                )
+                
+                safe_progress(0.6, desc="🚀 Moving to GPU...")
+                image_model = image_model.to("cuda")
+                
+                # Enable memory optimizations
+                safe_progress(0.8, desc="🔧 Applying optimizations...")
+                if hasattr(image_model, 'vae') and image_model.vae is not None:
+                    image_model.vae.enable_slicing()
+                    image_model.vae.enable_tiling()
+                
+                safe_progress(0.9, desc="✨ Finalizing...")
+                log_completion_banner(f"SD3 MODEL: {model_key}", was_download=not is_cached)
+                
+            except ImportError:
+                return "### ❌ SD3 requires diffusers >= 0.29.0\n\nRun: `pip install --upgrade diffusers`"
+            except Exception as e:
+                logger.error(f"Error loading SD3 model: {e}")
+                return f"### ❌ Error loading SD3: {str(e)}"
+        
+        # Handle SDXL Lightning (requires loading base SDXL + replacing UNet)
+        elif model_type == "sdxl-lightning":
+            try:
+                from diffusers import UNet2DConditionModel, EulerDiscreteScheduler
+                from huggingface_hub import hf_hub_download
+                from safetensors.torch import load_file
+                
+                # Get config values
+                model_config = AVAILABLE_IMAGE_MODELS[model_key]
+                base_model = model_config.get("base_model", "stabilityai/stable-diffusion-xl-base-1.0")
+                unet_ckpt = model_config.get("unet_checkpoint", "sdxl_lightning_4step_unet.safetensors")
+                
+                safe_progress(0.1, desc="📥 Loading SDXL base UNet config...")
+                
+                # Load UNet with Lightning weights
+                unet = UNet2DConditionModel.from_config(base_model, subfolder="unet")
+                
+                safe_progress(0.25, desc=f"📥 Downloading Lightning UNet ({unet_ckpt})...")
+                unet_path = hf_hub_download(model_id, unet_ckpt, cache_dir=cache_dir)
+                
+                safe_progress(0.4, desc="⚙️ Loading Lightning UNet weights...")
+                unet.load_state_dict(load_file(unet_path, device="cpu"))
+                unet = unet.to("cuda", torch.float16)
+                
+                safe_progress(0.5, desc="📥 Loading SDXL base pipeline...")
+                image_model = StableDiffusionXLPipeline.from_pretrained(
+                    base_model,
+                    unet=unet,
+                    torch_dtype=torch.float16,
+                    variant="fp16",
+                    cache_dir=cache_dir,
+                )
+                
+                safe_progress(0.75, desc="🚀 Moving to GPU...")
+                image_model = image_model.to("cuda")
+                
+                safe_progress(0.85, desc="⚙️ Configuring Lightning scheduler...")
+                # SDXL Lightning requires trailing timesteps
+                image_model.scheduler = EulerDiscreteScheduler.from_config(
+                    image_model.scheduler.config,
+                    timestep_spacing="trailing"
+                )
+                
+                safe_progress(0.9, desc="✨ Finalizing...")
+                log_completion_banner(f"SDXL LIGHTNING MODEL: {model_key}", was_download=not is_cached)
                 
             except Exception as e:
-                logger.warning(f"SDXL pipeline failed, trying AutoPipeline: {e}")
-                safe_progress(0.4, desc="🔄 Trying alternative loader...")
-                image_model = AutoPipelineForText2Image.from_pretrained(
+                logger.error(f"Error loading SDXL Lightning: {e}")
+                return f"### ❌ Error loading SDXL Lightning: {str(e)}"
+        
+        # Handle local checkpoint files
+        elif is_local_file:
+            safe_progress(0.15, desc=f"📦 Loading local checkpoint: {model_key}...")
+            
+            # Determine if SDXL based on file size or name
+            file_size = os.path.getsize(model_id) / (1024**3)  # GB
+            is_sdxl = file_size > 4.0 or "xl" in model_id.lower() or "sdxl" in model_id.lower()
+            
+            safe_progress(0.3, desc=f"⚙️ Loading {'SDXL' if is_sdxl else 'SD 1.5'} from file...")
+            
+            if is_sdxl:
+                try:
+                    image_model = StableDiffusionXLPipeline.from_single_file(
+                        model_id,
+                        torch_dtype=torch.float16,
+                        use_safetensors=True,
+                    )
+                except Exception as e:
+                    logger.warning(f"SDXL from_single_file failed: {e}, trying SD 1.5")
+                    image_model = StableDiffusionPipeline.from_single_file(
+                        model_id,
+                        torch_dtype=torch.float16,
+                        use_safetensors=True,
+                    )
+            else:
+                image_model = StableDiffusionPipeline.from_single_file(
+                    model_id,
+                    torch_dtype=torch.float16,
+                    use_safetensors=True,
+                )
+        else:
+            # HuggingFace model - use from_pretrained
+            # Check if already downloaded
+            model_path = os.path.join(cache_dir, f"models--{model_id.replace('/', '--')}")
+            is_cached = os.path.exists(model_path)
+        
+            if is_cached:
+                safe_progress(0.15, desc=f"📦 Found {model_key} in cache, loading...")
+            else:
+                safe_progress(0.15, desc=f"📥 Downloading {model_key}... (this may take a few minutes)")
+            
+            # Load appropriate pipeline based on model
+            # Check for SDXL models by name hints, or auto-detect from model config
+            is_sdxl = "sdxl" in model_id.lower() or "xl" in model_id.lower() or "turbo" in model_key.lower()
+            
+            # Also check if model has SDXL structure (text_encoder_2 folder)
+            if not is_sdxl:
+                try:
+                    from huggingface_hub import hf_hub_download
+                    import json
+                    safe_progress(0.2, desc="🔍 Detecting model type...")
+                    config_path = hf_hub_download(model_id, "model_index.json", cache_dir=cache_dir)
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                    if config.get('_class_name') == 'StableDiffusionXLPipeline' or 'text_encoder_2' in config:
+                        is_sdxl = True
+                        logger.info(f"Auto-detected SDXL model from config: {model_id}")
+                except:
+                    pass  # Fall back to name-based detection
+            
+            safe_progress(0.25, desc=f"⚙️ Loading {'SDXL' if is_sdxl else 'SD 1.5'} pipeline...")
+            
+            if is_sdxl:
+                # Try StableDiffusionXLPipeline first for proper SDXL support
+                try:
+                    from diffusers import EulerDiscreteScheduler
+                    
+                    safe_progress(0.3, desc="📥 Loading model weights...")
+                    image_model = StableDiffusionXLPipeline.from_pretrained(
+                        model_id,
+                        torch_dtype=torch.float16,
+                        cache_dir=cache_dir,
+                        use_safetensors=True,
+                    )
+                    
+                    safe_progress(0.6, desc="⚙️ Configuring scheduler...")
+                    # Some models use EDM schedulers that may cause noise output
+                    # Replace with a standard Euler scheduler for compatibility
+                    scheduler_type = type(image_model.scheduler).__name__
+                    if "EDM" in scheduler_type:
+                        logger.info(f"Replacing {scheduler_type} with EulerDiscreteScheduler for compatibility")
+                        image_model.scheduler = EulerDiscreteScheduler.from_config(
+                            image_model.scheduler.config,
+                            timestep_spacing="trailing",
+                        )
+                    
+                except Exception as e:
+                    logger.warning(f"SDXL pipeline failed, trying AutoPipeline: {e}")
+                    safe_progress(0.4, desc="🔄 Trying alternative loader...")
+                    image_model = AutoPipelineForText2Image.from_pretrained(
+                        model_id,
+                        torch_dtype=torch.float16,
+                        cache_dir=cache_dir,
+                    )
+            else:
+                safe_progress(0.3, desc="📥 Loading model weights...")
+                image_model = StableDiffusionPipeline.from_pretrained(
                     model_id,
                     torch_dtype=torch.float16,
                     cache_dir=cache_dir,
                 )
-        else:
-            safe_progress(0.3, desc="📥 Loading model weights...")
-            image_model = StableDiffusionPipeline.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,
-                cache_dir=cache_dir,
-            )
         
         safe_progress(0.75, desc="🚀 Moving to GPU...")
         image_model = image_model.to("cuda")
@@ -915,7 +1193,9 @@ def load_image_model(model_name, progress=gr.Progress()):
         loaded_image_models[model_key] = image_model
         current_image_model_key = model_key
         image_model_loaded = True
-        logger.info(f"Image model loaded: {model_key}")
+        
+        # Log completion banner
+        log_completion_banner(f"IMAGE MODEL: {model_key}", was_download=not is_cached)
         
         safe_progress(1.0, desc="Done!")
         # Return full model info with loaded status
@@ -930,7 +1210,7 @@ def load_image_model(model_name, progress=gr.Progress()):
 
 def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, height, seed, lora_name, lora_strength, progress=gr.Progress()):
     """Generate an image from a text prompt."""
-    global image_model, image_gen_cancel_event, image_gen_in_progress
+    global image_model, image_gen_cancel_event, image_gen_in_progress, current_image_model_key
     
     if image_model is None:
         return None, "**❌ No image model loaded**\n\nPlease select and load an image model first."
@@ -938,15 +1218,26 @@ def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, he
     if not prompt.strip():
         return None, "**❌ Missing prompt**\n\nPlease enter a prompt to generate an image."
     
-    # Check for CLIP token limit using actual tokenizer if available
-    tokenizer = getattr(image_model, 'tokenizer', None)
-    prompt_tokens = count_clip_tokens(prompt, tokenizer)
-    negative_tokens = count_clip_tokens(negative_prompt, tokenizer) if negative_prompt else 0
+    # Check if this is a Flux model
+    is_flux = False
+    is_sd3 = False
+    is_lightning = False
+    if current_image_model_key and current_image_model_key in AVAILABLE_IMAGE_MODELS:
+        model_type = AVAILABLE_IMAGE_MODELS[current_image_model_key].get("type", "sd")
+        is_flux = model_type == "flux"
+        is_sd3 = model_type == "sd3"
+        is_lightning = model_type == "sdxl-lightning"
+    
+    # Check for CLIP token limit (not applicable to Flux/SD3 which use T5)
     token_warning = ""
-    if prompt_tokens > CLIP_MAX_TOKENS:
-        token_warning = f"### ⚠️ WARNING: Prompt ({prompt_tokens} tokens) exceeds {CLIP_MAX_TOKENS} limit - end of prompt will be ignored!\n\n"
-    if negative_tokens > CLIP_MAX_TOKENS:
-        token_warning += f"### ⚠️ Negative prompt ({negative_tokens} tokens) also truncated!\n\n"
+    if not is_flux and not is_sd3:
+        tokenizer = getattr(image_model, 'tokenizer', None)
+        prompt_tokens = count_clip_tokens(prompt, tokenizer)
+        negative_tokens = count_clip_tokens(negative_prompt, tokenizer) if negative_prompt else 0
+        if prompt_tokens > CLIP_MAX_TOKENS:
+            token_warning = f"### ⚠️ WARNING: Prompt ({prompt_tokens} tokens) exceeds {CLIP_MAX_TOKENS} limit - end of prompt will be ignored!\n\n"
+        if negative_tokens > CLIP_MAX_TOKENS:
+            token_warning += f"### ⚠️ Negative prompt ({negative_tokens} tokens) also truncated!\n\n"
     
     try:
         progress(0.1, desc="Preparing generation...")
@@ -999,16 +1290,54 @@ def generate_image(prompt, negative_prompt, num_steps, guidance_scale, width, he
 
         # Generate image (pass callback to allow cancellation and progress tracking)
         progress(0.2, desc="Starting generation...")
-        result = image_model(
-            prompt=prompt,
-            negative_prompt=negative_prompt if negative_prompt.strip() else None,
-            num_inference_steps=num_steps,
-            guidance_scale=guidance_scale,
-            width=width,
-            height=height,
-            generator=generator,
-            callback_on_step_end=_generation_callback,
-        )
+        
+        # Use different parameters for Flux vs SD3 vs Lightning vs SD/SDXL
+        if is_flux:
+            # Flux doesn't use negative_prompt or guidance_scale
+            result = image_model(
+                prompt=prompt,
+                num_inference_steps=num_steps,
+                height=height,
+                width=width,
+                generator=generator,
+                callback_on_step_end=_generation_callback,
+            )
+        elif is_lightning:
+            # SDXL Lightning uses guidance_scale=0 for best results
+            result = image_model(
+                prompt=prompt,
+                negative_prompt=negative_prompt if negative_prompt.strip() else None,
+                num_inference_steps=num_steps,
+                guidance_scale=0.0,  # Lightning requires CFG=0
+                width=width,
+                height=height,
+                generator=generator,
+                callback_on_step_end=_generation_callback,
+            )
+        elif is_sd3:
+            # SD3 supports negative prompts and guidance scale
+            result = image_model(
+                prompt=prompt,
+                negative_prompt=negative_prompt if negative_prompt.strip() else None,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance_scale,
+                width=width,
+                height=height,
+                generator=generator,
+                callback_on_step_end=_generation_callback,
+            )
+        else:
+            # Standard SD/SDXL generation
+            result = image_model(
+                prompt=prompt,
+                negative_prompt=negative_prompt if negative_prompt.strip() else None,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance_scale,
+                width=width,
+                height=height,
+                generator=generator,
+                callback_on_step_end=_generation_callback,
+            )
         
         # VAE decoding happens inside the pipeline call, so we're already past it
         progress(0.92, desc="Processing image...")
@@ -1493,17 +1822,17 @@ def load_dataset_images(dataset_name):
 
 
 def get_image_caption(dataset_name, evt: gr.SelectData):
-    """Get caption for selected image in gallery."""
+    """Get caption and image path for selected image in gallery."""
     if not dataset_name:
-        return "", ""
+        return "", "", None
     
     dm = get_dataset_manager()
     images = dm.get_images(dataset_name)
     
     if evt.index < len(images):
         img = images[evt.index]
-        return img.get("caption", ""), img.get("filename", "")
-    return "", ""
+        return img.get("caption", ""), img.get("filename", ""), img.get("path", None)
+    return "", "", None
 
 
 def update_image_caption(dataset_name, filename, new_caption):
@@ -1531,44 +1860,345 @@ def delete_dataset_image(dataset_name, filename):
     return f"✅ Deleted {filename}", gallery_items
 
 
-def auto_caption_image(image):
-    """Generate caption using BLIP model (lazy loaded)."""
-    global blip_model, blip_processor
+def unload_models_for_captioning():
+    """Unload image and text models to free GPU VRAM for captioning."""
+    global image_generator, text_generator
+    
+    freed = False
+    
+    # Unload image generator
+    if 'image_generator' in globals() and image_generator is not None:
+        try:
+            if hasattr(image_generator, 'pipeline') and image_generator.pipeline is not None:
+                del image_generator.pipeline
+                image_generator.pipeline = None
+                freed = True
+                logger.info("Unloaded image model for captioning")
+        except Exception as e:
+            logger.warning(f"Error unloading image model: {e}")
+    
+    # Unload text generator
+    if 'text_generator' in globals() and text_generator is not None:
+        try:
+            if hasattr(text_generator, 'model') and text_generator.model is not None:
+                del text_generator.model
+                text_generator.model = None
+                freed = True
+                logger.info("Unloaded text model for captioning")
+        except Exception as e:
+            logger.warning(f"Error unloading text model: {e}")
+    
+    # Clear CUDA cache
+    if freed:
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+
+def unload_caption_model():
+    """Unload captioning model to free GPU VRAM."""
+    global caption_model, caption_processor, blip_model, blip_processor
+    
+    if 'caption_model' in globals() and caption_model is not None:
+        del caption_model
+        caption_model = None
+        logger.info("Unloaded captioning model")
+    
+    if 'caption_processor' in globals() and caption_processor is not None:
+        del caption_processor
+        caption_processor = None
+    
+    # Legacy BLIP cleanup
+    if 'blip_model' in globals() and blip_model is not None:
+        del blip_model
+        blip_model = None
+    if 'blip_processor' in globals() and blip_processor is not None:
+        del blip_processor
+        blip_processor = None
+    
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+# Default system prompt for LoRA training captions (hardcoded base)
+LORA_CAPTION_SYSTEM_PROMPT_BASE = """You are an expert at writing training captions for AI image generation (Stable Diffusion LoRA training).
+
+When describing images, follow these rules:
+1. Start with the main subject and their key visual features
+2. Use specific, descriptive tags separated by commas  
+3. Include: species/race, gender, skin color, clothing, pose, expression, setting
+4. Describe distinctive features like skin patterns, markings, tattoos, unique anatomy
+5. Keep captions concise but detailed (50-100 words)
+6. Use natural language mixed with booru-style tags
+7. Don't include speculation or narrative - just describe what you see
+8. If a trigger word is provided, include it naturally in the caption"""
+
+LORA_CAPTION_USER_PROMPT = """Describe this image for Stable Diffusion LoRA training. Be specific about visual details, species, clothing, pose, and setting. Use comma-separated descriptive tags."""
+
+
+def build_caption_system_prompt(custom_context: str = None) -> str:
+    """Build the full system prompt with optional custom context."""
+    prompt = LORA_CAPTION_SYSTEM_PROMPT_BASE
+    
+    if custom_context and custom_context.strip():
+        prompt += f"\n\n**IMPORTANT CONTEXT FOR THIS TRAINING:**\n{custom_context.strip()}"
+    
+    return prompt
+
+
+def auto_caption_image(image, trigger_word: str = None, custom_context: str = None):
+    """Generate caption using BLIP with optional enhancement."""
+    global caption_model, caption_processor
     
     try:
-        if 'blip_model' not in globals() or blip_model is None:
-            from transformers import BlipProcessor, BlipForConditionalGeneration
-            
-            # Get model config from utility presets
-            captioner_config = UTILITY_MODELS.get('image_captioner', {})
-            model_id = captioner_config.get('id', 'Salesforce/blip-image-captioning-base')
-            device = captioner_config.get('device', 'cpu')
-            
-            logger.info(f"Loading BLIP captioning model: {model_id} on {device}...")
-            blip_processor = BlipProcessor.from_pretrained(
-                model_id,
-                cache_dir=cache_dir
-            )
-            blip_model = BlipForConditionalGeneration.from_pretrained(
-                model_id,
-                cache_dir=cache_dir
-            ).to(device)
-            blip_model.eval()
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        captioner_config = UTILITY_MODELS.get('image_captioner', {})
+        model_id = captioner_config.get('id', 'Salesforce/blip-image-captioning-large')
         
-        inputs = blip_processor(image, return_tensors="pt")
+        # Use BLIP for reliable captioning (no torchvision dependency)
+        caption = _caption_with_blip(image, model_id, device)
         
-        with torch.no_grad():
-            output = blip_model.generate(**inputs, max_length=50)
+        # Enhance caption with trigger word and custom context
+        if caption:
+            caption = _enhance_caption(caption, trigger_word, custom_context)
         
-        caption = blip_processor.decode(output[0], skip_special_tokens=True)
         return caption
         
     except Exception as e:
         logger.error(f"Auto-captioning failed: {e}")
+        import traceback
+        traceback.print_exc()
         return ""
 
 
-def suggest_captions_for_dataset(dataset_name):
+def _enhance_caption(caption: str, trigger_word: str = None, custom_context: str = None) -> str:
+    """Enhance a basic caption with trigger word and custom context terms."""
+    if not caption:
+        return caption
+    
+    # Add trigger word at the beginning if provided
+    if trigger_word and trigger_word.strip():
+        caption = f"{trigger_word}, {caption}"
+    
+    # Parse custom context for key terms to add
+    if custom_context and custom_context.strip():
+        context_lower = custom_context.lower()
+        caption_lower = caption.lower()
+        
+        # Star Wars species
+        if "twi'lek" in context_lower or "twilek" in context_lower:
+            if "twi'lek" not in caption_lower and "twilek" not in caption_lower:
+                # Replace generic terms with specific ones
+                if "alien" in caption_lower:
+                    caption = caption.replace("alien", "twi'lek")
+                elif "woman" in caption_lower and "lekku" not in caption_lower:
+                    caption = caption.replace("woman", "twi'lek woman")
+                elif "man" in caption_lower and "lekku" not in caption_lower:
+                    caption = caption.replace(" man", " twi'lek male")
+                else:
+                    caption = f"twi'lek, {caption}"
+        
+        if "togruta" in context_lower and "togruta" not in caption_lower:
+            caption = f"togruta, {caption}"
+        
+        if "zabrak" in context_lower and "zabrak" not in caption_lower:
+            caption = f"zabrak, {caption}"
+        
+        # Add Star Wars tag if mentioned in context
+        if "star wars" in context_lower and "star wars" not in caption_lower:
+            caption = f"{caption}, star wars"
+        
+        # Add lekku mention for twi'leks if head-tails visible
+        if ("twi'lek" in context_lower or "lekku" in context_lower) and "lekku" not in caption_lower:
+            if "head" in caption_lower or "tentacle" in caption_lower:
+                caption = caption.replace("tentacle", "lekku").replace("head tails", "lekku")
+    
+    return caption
+
+
+def _caption_with_florence(image, model_id: str, device: str, trigger_word: str = None, custom_context: str = None):
+    """Generate caption using Microsoft Florence-2 vision-language model."""
+    global caption_model, caption_processor
+    
+    from transformers import AutoProcessor, AutoModelForCausalLM
+    from PIL import Image
+    
+    # Ensure image is a PIL Image
+    if not isinstance(image, Image.Image):
+        image = Image.fromarray(image).convert("RGB")
+    else:
+        image = image.convert("RGB")
+    
+    if 'caption_model' not in globals() or caption_model is None:
+        # Unload other models to free VRAM
+        unload_models_for_captioning()
+        
+        logger.info(f"Loading Florence-2 captioning model: {model_id} on {device}...")
+        
+        caption_model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            cache_dir=cache_dir,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            trust_remote_code=True
+        )
+        if device == "cuda":
+            caption_model = caption_model.to(device)
+        caption_processor = AutoProcessor.from_pretrained(model_id, cache_dir=cache_dir, trust_remote_code=True)
+        logger.info(f"Florence-2 model loaded on {device}")
+    
+    # Florence-2 uses task prompts - MORE_DETAILED_CAPTION gives detailed descriptions
+    task_prompt = "<MORE_DETAILED_CAPTION>"
+    
+    # Process image and generate
+    inputs = caption_processor(text=task_prompt, images=image, return_tensors="pt")
+    if device == "cuda":
+        inputs = {k: v.to(device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+    
+    with torch.no_grad():
+        generated_ids = caption_model.generate(
+            **inputs,
+            max_new_tokens=200,
+            num_beams=3,
+            do_sample=False
+        )
+    
+    # Decode the generated caption
+    generated_text = caption_processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
+    
+    # Parse Florence-2 output format
+    caption = caption_processor.post_process_generation(
+        generated_text,
+        task=task_prompt,
+        image_size=(image.width, image.height)
+    )
+    
+    # Extract the caption text
+    if isinstance(caption, dict) and '<MORE_DETAILED_CAPTION>' in caption:
+        caption_text = caption['<MORE_DETAILED_CAPTION>']
+    else:
+        caption_text = str(caption)
+    
+    # Add trigger word if provided
+    if trigger_word and trigger_word.strip():
+        caption_text = f"{trigger_word}, {caption_text}"
+    
+    # Add custom context hints to the caption if provided
+    # (Florence-2 doesn't use system prompts, so we append context-relevant terms)
+    if custom_context and custom_context.strip():
+        # Extract key terms from context to potentially add
+        context_lower = custom_context.lower()
+        if "twi'lek" in context_lower or "twilek" in context_lower:
+            if "twi'lek" not in caption_text.lower():
+                caption_text = caption_text.replace("alien", "twi'lek alien")
+        if "star wars" in context_lower:
+            if "star wars" not in caption_text.lower():
+                caption_text += ", star wars"
+    
+    return caption_text.strip()
+
+
+def _caption_with_qwen2vl(image, model_id: str, device: str, trigger_word: str = None, custom_context: str = None):
+    """Generate caption using Qwen2-VL vision-language model."""
+    global caption_model, caption_processor
+    
+    from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+    from PIL import Image
+    
+    # Ensure image is a PIL Image
+    if not isinstance(image, Image.Image):
+        image = Image.fromarray(image).convert("RGB")
+    else:
+        image = image.convert("RGB")
+    
+    if 'caption_model' not in globals() or caption_model is None:
+        # Unload other models to free VRAM
+        unload_models_for_captioning()
+        
+        logger.info(f"Loading Qwen2-VL captioning model: {model_id} on {device}...")
+        
+        caption_model = Qwen2VLForConditionalGeneration.from_pretrained(
+            model_id,
+            cache_dir=cache_dir,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            device_map="auto" if device == "cuda" else None
+        )
+        caption_processor = AutoProcessor.from_pretrained(model_id, cache_dir=cache_dir)
+        logger.info(f"Qwen2-VL model loaded on {device}")
+    
+    # Build the prompt with system message and custom context
+    system_prompt = build_caption_system_prompt(custom_context)
+    user_prompt = LORA_CAPTION_USER_PROMPT
+    if trigger_word:
+        user_prompt = f"The trigger word for this LoRA is '{trigger_word}'. Include this word naturally in the caption. " + user_prompt
+    
+    # Format for Qwen2-VL - simplified without qwen_vl_utils
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": [
+                {"type": "image"},
+                {"type": "text", "text": user_prompt}
+            ]
+        }
+    ]
+    
+    # Process the message - pass image directly to processor
+    text = caption_processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = caption_processor(
+        text=[text],
+        images=[image],
+        padding=True,
+        return_tensors="pt"
+    ).to(caption_model.device)
+    
+    with torch.no_grad():
+        output_ids = caption_model.generate(
+            **inputs,
+            max_new_tokens=150,
+            do_sample=False
+        )
+    
+    # Decode only the generated tokens
+    generated_ids = output_ids[:, inputs.input_ids.shape[1]:]
+    caption = caption_processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+    
+    return caption.strip()
+
+
+def _caption_with_blip(image, model_id: str, device: str):
+    """Fallback caption using BLIP model."""
+    global caption_model, caption_processor
+    
+    from transformers import BlipProcessor, BlipForConditionalGeneration
+    
+    if 'caption_model' not in globals() or caption_model is None:
+        unload_models_for_captioning()
+        
+        logger.info(f"Loading BLIP captioning model: {model_id} on {device}...")
+        caption_processor = BlipProcessor.from_pretrained(model_id, cache_dir=cache_dir)
+        caption_model = BlipForConditionalGeneration.from_pretrained(
+            model_id,
+            cache_dir=cache_dir,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32
+        ).to(device)
+        caption_model.eval()
+        logger.info(f"BLIP model loaded on {device}")
+    
+    inputs = caption_processor(image, return_tensors="pt").to(caption_model.device)
+    
+    with torch.no_grad():
+        output = caption_model.generate(**inputs, max_length=75)
+    
+    caption = caption_processor.decode(output[0], skip_special_tokens=True)
+    return caption
+
+
+def suggest_captions_for_dataset(dataset_name, custom_context=""):
     """Generate suggested captions for all images in dataset."""
     if not dataset_name:
         return "❌ Select a dataset first", []
@@ -1586,17 +2216,51 @@ def suggest_captions_for_dataset(dataset_name):
         if not img_data.get("caption"):  # Only caption images without captions
             try:
                 img = Image.open(img_data["path"]).convert("RGB")
-                caption = auto_caption_image(img)
+                caption = auto_caption_image(img, custom_context=custom_context)
                 if caption:
                     dm.update_caption(dataset_name, img_data["filename"], caption)
                     updated += 1
             except Exception as e:
                 logger.error(f"Failed to caption {img_data['filename']}: {e}")
     
+    # Unload caption model after bulk captioning to free VRAM
+    unload_caption_model()
+    
     # Return updated gallery
     images = dm.get_images(dataset_name)
     gallery_items = [(img["path"], img.get("caption", "")[:30]) for img in images]
     return f"✅ Generated captions for {updated} images", gallery_items
+
+
+def auto_caption_single_image(dataset_name, image_name, custom_context=""):
+    """Generate caption for a single selected image."""
+    if not dataset_name or not image_name:
+        return "❌ Select an image first", ""
+    
+    dm = get_dataset_manager()
+    images = dm.get_images(dataset_name)
+    
+    # Find the selected image
+    img_data = None
+    for img in images:
+        if img["filename"] == image_name:
+            img_data = img
+            break
+    
+    if not img_data:
+        return "❌ Image not found", ""
+    
+    try:
+        from PIL import Image
+        img = Image.open(img_data["path"]).convert("RGB")
+        caption = auto_caption_image(img, custom_context=custom_context)
+        if caption:
+            return f"✅ Caption generated", caption
+        else:
+            return "❌ Failed to generate caption", ""
+    except Exception as e:
+        logger.error(f"Failed to caption {image_name}: {e}")
+        return f"❌ Error: {str(e)}", ""
 
 
 def get_base_model_choices():
@@ -1753,7 +2417,7 @@ def delete_lora(lora_name):
     return f"✅ Deleted LoRA: {lora_name}", gr.update(choices=get_lora_choices(), value=None)
 
 
-def import_lora(file, lora_name, trigger_word):
+def import_lora(file, lora_name, trigger_word, base_model="auto-detect"):
     """Import a pre-built LoRA .safetensors file."""
     import shutil
     from pathlib import Path
@@ -1792,9 +2456,26 @@ def import_lora(file, lora_name, trigger_word):
         except Exception as e:
             logger.warning(f"Could not detect LoRA rank: {e}")
         
+        # Detect base model type
+        detected_base = base_model
+        if base_model == "auto-detect":
+            # Try to detect from file size (SDXL LoRAs are typically larger)
+            file_size = os.path.getsize(dest_file) / (1024 * 1024)  # MB
+            fname_lower = os.path.basename(file.name).lower()
+            if "xl" in fname_lower or "sdxl" in fname_lower or file_size > 100:
+                detected_base = "sdxl"
+            else:
+                detected_base = "sd15"
+        
+        # Set appropriate base model path
+        if detected_base == "sdxl":
+            base_model_path = "stabilityai/stable-diffusion-xl-base-1.0"
+        else:
+            base_model_path = "runwayml/stable-diffusion-v1-5"
+        
         # Create adapter_config.json
         adapter_config = {
-            "base_model_name_or_path": "stabilityai/stable-diffusion-xl-base-1.0",
+            "base_model_name_or_path": base_model_path,
             "inference_mode": True,
             "peft_type": "LORA",
             "r": rank,
@@ -1818,6 +2499,7 @@ def import_lora(file, lora_name, trigger_word):
         metadata = {
             "name": lora_name,
             "trigger_word": trigger_word.strip(),
+            "base_model": detected_base,
             "source": os.path.basename(file.name),
             "installed_from": "imported",
             "rank": rank,
@@ -1827,13 +2509,220 @@ def import_lora(file, lora_name, trigger_word):
         with open(lora_dir / "lora_metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
         
-        logger.info(f"Imported LoRA: {lora_name} (rank={rank}, trigger={trigger_word})")
+        logger.info(f"Imported LoRA: {lora_name} (base={detected_base}, rank={rank}, trigger={trigger_word})")
         
-        return f"✅ Imported '{lora_name}'! Trigger word: **{trigger_word}**", gr.update(choices=get_lora_choices(), value=lora_name)
+        return f"✅ Imported '{lora_name}'! Base: **{detected_base.upper()}**, Trigger: **{trigger_word}**", gr.update(choices=get_lora_choices(), value=lora_name)
         
     except Exception as e:
         logger.error(f"Error importing LoRA: {e}")
         return f"❌ Error: {str(e)}", gr.update()
+
+
+def import_checkpoint(file, checkpoint_name, model_type="auto-detect"):
+    """Import a checkpoint .safetensors or .ckpt file."""
+    import shutil
+    from pathlib import Path
+    
+    if file is None:
+        return "❌ Please select a .safetensors or .ckpt file", get_checkpoint_list_data()
+    
+    if not checkpoint_name or not checkpoint_name.strip():
+        return "❌ Please enter a name for the checkpoint", get_checkpoint_list_data()
+    
+    checkpoint_name = checkpoint_name.strip().replace(" ", "_")
+    
+    # Validate file type
+    file_ext = os.path.splitext(file.name.lower())[1]
+    if file_ext not in ['.safetensors', '.ckpt']:
+        return "❌ File must be a .safetensors or .ckpt file", get_checkpoint_list_data()
+    
+    try:
+        # Create checkpoints directory if needed
+        checkpoints_dir = Path("data/checkpoints")
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Determine destination filename
+        dest_filename = f"{checkpoint_name}{file_ext}"
+        dest_file = checkpoints_dir / dest_filename
+        
+        # Check if already exists
+        if dest_file.exists():
+            return f"❌ Checkpoint '{checkpoint_name}' already exists", get_checkpoint_list_data()
+        
+        # Copy the file
+        shutil.copy2(file.name, dest_file)
+        
+        # Detect model type from file size if auto-detect
+        file_size_gb = os.path.getsize(dest_file) / (1024**3)
+        detected_type = model_type
+        
+        if model_type == "auto-detect":
+            fname_lower = os.path.basename(file.name).lower()
+            if "xl" in fname_lower or "sdxl" in fname_lower or file_size_gb > 4.0:
+                detected_type = "sdxl"
+            else:
+                detected_type = "sd15"
+        
+        # Add to AVAILABLE_IMAGE_MODELS
+        display_name = f"📁 {checkpoint_name}"
+        AVAILABLE_IMAGE_MODELS[display_name] = {
+            "id": str(dest_file),
+            "description": f"Imported checkpoint ({file_size_gb:.1f}GB)",
+            "vram": "~8 GB" if detected_type == "sdxl" else "~4 GB",
+            "default_steps": 25,
+            "default_guidance": 7.0,
+            "default_width": 1024 if detected_type == "sdxl" else 512,
+            "default_height": 1024 if detected_type == "sdxl" else 768,
+            "step_range": [15, 50],
+            "guidance_range": [5.0, 12.0],
+            "default_negative": "ugly, deformed, blurry, low quality",
+            "tips": f"Imported {'SDXL' if detected_type == 'sdxl' else 'SD 1.5'} checkpoint",
+            "is_checkpoint": True,
+            "checkpoint_type": detected_type,
+        }
+        
+        logger.info(f"Imported checkpoint: {checkpoint_name} ({detected_type.upper()}, {file_size_gb:.1f}GB)")
+        
+        return f"✅ Imported '{checkpoint_name}'! Type: **{detected_type.upper()}**, Size: **{file_size_gb:.1f}GB**\n\nIt's now available in the Image Generator model dropdown.", get_all_models_data()
+        
+    except Exception as e:
+        logger.error(f"Error importing checkpoint: {e}")
+        return f"❌ Error: {str(e)}", get_all_models_data()
+
+
+def get_all_models_data():
+    """Get unified list of all models and LoRAs for the browse table."""
+    from pathlib import Path
+    from src.models.lora_manager import get_lora_manager
+    
+    data = []
+    
+    # Get LoRA manager data
+    try:
+        lm = get_lora_manager()
+        lm.scan_all()
+        
+        # Image LoRAs
+        for name, lora in sorted(lm.image_loras.items()):
+            triggers = ", ".join(lora.trigger_words) if lora.trigger_words else ""
+            data.append([
+                "🎨 Image LoRA",
+                name,
+                lora.base_model.value.upper(),
+                triggers,
+                f"rank={lora.rank}" if lora.rank else ""
+            ])
+        
+        # Text LoRAs
+        for name, lora in sorted(lm.text_loras.items()):
+            data.append([
+                "💬 Text LoRA",
+                name,
+                lora.base_model.value.upper(),
+                "",
+                lora.category
+            ])
+        
+        # Card Gen LoRAs
+        for name, lora in sorted(lm.cah_loras.items()):
+            data.append([
+                "🃏 Card LoRA",
+                name,
+                lora.base_model.value.upper(),
+                "",
+                lora.category
+            ])
+    except Exception as e:
+        logger.warning(f"Could not load LoRAs: {e}")
+    
+    # Local image models (checkpoints)
+    checkpoints_dir = Path("data/checkpoints")
+    if checkpoints_dir.exists():
+        for f in checkpoints_dir.iterdir():
+            if f.suffix.lower() in ['.safetensors', '.ckpt']:
+                size_gb = f.stat().st_size / (1024**3)
+                is_sdxl = size_gb > 4.0 or "xl" in f.stem.lower() or "sdxl" in f.stem.lower()
+                model_type = "SDXL" if is_sdxl else "SD 1.5"
+                data.append([
+                    "📦 Image Model",
+                    f.stem,
+                    model_type,
+                    "",
+                    f"{size_gb:.1f} GB"
+                ])
+    
+    return data if data else [["No models found", "-", "-", "-", "-"]]
+
+
+def get_checkpoint_list_data():
+    """Get list of checkpoints for the dataframe."""
+    from pathlib import Path
+    checkpoints_dir = Path("data/checkpoints")
+    data = []
+    
+    if checkpoints_dir.exists():
+        for f in checkpoints_dir.iterdir():
+            if f.suffix.lower() in ['.safetensors', '.ckpt']:
+                size_gb = f.stat().st_size / (1024**3)
+                is_sdxl = size_gb > 4.0 or "xl" in f.stem.lower() or "sdxl" in f.stem.lower()
+                model_type = "SDXL" if is_sdxl else "SD 1.5"
+                data.append([f.stem, model_type, f"{size_gb:.1f} GB", f.name])
+    
+    return data
+
+
+def unified_import(import_type, file, name, trigger_word="", base_model_type="auto-detect"):
+    """Unified import function for models and LoRAs."""
+    if file is None:
+        return "❌ Please select a file"
+    
+    if not name or not name.strip():
+        return "❌ Please enter a name"
+    
+    if import_type == "📦 Image Model":
+        # Import as checkpoint
+        status, _ = import_checkpoint(file, name, base_model_type)
+        return status
+    
+    elif import_type == "🎨 Image LoRA":
+        # Import as image LoRA
+        status, _ = import_lora(file, name, trigger_word, base_model_type)
+        return status
+    
+    elif import_type == "💬 Text LoRA":
+        # Placeholder - text LoRA import not yet implemented
+        return "❌ Text LoRA import not yet implemented. Place PEFT adapters in `data/lora_models/text/`"
+    
+    elif import_type == "🃏 Card LoRA":
+        # Placeholder - card LoRA import not yet implemented
+        return "❌ Card LoRA import not yet implemented. Place PEFT adapters in `data/lora_models/cardgen/`"
+    
+    return "❌ Unknown import type"
+
+
+def delete_checkpoint(checkpoint_name):
+    """Delete a checkpoint file."""
+    from pathlib import Path
+    if not checkpoint_name:
+        return "❌ No checkpoint selected", get_checkpoint_list_data()
+    
+    checkpoints_dir = Path("data/checkpoints")
+    
+    # Find and delete the file
+    for f in checkpoints_dir.iterdir():
+        if f.stem == checkpoint_name:
+            try:
+                f.unlink()
+                # Remove from AVAILABLE_IMAGE_MODELS if present
+                display_name = f"📁 {checkpoint_name}"
+                if display_name in AVAILABLE_IMAGE_MODELS:
+                    del AVAILABLE_IMAGE_MODELS[display_name]
+                logger.info(f"Deleted checkpoint: {checkpoint_name}")
+                return f"✅ Deleted '{checkpoint_name}'", get_checkpoint_list_data()
+            except Exception as e:
+                return f"❌ Error deleting: {e}", get_checkpoint_list_data()
+    
+    return f"❌ Checkpoint '{checkpoint_name}' not found", get_checkpoint_list_data()
 
 
 # ==================== Cards Against Humanity Generator Functions ====================
@@ -3646,6 +4535,13 @@ def create_ui():
     conv_choices = {f"{c['title']} ({c['model']})": c['id'] for c in recent_convs}
     
     with gr.Blocks(title="KVGenius Multi-Model Chat", theme=gr.themes.Soft(), css="""
+        /* Align buttons with text inputs */
+        .align-bottom {
+            margin-top: auto !important;
+            align-self: flex-end !important;
+            margin-bottom: 7px !important;
+        }
+        
         /* Chat area - larger height */
         #chatbot {
             height: 600px !important;
@@ -4119,7 +5015,7 @@ def create_ui():
                         gr.Markdown("---")
                         prompt_preview_display = gr.Markdown("*Select a prompt to see its details*")
                     
-                    # Note: LoRA Training has been moved to the LoRA Manager tab
+                    # Note: LoRA Training has been moved to the Model Manager tab
             
             # ==================== CARD GENERATOR TAB ====================
             with gr.TabItem("🃏 Card Generator", id="card_tab"):
@@ -4443,262 +5339,274 @@ def create_ui():
                     outputs=delete_card_select
                 )
             
-            # ==================== LORA MANAGER TAB ====================
-            with gr.TabItem("🎛️ LoRA Manager", id="lora_manager_tab"):
-                gr.Markdown("### 🎛️ LoRA Manager\n*Browse, train, and manage LoRAs for image generation, text models, and card generation.*")
+            # ==================== MODEL MANAGER TAB ====================
+            with gr.TabItem("🎛️ Model Manager", id="model_manager_tab"):
+                gr.Markdown("### 🎛️ Model Manager\n*Browse, import, and train models & LoRAs*")
                 
                 with gr.Row():
-                    lora_refresh_btn = gr.Button("🔄 Refresh LoRAs", size="sm")
-                    lora_scan_status = gr.Markdown("")
+                    model_refresh_btn = gr.Button("🔄 Refresh All", size="sm")
+                    model_scan_status = gr.Markdown("")
                 
-                with gr.Tabs() as lora_manager_tabs:
-                    # ==================== IMAGE LORAS SECTION ====================
-                    with gr.TabItem("🎨 Image LoRAs", id="image_loras_tab"):
-                        with gr.Tabs() as image_lora_subtabs:
-                            # Browse Image LoRAs
-                            with gr.TabItem("📦 Browse", id="image_lora_browse"):
-                                gr.Markdown("#### Available Image LoRAs\n*LoRAs for Stable Diffusion models (SD 1.5, SDXL)*")
-                                
-                                image_lora_list = gr.Dataframe(
-                                    headers=["Name", "Base Model", "Trigger Words", "Category"],
-                                    datatype=["str", "str", "str", "str"],
-                                    label="Available Image LoRAs",
-                                    interactive=False,
-                                    wrap=True,
+                with gr.Tabs() as model_manager_tabs:
+                    # ==================== UNIFIED BROWSE TAB ====================
+                    with gr.TabItem("📦 Browse", id="browse_tab"):
+                        gr.Markdown("**All Models & LoRAs** — *Everything in one place*")
+                        
+                        all_models_list = gr.Dataframe(
+                            headers=["Type", "Name", "Base", "Trigger/Info", "Details"],
+                            datatype=["str", "str", "str", "str", "str"],
+                            value=get_all_models_data(),
+                            label="Installed Models & LoRAs",
+                            interactive=False,
+                            wrap=True,
+                        )
+                        
+                        with gr.Row():
+                            with gr.Column(scale=2):
+                                gr.Markdown("**Selected Item Details**")
+                                selected_item_dropdown = gr.Dropdown(
+                                    label="Select to View/Edit",
+                                    choices=["None"],
+                                    value="None"
+                                )
+                                selected_item_details = gr.Markdown("*Select an item to see details*")
+                            
+                            with gr.Column(scale=1):
+                                selected_item_preview = gr.Image(
+                                    label="Preview",
+                                    height=150,
+                                    show_label=False,
+                                    visible=False
+                                )
+                        
+                        with gr.Accordion("📝 Edit Metadata", open=False):
+                            edit_item_name = gr.Textbox(label="Name", interactive=True)
+                            edit_item_triggers = gr.Textbox(label="Trigger Words (comma-separated)", interactive=True)
+                            edit_item_base = gr.Dropdown(
+                                label="Base Model",
+                                choices=["sd15", "sdxl", "unknown"],
+                                interactive=True
+                            )
+                            edit_item_category = gr.Textbox(label="Category", interactive=True)
+                            edit_item_desc = gr.Textbox(label="Description", lines=2, interactive=True)
+                            with gr.Row():
+                                save_item_btn = gr.Button("💾 Save Changes", variant="primary", size="sm")
+                                delete_item_btn = gr.Button("🗑️ Delete", variant="stop", size="sm")
+                            edit_item_status = gr.Markdown("")
+                    
+                    # ==================== UNIFIED IMPORT TAB ====================
+                    with gr.TabItem("📥 Import", id="import_tab"):
+                        gr.Markdown("#### Import Model or LoRA\n*Import .safetensors files from CivitAI or other sources*")
+                        
+                        with gr.Row():
+                            with gr.Column(scale=1):
+                                import_type = gr.Radio(
+                                    label="What are you importing?",
+                                    choices=["📦 Image Model", "🎨 Image LoRA", "💬 Text LoRA", "🃏 Card LoRA"],
+                                    value="📦 Image Model"
                                 )
                                 
-                                with gr.Row():
-                                    with gr.Column(scale=2):
-                                        gr.Markdown("**Selected LoRA Details**")
-                                        selected_image_lora = gr.Dropdown(
-                                            label="Select LoRA to View/Edit",
-                                            choices=["None"],
-                                            value="None"
-                                        )
-                                        image_lora_details = gr.Markdown("*Select a LoRA to see details*")
-                                    
-                                    with gr.Column(scale=1):
-                                        gr.Markdown("**Quick Actions**")
-                                        image_lora_preview = gr.Image(
-                                            label="Preview",
-                                            height=150,
-                                            show_label=False,
-                                            visible=False
-                                        )
+                                import_file = gr.File(
+                                    label="File (.safetensors or .ckpt)",
+                                    file_types=[".safetensors", ".ckpt"],
+                                    type="filepath"
+                                )
                                 
-                                with gr.Accordion("📝 Edit Metadata", open=False):
-                                    edit_image_lora_name = gr.Textbox(label="Name", interactive=True)
-                                    edit_image_lora_triggers = gr.Textbox(label="Trigger Words (comma-separated)", interactive=True)
-                                    edit_image_lora_base = gr.Dropdown(
-                                        label="Base Model",
-                                        choices=["sd15", "sdxl", "unknown"],
+                                import_name = gr.Textbox(
+                                    label="Name",
+                                    placeholder="e.g., MyModel or MyLoRA",
+                                    info="Name for your imported item"
+                                )
+                                
+                                # LoRA-specific fields (shown only for LoRA imports)
+                                import_trigger = gr.Textbox(
+                                    label="Trigger Word",
+                                    placeholder="e.g., mystyle",
+                                    info="Word to activate this LoRA in prompts",
+                                    visible=False  # Hidden by default, shown when LoRA type selected
+                                )
+                                
+                                import_base_type = gr.Dropdown(
+                                    label="Base Model Type",
+                                    choices=["auto-detect", "sd15", "sdxl"],
+                                    value="auto-detect",
+                                    info="Usually auto-detect works"
+                                )
+                                
+                                import_btn = gr.Button("📥 Import", variant="primary", size="lg")
+                                import_status = gr.Markdown("")
+                            
+                            with gr.Column(scale=1):
+                                gr.Markdown("""
+**Import Guide**
+
+**📦 Image Models** (2-7 GB)
+- Complete Stable Diffusion models
+- Download from [CivitAI](https://civitai.com/) or [HuggingFace](https://huggingface.co/)
+- Appears in Image Generator dropdown with 📁 prefix
+
+**🎨 Image LoRAs** (10-300 MB)
+- Style/character add-ons for SD models
+- Need a trigger word to activate
+- Download from CivitAI
+
+**💬 Text LoRAs** (Coming Soon)
+- Personality/style add-ons for chat models
+- Usually from HuggingFace
+
+**🃏 Card LoRAs** (Coming Soon)
+- Theme add-ons for card generation
+
+**File Formats:**
+- `.safetensors` - Recommended, safer
+- `.ckpt` - Legacy, still works
+                                """)
+                    
+                    # ==================== TRAIN IMAGE LORA TAB ====================
+                    with gr.TabItem("🎨 Train Image LoRA", id="train_image_tab"):
+                        gr.Markdown("### Train Custom Image LoRA")
+                        
+                        # Step 1: Select or Create Dataset
+                        with gr.Accordion("📁 Step 1: Select Dataset", open=True) as step1_accordion:
+                            with gr.Row():
+                                dataset_dropdown = gr.Dropdown(
+                                    choices=get_lora_dataset_choices(),
+                                    label="Dataset",
+                                    interactive=True,
+                                    scale=2
+                                )
+                                new_dataset_name = gr.Textbox(
+                                    label="Or Create New",
+                                    placeholder="new_dataset_name",
+                                    max_lines=1,
+                                    scale=2
+                                )
+                                create_dataset_btn = gr.Button("➕ Create", variant="primary", size="sm", scale=1)
+                            dataset_status = gr.Markdown("")
+                        
+                        # Step 2: Add Images
+                        with gr.Accordion("🖼️ Step 2: Add Training Images", open=False) as step2_accordion:
+                            # Upload section
+                            with gr.Row():
+                                training_image_upload = gr.File(
+                                    label="Drop images here or click to browse",
+                                    file_count="multiple",
+                                    file_types=["image"],
+                                    scale=3
+                                )
+                                with gr.Column(scale=1, min_width=150):
+                                    crop_size = gr.Dropdown(choices=[512, 768, 1024], value=512, label="Size")
+                                    crop_mode = gr.Dropdown(
+                                        choices=[("Pad", "resize_pad"), ("Smart", "smart"), ("Center", "center")],
+                                        value="resize_pad", label="Crop"
+                                    )
+                                    auto_caption_checkbox = gr.Checkbox(label="Auto-caption", value=False)
+                                    upload_images_btn = gr.Button("📤 Upload & Process", variant="primary")
+                            
+                            gr.Markdown("---")
+                            
+                            # Caption context for AI captioning
+                            with gr.Accordion("📝 Caption Context (Optional)", open=False):
+                                caption_context = gr.Textbox(
+                                    label="Custom Context for AI Captions",
+                                    placeholder="Add context for better captions. Examples:\n• Subject: Twi'lek, an alien species from Star Wars with colorful skin and head-tails called lekku\n• Style: anime art style with cel shading\n• Character: Princess Leia from Star Wars",
+                                    lines=3,
+                                    info="The AI captioner will use this context to generate more accurate captions for your training images."
+                                )
+                            
+                            # Gallery with large preview and caption editing
+                            with gr.Row():
+                                # Left: Thumbnail gallery
+                                with gr.Column(scale=1):
+                                    gr.Markdown("**Images** — *Click to select*")
+                                    dataset_gallery = gr.Gallery(
+                                        columns=3, rows=3, height=350,
+                                        object_fit="cover", show_label=False
+                                    )
+                                    with gr.Row():
+                                        suggest_captions_btn = gr.Button("🧠 Auto-Caption All", variant="secondary", size="sm")
+                                        refresh_dataset_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
+                                        delete_dataset_btn = gr.Button("🗑️ Delete Dataset", variant="stop", size="sm")
+                                
+                                # Right: Large preview + caption editing
+                                with gr.Column(scale=2):
+                                    gr.Markdown("**Selected Image**")
+                                    selected_image_preview = gr.Image(
+                                        label="Preview", 
+                                        height=350, 
+                                        show_label=False,
+                                        interactive=False
+                                    )
+                                    selected_image_name = gr.Textbox(label="Filename", interactive=False)
+                                    image_caption_edit = gr.Textbox(
+                                        label="Caption", 
+                                        placeholder="Click an image to edit its caption...", 
+                                        lines=2
+                                    )
+                                    with gr.Row():
+                                        auto_caption_single_btn = gr.Button("🧠 Auto-Caption", variant="secondary", size="sm")
+                                        save_caption_btn = gr.Button("💾 Save Caption", variant="primary", size="sm")
+                                        delete_image_btn = gr.Button("🗑️ Delete Image", variant="stop", size="sm")
+                            caption_status = gr.Markdown("")
+                        
+                        # Step 3: Configure & Train
+                        with gr.Accordion("🚀 Step 3: Configure & Train", open=False) as step3_accordion:
+                            with gr.Row():
+                                # Left: Essential settings
+                                with gr.Column(scale=1):
+                                    train_dataset_dropdown = gr.Dropdown(
+                                        choices=get_lora_dataset_choices(),
+                                        label="Dataset",
                                         interactive=True
                                     )
-                                    edit_image_lora_category = gr.Textbox(label="Category", interactive=True)
-                                    edit_image_lora_desc = gr.Textbox(label="Description", lines=2, interactive=True)
-                                    save_image_lora_btn = gr.Button("💾 Save Changes", variant="primary", size="sm")
-                                    edit_lora_status = gr.Markdown("")
+                                    train_output_name = gr.Textbox(
+                                        label="LoRA Name",
+                                        placeholder="my_lora",
+                                        max_lines=1
+                                    )
+                                    train_trigger_word = gr.Textbox(
+                                        label="Trigger Word",
+                                        placeholder="mystyle",
+                                        max_lines=1
+                                    )
+                                    train_base_model = gr.Dropdown(
+                                        choices=get_base_model_choices(),
+                                        value="Dreamshaper 8",
+                                        label="Base Model"
+                                    )
                                 
-                                with gr.Accordion("📥 Import LoRA", open=False):
-                                    gr.Markdown("*Import .safetensors files from CivitAI or other sources*")
-                                    with gr.Row():
-                                        with gr.Column(scale=2):
-                                            import_lora_file = gr.File(
-                                                label="LoRA File (.safetensors)",
-                                                file_types=[".safetensors"],
-                                                type="filepath"
-                                            )
-                                        with gr.Column(scale=1):
-                                            import_lora_name = gr.Textbox(
-                                                label="LoRA Name",
-                                                placeholder="e.g., TwilekStyle"
-                                            )
-                                            import_trigger_word = gr.Textbox(
-                                                label="Trigger Word",
-                                                placeholder="e.g., twilek"
-                                            )
-                                            import_lora_btn = gr.Button("📥 Import LoRA", variant="primary")
-                                    import_lora_status = gr.Markdown("")
-                            
-                            # Train Image LoRAs - Dataset
-                            with gr.TabItem("📁 Dataset", id="image_lora_dataset"):
-                                gr.Markdown("#### Step 1: Prepare Training Images")
-                                
-                                with gr.Row():
-                                    with gr.Column(scale=1):
-                                        gr.Markdown("**Create/Select Dataset**")
-                                        new_dataset_name = gr.Textbox(
-                                            label="New Dataset Name",
-                                            placeholder="e.g., my_alien_species",
-                                            max_lines=1
-                                        )
-                                        create_dataset_btn = gr.Button("➕ Create Dataset", variant="primary", size="sm")
-                                        
-                                        dataset_dropdown = gr.Dropdown(
-                                            choices=get_lora_dataset_choices(),
-                                            label="Select Dataset",
-                                            interactive=True
-                                        )
-                                        delete_dataset_btn = gr.Button("🗑️ Delete Dataset", variant="stop", size="sm")
-                                        dataset_status = gr.Markdown("")
+                                # Right: Training params (compact)
+                                with gr.Column(scale=1):
+                                    train_epochs = gr.Slider(10, 500, value=100, step=10, label="Epochs")
+                                    train_lora_rank = gr.Slider(4, 128, value=16, step=4, label="LoRA Rank")
+                                    train_resolution = gr.Dropdown(choices=[512, 768], value=512, label="Resolution")
                                     
-                                    with gr.Column(scale=2):
-                                        gr.Markdown("**Upload Images**")
-                                        training_image_upload = gr.File(
-                                            label="Upload Training Images",
-                                            file_count="multiple",
-                                            file_types=["image"]
-                                        )
-                                        with gr.Row():
-                                            crop_size = gr.Dropdown(
-                                                choices=[512, 768, 1024],
-                                                value=512,
-                                                label="Size"
-                                            )
-                                            crop_mode = gr.Dropdown(
-                                                choices=[
-                                                    ("Resize & Pad (keeps all details)", "resize_pad"),
-                                                    ("Smart Crop (portrait-aware)", "smart"),
-                                                    ("Center Crop", "center"),
-                                                    ("Top Crop (for faces)", "top"),
-                                                    ("Stretch (may distort)", "resize_stretch")
-                                                ],
-                                                value="resize_pad",
-                                                label="Crop Mode",
-                                                info="How to fit non-square images"
-                                            )
-                                        auto_caption_checkbox = gr.Checkbox(
-                                            label="Auto-caption with AI",
-                                            value=False,
-                                            info="Uses BLIP model (~300MB)"
-                                        )
-                                        upload_images_btn = gr.Button("📤 Upload & Process", variant="primary")
-                                
-                                gr.Markdown("---")
-                                gr.Markdown("**Dataset Images** *(Click image to edit caption)*")
-                                
-                                with gr.Row():
-                                    with gr.Column(scale=2):
-                                        dataset_gallery = gr.Gallery(
-                                            label="Training Images",
-                                            columns=4,
-                                            rows=2,
-                                            height=300,
-                                            object_fit="cover",
-                                            show_label=False
-                                        )
-                                        with gr.Row():
-                                            suggest_captions_btn = gr.Button("🧠 Auto-Caption All", variant="secondary", size="sm")
-                                            refresh_dataset_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
-                                    
-                                    with gr.Column(scale=1):
-                                        gr.Markdown("**Edit Caption**")
-                                        selected_image_name = gr.Textbox(label="Selected Image", interactive=False)
-                                        image_caption_edit = gr.Textbox(
-                                            label="Caption",
-                                            placeholder="Describe what's in this image...",
-                                            lines=3
-                                        )
-                                        with gr.Row():
-                                            save_caption_btn = gr.Button("💾 Save Caption", variant="primary", size="sm")
-                                            delete_image_btn = gr.Button("🗑️ Delete Image", variant="stop", size="sm")
-                                        caption_status = gr.Markdown("")
-                            
-                            # Train Image LoRAs - Training
-                            with gr.TabItem("🎓 Train", id="image_lora_train"):
-                                gr.Markdown("#### Step 2: Configure & Start Training")
-                                
-                                with gr.Row():
-                                    with gr.Column(scale=1):
-                                        gr.Markdown("**Training Configuration**")
-                                        
-                                        train_dataset_dropdown = gr.Dropdown(
-                                            choices=get_lora_dataset_choices(),
-                                            label="Dataset to Train",
-                                            interactive=True
-                                        )
-                                        train_output_name = gr.Textbox(
-                                            label="LoRA Name",
-                                            placeholder="e.g., twilek_species",
-                                            max_lines=1
-                                        )
+                                    # Advanced in sub-accordion
+                                    with gr.Accordion("Advanced", open=False):
+                                        train_learning_rate = gr.Number(value=1e-4, label="Learning Rate")
+                                        train_lora_alpha = gr.Slider(8, 128, value=32, step=8, label="LoRA Alpha")
+                                        train_max_steps = gr.Number(value=0, label="Max Steps (0=epochs)")
                                         train_resume_from = gr.Dropdown(
                                             choices=["(New LoRA)"] + get_lora_choices(),
                                             value="(New LoRA)",
-                                            label="Continue Training From",
-                                            info="Select existing LoRA to add more images/training"
+                                            label="Continue From"
                                         )
-                                        train_trigger_word = gr.Textbox(
-                                            label="Trigger Word",
-                                            placeholder="e.g., twilek",
-                                            info="Word to use in prompts to activate this LoRA",
-                                            max_lines=1
-                                        )
-                                        train_description = gr.Textbox(
-                                            label="Description (optional)",
-                                            placeholder="Star Wars Twi'lek alien species",
-                                            max_lines=2
-                                        )
-                                        train_base_model = gr.Dropdown(
-                                            choices=get_base_model_choices(),
-                                            value="Dreamshaper 8",
-                                            label="Base Model"
-                                        )
-                                    
-                                    with gr.Column(scale=1):
-                                        gr.Markdown("**Training Parameters**")
-                                        
-                                        train_epochs = gr.Slider(10, 500, value=100, step=10, label="Epochs")
-                                        train_learning_rate = gr.Number(value=1e-4, label="Learning Rate")
-                                        train_lora_rank = gr.Slider(4, 128, value=16, step=4, label="LoRA Rank", info="Higher = more capacity, more VRAM")
-                                        train_lora_alpha = gr.Slider(8, 128, value=32, step=8, label="LoRA Alpha")
-                                        train_resolution = gr.Dropdown(
-                                            choices=[512, 768],
-                                            value=512,
-                                            label="Training Resolution"
-                                        )
-                                        train_max_steps = gr.Number(
-                                            value=0,
-                                            label="Max Steps (0 = use epochs)",
-                                            info="Override epochs with fixed step count"
-                                        )
-                                
-                                gr.Markdown("---")
-                                
-                                with gr.Row():
-                                    start_training_btn = gr.Button("🚀 Start Training", variant="primary", size="lg", scale=2)
-                                    stop_training_btn = gr.Button("⏹ Stop Training", variant="stop", size="lg", scale=1)
-                                
-                                training_status = gr.Markdown("*Ready to train*")
-                                training_progress = gr.Slider(0, 100, value=0, label="Progress", interactive=False)
-                                training_details = gr.Markdown("")
-                    
-                    # ==================== TEXT LORAS SECTION ====================
-                    with gr.TabItem("💬 Text LoRAs", id="text_loras_tab"):
-                        with gr.Tabs() as text_lora_subtabs:
-                            with gr.TabItem("📦 Browse", id="text_lora_browse"):
-                                gr.Markdown("#### Text Model LoRAs\n*LoRAs for chat and text generation models (Mistral, Llama, etc.)*")
-                                
-                                text_lora_list = gr.Dataframe(
-                                    headers=["Name", "Base Model", "Category"],
-                                    datatype=["str", "str", "str"],
-                                    label="Available Text LoRAs",
-                                    interactive=False,
-                                )
-                                
-                                gr.Markdown("""
-**How Text LoRAs Work:**
-- Train on conversation/persona data to customize chat behavior
-- Use for specific character voices, writing styles, or expertise areas
-- Compatible with Mistral, Llama, and similar transformer models
-
-*Place PEFT adapters in `data/lora_models/text/`*
-                                """)
+                                        train_description = gr.Textbox(label="Description", max_lines=1)
                             
-                            with gr.TabItem("🎓 Train", id="text_lora_train"):
-                                gr.Markdown("#### Train Text Model LoRAs\n*Coming soon - train custom personas and chat styles*")
-                                
-                                gr.Markdown("""
+                            # Training controls
+                            with gr.Row():
+                                start_training_btn = gr.Button("🚀 Start Training", variant="primary", size="lg", scale=2)
+                                stop_training_btn = gr.Button("⏹ Stop", variant="stop", size="lg", scale=1)
+                            
+                            training_progress = gr.Slider(0, 100, value=0, label="Progress", interactive=False)
+                            training_status = gr.Markdown("*Select a dataset and configure settings above*")
+                            training_details = gr.Markdown("")
+                    
+                    # ==================== TRAIN TEXT LORA TAB ====================
+                    with gr.TabItem("💬 Train Text LoRA", id="train_text_tab"):
+                        gr.Markdown("### Train Text Model LoRA\n*Coming soon - train custom personas and chat styles*")
+                        
+                        gr.Markdown("""
 **Planned Features:**
 - 📝 Upload conversation examples or persona descriptions
 - 🎭 Train character-specific LoRAs for roleplay
@@ -4706,38 +5614,13 @@ def create_ui():
 - 🔄 Continue training from existing LoRAs
 
 *Text LoRA training requires PEFT library and will use the loaded text model as base.*
-                                """)
-                                
-                                # Placeholder for future text LoRA training UI
-                                with gr.Row(visible=False):
-                                    text_train_status = gr.Markdown("*Text LoRA training coming soon*")
+                        """)
                     
-                    # ==================== CARD GEN LORAS SECTION ====================
-                    with gr.TabItem("🃏 Card Gen LoRAs", id="cardgen_loras_tab"):
-                        with gr.Tabs() as cardgen_lora_subtabs:
-                            with gr.TabItem("📦 Browse", id="cardgen_lora_browse"):
-                                gr.Markdown("#### Card Generation LoRAs\n*Specialized LoRAs for party game card generation themes and styles*")
-                                
-                                cardgen_lora_list = gr.Dataframe(
-                                    headers=["Name", "Base Model", "Theme"],
-                                    datatype=["str", "str", "str"],
-                                    label="Available Card Gen LoRAs",
-                                    interactive=False,
-                                )
-                                
-                                gr.Markdown("""
-**How Card Gen LoRAs Work:**
-- Train on card example datasets for specific themes
-- Create LoRAs for humor styles: dark, absurd, pop culture, etc.
-- Mix with base text model to generate themed cards
-
-*Place card gen LoRAs in `data/lora_models/cardgen/`*
-                                """)
-                            
-                            with gr.TabItem("🎓 Train", id="cardgen_lora_train"):
-                                gr.Markdown("#### Train Card Generation LoRAs\n*Coming soon - train custom card themes and styles*")
-                                
-                                gr.Markdown("""
+                    # ==================== TRAIN CARD LORA TAB ====================
+                    with gr.TabItem("🃏 Train Card LoRA", id="train_card_tab"):
+                        gr.Markdown("### Train Card Generation LoRA\n*Coming soon - train custom card themes and styles*")
+                        
+                        gr.Markdown("""
 **Planned Features:**
 - 📝 Upload example cards for your theme
 - 🎯 Train for specific humor styles or topics
@@ -4745,15 +5628,54 @@ def create_ui():
 - 📊 Preview generated cards during training
 
 *Card Gen LoRA training will allow you to create custom card themes.*
-                                """)
-                                
-                                # Placeholder for future card gen LoRA training UI
-                                with gr.Row(visible=False):
-                                    cardgen_train_status = gr.Markdown("*Card Gen LoRA training coming soon*")
+                        """)
                 
-                # LoRA Manager Events
+                # Model Manager Events
+                # Keep compatibility variables for existing event handlers
+                image_lora_list = all_models_list
+                selected_image_lora = selected_item_dropdown
+                image_lora_details = selected_item_details
+                image_lora_preview = selected_item_preview
+                edit_image_lora_name = edit_item_name
+                edit_image_lora_triggers = edit_item_triggers
+                edit_image_lora_base = edit_item_base
+                edit_image_lora_category = edit_item_category
+                edit_image_lora_desc = edit_item_desc
+                save_image_lora_btn = save_item_btn
+                edit_lora_status = edit_item_status
+                lora_refresh_btn = model_refresh_btn
+                lora_scan_status = model_scan_status
+                
+                # Placeholder dataframes for old handlers (they reference these)
+                text_lora_list = gr.Dataframe(visible=False)
+                cardgen_lora_list = gr.Dataframe(visible=False)
+                
+                # Model Manager Events
+                def refresh_all_models():
+                    """Refresh unified model/LoRA list from disk."""
+                    data = get_all_models_data()
+                    
+                    # Build choices for dropdown
+                    choices = ["None"]
+                    for row in data:
+                        if len(row) >= 2:
+                            name = row[1]  # Name is second column
+                            item_type = row[0]  # Type is first column
+                            choices.append(f"{name} ({item_type})")
+                    
+                    # Count by type
+                    type_counts = {}
+                    for row in data:
+                        t = row[0] if row else "Unknown"
+                        type_counts[t] = type_counts.get(t, 0) + 1
+                    
+                    status_parts = [f"{count} {t}" for t, count in sorted(type_counts.items())]
+                    status = f"✅ Found: {', '.join(status_parts)}" if status_parts else "No models found"
+                    
+                    return data, gr.update(choices=choices), status
+                
                 def refresh_lora_lists():
-                    """Refresh all LoRA lists from disk."""
+                    """Legacy function - refresh all LoRA lists from disk."""
                     from src.models.lora_manager import get_lora_manager
                     lm = get_lora_manager()
                     lm.scan_all()
@@ -4846,31 +5768,48 @@ def create_ui():
                     else:
                         return f"❌ Failed to save metadata"
                 
-                # Wire up events
-                lora_refresh_btn.click(
-                    refresh_lora_lists,
-                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cardgen_lora_list, lora_scan_status]
+                # Wire up events for unified Model Manager
+                model_refresh_btn.click(
+                    refresh_all_models,
+                    outputs=[all_models_list, selected_item_dropdown, model_scan_status]
                 )
                 
-                selected_image_lora.change(
-                    get_image_lora_details,
-                    inputs=selected_image_lora,
-                    outputs=[image_lora_details, edit_image_lora_name, edit_image_lora_triggers, edit_image_lora_base, edit_image_lora_category, edit_image_lora_desc, image_lora_preview]
+                selected_item_dropdown.change(
+                    get_image_lora_details,  # Reuse for now - works for LoRAs
+                    inputs=selected_item_dropdown,
+                    outputs=[selected_item_details, edit_item_name, edit_item_triggers, edit_item_base, edit_item_category, edit_item_desc, selected_item_preview]
                 )
                 
-                save_image_lora_btn.click(
-                    save_image_lora_metadata,
-                    inputs=[selected_image_lora, edit_image_lora_name, edit_image_lora_triggers, edit_image_lora_base, edit_image_lora_category, edit_image_lora_desc],
-                    outputs=edit_lora_status
+                save_item_btn.click(
+                    save_image_lora_metadata,  # Reuse for now
+                    inputs=[selected_item_dropdown, edit_item_name, edit_item_triggers, edit_item_base, edit_item_category, edit_item_desc],
+                    outputs=edit_item_status
                 ).then(
-                    refresh_lora_lists,
-                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cardgen_lora_list, lora_scan_status]
+                    refresh_all_models,
+                    outputs=[all_models_list, selected_item_dropdown, model_scan_status]
+                )
+                
+                # Show/hide trigger word field based on import type
+                import_type.change(
+                    lambda t: gr.update(visible="LoRA" in t),
+                    inputs=import_type,
+                    outputs=import_trigger
+                )
+                
+                # Import button - use unified import function
+                import_btn.click(
+                    unified_import,
+                    inputs=[import_type, import_file, import_name, import_trigger, import_base_type],
+                    outputs=import_status
+                ).then(
+                    refresh_all_models,
+                    outputs=[all_models_list, selected_item_dropdown, model_scan_status]
                 )
                 
                 # Auto-refresh on tab load
                 demo.load(
-                    refresh_lora_lists,
-                    outputs=[image_lora_list, selected_image_lora, text_lora_list, cardgen_lora_list, lora_scan_status]
+                    refresh_all_models,
+                    outputs=[all_models_list, selected_item_dropdown, model_scan_status]
                 )
         
         # Chat Events
@@ -5175,11 +6114,11 @@ def create_ui():
             outputs=dataset_gallery
         )
         
-        # Gallery image selection for caption editing
+        # Gallery image selection for caption editing and preview
         dataset_gallery.select(
             get_image_caption,
             inputs=dataset_dropdown,
-            outputs=[image_caption_edit, selected_image_name]
+            outputs=[image_caption_edit, selected_image_name, selected_image_preview]
         )
         
         # Save caption
@@ -5193,6 +6132,13 @@ def create_ui():
             outputs=dataset_gallery
         )
         
+        # Auto-caption single image
+        auto_caption_single_btn.click(
+            auto_caption_single_image,
+            inputs=[dataset_dropdown, selected_image_name, caption_context],
+            outputs=[caption_status, image_caption_edit]
+        )
+        
         # Delete image
         delete_image_btn.click(
             delete_dataset_image,
@@ -5203,7 +6149,7 @@ def create_ui():
         # Auto-caption all images
         suggest_captions_btn.click(
             suggest_captions_for_dataset,
-            inputs=dataset_dropdown,
+            inputs=[dataset_dropdown, caption_context],
             outputs=[dataset_status, dataset_gallery]
         )
         
@@ -5236,19 +6182,6 @@ def create_ui():
         stop_training_btn.click(
             stop_training,
             outputs=[training_status, training_progress, training_details]
-        )
-        
-        # Import LoRA button - update both LoRA Manager and Image Gen dropdown
-        import_lora_btn.click(
-            import_lora,
-            inputs=[import_lora_file, import_lora_name, import_trigger_word],
-            outputs=[import_lora_status, selected_image_lora]
-        ).then(
-            lambda: gr.update(choices=["None"] + get_lora_choices()),
-            outputs=lora_dropdown
-        ).then(
-            refresh_lora_lists,
-            outputs=[image_lora_list, selected_image_lora, text_lora_list, cardgen_lora_list, lora_scan_status]
         )
         
         # Define helper functions for character/persona management

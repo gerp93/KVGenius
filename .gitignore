@@ -48,6 +48,11 @@ config/chat_model_presets.yaml
 
 # Legacy paths (in case they still exist)
 model_cache/
+
+# ============================================
+# Logs folder
+# ============================================
+logs/
 lora_models/
 training_datasets/
 generated_images/

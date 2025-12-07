@@ -12,14 +12,26 @@ models:
     size: "~300 MB"
     notes: "Lightweight, runs well on CPU. Used to expand and improve image prompts."
 
-  # Image Captioning - generates descriptions of images
+  # Image Captioning - generates descriptions of images for LoRA training
   image_captioner:
-    id: "Salesforce/blip-image-captioning-base"
-    description: "BLIP model for generating image descriptions"
+    id: "Salesforce/blip-image-captioning-large"
+    description: "BLIP large model for image captioning - no torchvision required"
     task: "image-to-text"
-    device: "cpu"
-    size: "~1 GB"
-    notes: "Used for auto-captioning uploaded images. Runs on CPU."
+    device: "cuda"
+    size: "~2 GB"
+    notes: "Reliable BLIP captioner that works with custom PyTorch builds."
+    system_prompt: |
+      You are an expert at writing training captions for AI image generation (Stable Diffusion LoRA training).
+      
+      When describing images, follow these rules:
+      1. Start with the main subject and their key visual features
+      2. Use specific, descriptive tags separated by commas
+      3. Include: species/race, gender, skin color, clothing, pose, expression, setting
+      4. For Star Wars content, use correct terminology (Twi'lek, Togruta, Zabrak, etc.)
+      5. Describe distinctive features like head-tails (lekku), skin patterns, markings
+      6. Keep captions concise but detailed (50-100 words)
+      7. Use natural language mixed with booru-style tags
+      8. Don't include speculation or narrative - just describe what you see
 
   # NSFW Detection - content safety filter
   nsfw_detector:
@@ -30,8 +42,26 @@ models:
     size: "~350 MB"
     notes: "Optional safety filter. Disabled by default for unrestricted generation."
 
-# Alternative models (can swap in if needed)
+# Alternative captioning models
 alternatives:
+  image_captioner:
+    - id: "Salesforce/blip-image-captioning-base"
+      description: "Basic BLIP model (fast, less detailed)"
+      size: "~1 GB"
+      type: "blip"
+    - id: "Salesforce/blip-image-captioning-large"
+      description: "Larger BLIP for better captions"
+      size: "~2 GB"
+      type: "blip"
+    - id: "llava-hf/llava-1.5-7b-hf"
+      description: "LLaVA 7B - very detailed but requires ~14GB VRAM"
+      size: "~14 GB"
+      type: "llava"
+    - id: "Qwen/Qwen2-VL-7B-Instruct"
+      description: "Larger Qwen2-VL for even better understanding"
+      size: "~15 GB"
+      type: "qwen2-vl"
+
   prompt_enhancer:
     - id: "google/flan-t5-base"
       description: "Larger T5 for better enhancement (slower)"
@@ -39,11 +69,3 @@ alternatives:
     - id: "Qwen/Qwen2-0.5B-Instruct"
       description: "Small instruction-tuned LLM alternative"
       size: "~1 GB"
-
-  image_captioner:
-    - id: "Salesforce/blip-image-captioning-large"
-      description: "Larger BLIP for better captions"
-      size: "~2 GB"
-    - id: "microsoft/git-base"
-      description: "GIT model alternative"
-      size: "~700 MB"
