@@ -483,7 +483,7 @@ def is_model_downloaded(repo_id: str, is_image_model: bool = False) -> bool:
     
     Args:
         repo_id: HuggingFace repo ID (e.g., 'Lykon/dreamshaper-8')
-        is_image_model: If True, check for complete SD model (unet + vae)
+        is_image_model: If True, check for complete SD model (unet/transformer + vae)
     """
     # HuggingFace cache structure: models--org--name
     cache_name = "models--" + repo_id.replace("/", "--")
@@ -499,18 +499,42 @@ def is_model_downloaded(repo_id: str, is_image_model: bool = False) -> bool:
             snapshot_dir = os.path.join(snapshots_path, snapshot)
             if os.path.isdir(snapshot_dir):
                 if is_image_model:
-                    # For SD models, check that unet is fully downloaded
+                    # For SD/SDXL models: check unet folder
+                    # For Flux/SD3 models: check transformer folder
+                    # For SDXL Lightning: check for .safetensors files directly
+                    
+                    # Check unet folder (SD 1.5, SDXL models)
                     unet_path = os.path.join(snapshot_dir, "unet")
                     if os.path.isdir(unet_path):
                         unet_files = [f for f in os.listdir(unet_path) 
                                       if f.endswith(('.safetensors', '.bin'))]
-                        if unet_files:
-                            # Check file isn't being downloaded (has .incomplete suffix or is very small)
-                            for uf in unet_files:
-                                full_path = os.path.join(unet_path, uf)
-                                # UNet should be at least 1GB for SD models
-                                if os.path.getsize(full_path) > 1_000_000_000:
-                                    return True
+                        for uf in unet_files:
+                            full_path = os.path.join(unet_path, uf)
+                            # UNet should be at least 1GB for SD models
+                            if os.path.getsize(full_path) > 1_000_000_000:
+                                return True
+                    
+                    # Check transformer folder (Flux, SD3 models)
+                    transformer_path = os.path.join(snapshot_dir, "transformer")
+                    if os.path.isdir(transformer_path):
+                        transformer_files = [f for f in os.listdir(transformer_path) 
+                                              if f.endswith(('.safetensors', '.bin'))]
+                        for tf in transformer_files:
+                            full_path = os.path.join(transformer_path, tf)
+                            # Transformer should be at least 1GB
+                            if os.path.getsize(full_path) > 1_000_000_000:
+                                return True
+                    
+                    # Check for direct .safetensors files (SDXL Lightning UNet checkpoints)
+                    direct_files = [f for f in os.listdir(snapshot_dir) 
+                                    if f.endswith(('.safetensors', '.bin')) and 'unet' in f.lower()]
+                    for df in direct_files:
+                        full_path = os.path.join(snapshot_dir, df)
+                        # UNet checkpoint should be at least 1GB
+                        if os.path.getsize(full_path) > 1_000_000_000:
+                            return True
+                    
+                    # If no large model files found, not fully downloaded
                     return False
                 else:
                     # For chat models, any model file indicates downloaded
@@ -2590,52 +2614,43 @@ def import_checkpoint(file, checkpoint_name, model_type="auto-detect"):
         return f"❌ Error: {str(e)}", get_all_models_data()
 
 
-def get_all_models_data():
-    """Get unified list of all models and LoRAs for the browse table."""
+def get_all_models_data(type_filter="All", source_filter="All", base_filter="All", search_query=""):
+    """Get unified list of all models and LoRAs for the browse table.
+    
+    Args:
+        type_filter: Filter by type (All, Image Model, Image LoRA, Text LoRA, Card LoRA)
+        source_filter: Filter by source (All, HuggingFace, Local, CivitAI)
+        base_filter: Filter by base model (All, SD 1.5, SDXL, Flux, SD3)
+        search_query: Search across all columns
+    """
     from pathlib import Path
     from src.models.lora_manager import get_lora_manager
     
     data = []
     
-    # Get LoRA manager data
-    try:
-        lm = get_lora_manager()
-        lm.scan_all()
+    # ==================== HuggingFace Image Models ====================
+    for model_key, model_info in sorted(AVAILABLE_IMAGE_MODELS.items()):
+        model_type = model_info.get("type", "sd").upper()
+        if model_type == "SD":
+            model_type = "SD 1.5"
+        elif model_type == "SDXL-LIGHTNING":
+            model_type = "SDXL"
         
-        # Image LoRAs
-        for name, lora in sorted(lm.image_loras.items()):
-            triggers = ", ".join(lora.trigger_words) if lora.trigger_words else ""
-            data.append([
-                "🎨 Image LoRA",
-                name,
-                lora.base_model.value.upper(),
-                triggers,
-                f"rank={lora.rank}" if lora.rank else ""
-            ])
+        # Check download status
+        repo_id = model_info.get("id", "")
+        is_downloaded = is_model_downloaded(repo_id, is_image_model=True)
+        status = "✅" if is_downloaded else "⏳"
         
-        # Text LoRAs
-        for name, lora in sorted(lm.text_loras.items()):
-            data.append([
-                "💬 Text LoRA",
-                name,
-                lora.base_model.value.upper(),
-                "",
-                lora.category
-            ])
-        
-        # Card Gen LoRAs
-        for name, lora in sorted(lm.cah_loras.items()):
-            data.append([
-                "🃏 Card LoRA",
-                name,
-                lora.base_model.value.upper(),
-                "",
-                lora.category
-            ])
-    except Exception as e:
-        logger.warning(f"Could not load LoRAs: {e}")
+        data.append([
+            "📦 Image Model",
+            f"{status} {model_key}",
+            model_type,
+            "HuggingFace",
+            model_info.get("description", ""),
+            model_info.get("vram", "")
+        ])
     
-    # Local image models (checkpoints)
+    # ==================== Local Checkpoints ====================
     checkpoints_dir = Path("data/checkpoints")
     if checkpoints_dir.exists():
         for f in checkpoints_dir.iterdir():
@@ -2645,13 +2660,92 @@ def get_all_models_data():
                 model_type = "SDXL" if is_sdxl else "SD 1.5"
                 data.append([
                     "📦 Image Model",
-                    f.stem,
+                    f"✅ {f.stem}",
                     model_type,
-                    "",
+                    "Local",
+                    f"Local checkpoint",
                     f"{size_gb:.1f} GB"
                 ])
     
-    return data if data else [["No models found", "-", "-", "-", "-"]]
+    # ==================== LoRAs ====================
+    try:
+        lm = get_lora_manager()
+        lm.scan_all()
+        
+        # Image LoRAs
+        for name, lora in sorted(lm.image_loras.items()):
+            triggers = ", ".join(lora.trigger_words) if lora.trigger_words else ""
+            base = lora.base_model.value.upper() if hasattr(lora.base_model, 'value') else str(lora.base_model).upper()
+            data.append([
+                "🎨 Image LoRA",
+                f"✅ {name}",
+                base,
+                "CivitAI" if lora.source == "civitai" else "Local",
+                triggers,
+                f"rank={lora.rank}" if lora.rank else ""
+            ])
+        
+        # Text LoRAs
+        for name, lora in sorted(lm.text_loras.items()):
+            base = lora.base_model.value.upper() if hasattr(lora.base_model, 'value') else str(lora.base_model).upper()
+            data.append([
+                "💬 Text LoRA",
+                f"✅ {name}",
+                base,
+                "Local",
+                lora.category,
+                ""
+            ])
+        
+        # Card Gen LoRAs
+        for name, lora in sorted(lm.cah_loras.items()):
+            base = lora.base_model.value.upper() if hasattr(lora.base_model, 'value') else str(lora.base_model).upper()
+            data.append([
+                "🃏 Card LoRA",
+                f"✅ {name}",
+                base,
+                "Local",
+                lora.category,
+                ""
+            ])
+    except Exception as e:
+        logger.warning(f"Could not load LoRAs: {e}")
+    
+    # ==================== Apply Filters ====================
+    filtered_data = []
+    for row in data:
+        row_type, row_name, row_base, row_source, row_desc, row_info = row
+        
+        # Type filter
+        if type_filter != "All":
+            if type_filter == "Image Model" and "Image Model" not in row_type:
+                continue
+            elif type_filter == "Image LoRA" and "Image LoRA" not in row_type:
+                continue
+            elif type_filter == "Text LoRA" and "Text LoRA" not in row_type:
+                continue
+            elif type_filter == "Card LoRA" and "Card LoRA" not in row_type:
+                continue
+        
+        # Source filter
+        if source_filter != "All" and row_source != source_filter:
+            continue
+        
+        # Base model filter
+        if base_filter != "All":
+            if base_filter not in row_base:
+                continue
+        
+        # Search filter (case-insensitive across all columns)
+        if search_query:
+            search_lower = search_query.lower()
+            row_text = " ".join(str(c).lower() for c in row)
+            if search_lower not in row_text:
+                continue
+        
+        filtered_data.append(row)
+    
+    return filtered_data if filtered_data else [["No models found", "-", "-", "-", "-", "-"]]
 
 
 def get_checkpoint_list_data():
@@ -5350,15 +5444,42 @@ def create_ui():
                 with gr.Tabs() as model_manager_tabs:
                     # ==================== UNIFIED BROWSE TAB ====================
                     with gr.TabItem("📦 Browse", id="browse_tab"):
-                        gr.Markdown("**All Models & LoRAs** — *Everything in one place*")
+                        gr.Markdown("**All Models & LoRAs** — *Everything in one place*  \n✅ = Downloaded/Available | ⏳ = Not Downloaded")
+                        
+                        # Filter controls
+                        with gr.Row():
+                            browse_search = gr.Textbox(
+                                label="🔍 Search",
+                                placeholder="Search by name, description...",
+                                scale=3
+                            )
+                            browse_type_filter = gr.Dropdown(
+                                label="Type",
+                                choices=["All", "Image Model", "Image LoRA", "Text LoRA", "Card LoRA"],
+                                value="All",
+                                scale=1
+                            )
+                            browse_source_filter = gr.Dropdown(
+                                label="Source",
+                                choices=["All", "HuggingFace", "Local", "CivitAI"],
+                                value="All",
+                                scale=1
+                            )
+                            browse_base_filter = gr.Dropdown(
+                                label="Base",
+                                choices=["All", "SD 1.5", "SDXL", "FLUX", "SD3"],
+                                value="All",
+                                scale=1
+                            )
                         
                         all_models_list = gr.Dataframe(
-                            headers=["Type", "Name", "Base", "Trigger/Info", "Details"],
-                            datatype=["str", "str", "str", "str", "str"],
+                            headers=["Type", "Name", "Base", "Source", "Description", "Info"],
+                            datatype=["str", "str", "str", "str", "str", "str"],
                             value=get_all_models_data(),
                             label="Installed Models & LoRAs",
                             interactive=False,
                             wrap=True,
+                            row_count=(15, "dynamic"),  # Show ~15 rows, scrollable
                         )
                         
                         with gr.Row():
@@ -5651,14 +5772,14 @@ def create_ui():
                 cardgen_lora_list = gr.Dataframe(visible=False)
                 
                 # Model Manager Events
-                def refresh_all_models():
-                    """Refresh unified model/LoRA list from disk."""
-                    data = get_all_models_data()
+                def refresh_all_models(type_filter="All", source_filter="All", base_filter="All", search_query=""):
+                    """Refresh unified model/LoRA list from disk with optional filters."""
+                    data = get_all_models_data(type_filter, source_filter, base_filter, search_query)
                     
                     # Build choices for dropdown
                     choices = ["None"]
                     for row in data:
-                        if len(row) >= 2:
+                        if len(row) >= 2 and row[0] != "No models found":
                             name = row[1]  # Name is second column
                             item_type = row[0]  # Type is first column
                             choices.append(f"{name} ({item_type})")
@@ -5666,13 +5787,18 @@ def create_ui():
                     # Count by type
                     type_counts = {}
                     for row in data:
-                        t = row[0] if row else "Unknown"
-                        type_counts[t] = type_counts.get(t, 0) + 1
+                        if row[0] != "No models found":
+                            t = row[0] if row else "Unknown"
+                            type_counts[t] = type_counts.get(t, 0) + 1
                     
-                    status_parts = [f"{count} {t}" for t, count in sorted(type_counts.items())]
-                    status = f"✅ Found: {', '.join(status_parts)}" if status_parts else "No models found"
+                    status_parts = [f"{count} {t.replace('📦 ', '').replace('🎨 ', '').replace('💬 ', '').replace('🃏 ', '')}" for t, count in sorted(type_counts.items())]
+                    status = f"✅ Showing: {', '.join(status_parts)}" if status_parts else "No models found"
                     
                     return data, gr.update(choices=choices), status
+                
+                def apply_browse_filters(type_filter, source_filter, base_filter, search_query):
+                    """Apply filters to the browse grid."""
+                    return refresh_all_models(type_filter, source_filter, base_filter, search_query)
                 
                 def refresh_lora_lists():
                     """Legacy function - refresh all LoRA lists from disk."""
@@ -5708,20 +5834,92 @@ def create_ui():
                         status
                     )
                 
-                def get_image_lora_details(lora_name):
-                    """Get details for selected image LoRA."""
-                    if not lora_name or lora_name == "None":
-                        return "*Select a LoRA to see details*", "", "", "unknown", "", "", gr.update(visible=False)
+                def get_image_lora_details(selection):
+                    """Get details for selected item (LoRA or Model)."""
+                    if not selection or selection == "None":
+                        return "*Select an item to see details*", "", "", "unknown", "", "", gr.update(visible=False)
                     
+                    # Parse selection - format is "✅ Name (📦 Image Model)" or "✅ Name (🎨 Image LoRA)"
+                    # Extract the name and type
+                    name = selection
+                    item_type = ""
+                    
+                    if "(" in selection and ")" in selection:
+                        parts = selection.rsplit("(", 1)
+                        name = parts[0].strip()
+                        item_type = parts[1].rstrip(")").strip()
+                    
+                    # Remove status emoji from name if present
+                    if name and name[0] in "✅⏳":
+                        name = name[1:].strip()
+                    
+                    # Check if it's a HuggingFace model
+                    if "Image Model" in item_type:
+                        # Try to find in AVAILABLE_IMAGE_MODELS
+                        for model_key, model_info in AVAILABLE_IMAGE_MODELS.items():
+                            if model_key == name:
+                                model_type = model_info.get("type", "sd").upper()
+                                details = f"""
+**Name:** {model_key}
+**Source:** HuggingFace
+**Repository:** `{model_info.get('id', 'N/A')}`
+**Type:** {model_type}
+**Description:** {model_info.get('description', 'No description')}
+**VRAM:** {model_info.get('vram', 'Unknown')}
+**Default Steps:** {model_info.get('default_steps', 25)}
+**Default Guidance:** {model_info.get('default_guidance', 7.0)}
+"""
+                                return (
+                                    details,
+                                    model_key,
+                                    "",  # No trigger words for base models
+                                    model_type.lower() if model_type in ["SD 1.5", "SD15"] else model_type.lower(),
+                                    "base_model",
+                                    model_info.get('description', ''),
+                                    gr.update(visible=False)
+                                )
+                        
+                        # Check if it's a local checkpoint
+                        from pathlib import Path
+                        checkpoint_path = Path(f"data/checkpoints/{name}.safetensors")
+                        if not checkpoint_path.exists():
+                            checkpoint_path = Path(f"data/checkpoints/{name}.ckpt")
+                        
+                        if checkpoint_path.exists():
+                            size_gb = checkpoint_path.stat().st_size / (1024**3)
+                            is_sdxl = size_gb > 4.0 or "xl" in name.lower()
+                            details = f"""
+**Name:** {name}
+**Source:** Local Checkpoint
+**Path:** `{checkpoint_path}`
+**Type:** {"SDXL" if is_sdxl else "SD 1.5"}
+**Size:** {size_gb:.1f} GB
+"""
+                            return (
+                                details,
+                                name,
+                                "",
+                                "sdxl" if is_sdxl else "sd15",
+                                "checkpoint",
+                                "",
+                                gr.update(visible=False)
+                            )
+                        
+                        return f"*Model '{name}' not found*", "", "", "unknown", "", "", gr.update(visible=False)
+                    
+                    # Otherwise try as LoRA
                     from src.models.lora_manager import get_lora_manager
                     lm = get_lora_manager()
-                    lora = lm.get_lora_info(lora_name)
+                    
+                    # Try to find by name (might have type suffix stripped)
+                    lora = lm.get_lora_info(name)
                     
                     if not lora:
-                        return f"*LoRA '{lora_name}' not found*", "", "", "unknown", "", "", gr.update(visible=False)
+                        return f"*Item '{name}' not found*", "", "", "unknown", "", "", gr.update(visible=False)
                     
                     details = f"""
 **Name:** {lora.name}
+**Source:** {"CivitAI" if lora.source == "civitai" else "Local"}
 **Path:** `{lora.path}`
 **Base Model:** {lora.base_model.value.upper()}
 **Trigger Words:** {', '.join(lora.trigger_words) if lora.trigger_words else 'None'}
@@ -5745,17 +5943,61 @@ def create_ui():
                         gr.update(visible=preview_visible, value=lora.preview_image if preview_visible else None)
                     )
                 
-                def save_image_lora_metadata(lora_name, new_name, triggers, base_model, category, description):
-                    """Save updated LoRA metadata."""
-                    if not lora_name or lora_name == "None":
-                        return "❌ Select a LoRA first"
+                def save_image_lora_metadata(selection, new_name, triggers, base_model, category, description):
+                    """Save updated metadata for LoRA or HuggingFace model."""
+                    if not selection or selection == "None":
+                        return "❌ Select an item first"
                     
+                    # Parse selection to get name and type
+                    name = selection
+                    item_type = ""
+                    
+                    if "(" in selection and ")" in selection:
+                        parts = selection.rsplit("(", 1)
+                        name = parts[0].strip()
+                        item_type = parts[1].rstrip(")").strip()
+                    
+                    # Remove status emoji from name if present
+                    if name and name[0] in "✅⏳":
+                        name = name[1:].strip()
+                    
+                    # Check if it's a HuggingFace model
+                    if "Image Model" in item_type and name in AVAILABLE_IMAGE_MODELS:
+                        # Update the YAML config file
+                        try:
+                            config_path = os.path.join(os.path.dirname(__file__), "config", "image_model_presets.yaml")
+                            
+                            with open(config_path, 'r', encoding='utf-8') as f:
+                                config = yaml.safe_load(f)
+                            
+                            # Find and update the model in huggingface section
+                            if 'huggingface' in config and name in config['huggingface']:
+                                config['huggingface'][name]['description'] = description
+                                # Note: We could add more editable fields here
+                                
+                                with open(config_path, 'w', encoding='utf-8') as f:
+                                    yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+                                
+                                # Update in-memory copy
+                                if name in HUGGINGFACE_CHECKPOINTS:
+                                    HUGGINGFACE_CHECKPOINTS[name]['description'] = description
+                                if name in AVAILABLE_IMAGE_MODELS:
+                                    AVAILABLE_IMAGE_MODELS[name]['description'] = description
+                                
+                                return f"✅ Updated description for {name}"
+                            else:
+                                return f"⚠️ Model '{name}' not found in config (may be a local checkpoint)"
+                        except Exception as e:
+                            logger.error(f"Error saving model metadata: {e}")
+                            return f"❌ Error: {str(e)}"
+                    
+                    # Otherwise try as LoRA
                     from src.models.lora_manager import get_lora_manager, LoRABaseModel
                     lm = get_lora_manager()
                     
                     trigger_list = [t.strip() for t in triggers.split(",") if t.strip()]
                     
-                    success = lm.update_lora_metadata(lora_name, {
+                    success = lm.update_lora_metadata(name, {
                         "name": new_name,
                         "trigger_words": trigger_list,
                         "base_model": LoRABaseModel(base_model),
@@ -5771,7 +6013,36 @@ def create_ui():
                 # Wire up events for unified Model Manager
                 model_refresh_btn.click(
                     refresh_all_models,
+                    inputs=[browse_type_filter, browse_source_filter, browse_base_filter, browse_search],
                     outputs=[all_models_list, selected_item_dropdown, model_scan_status]
+                )
+                
+                # Filter change events - update grid when any filter changes
+                filter_inputs = [browse_type_filter, browse_source_filter, browse_base_filter, browse_search]
+                filter_outputs = [all_models_list, selected_item_dropdown, model_scan_status]
+                
+                browse_type_filter.change(
+                    apply_browse_filters,
+                    inputs=filter_inputs,
+                    outputs=filter_outputs
+                )
+                
+                browse_source_filter.change(
+                    apply_browse_filters,
+                    inputs=filter_inputs,
+                    outputs=filter_outputs
+                )
+                
+                browse_base_filter.change(
+                    apply_browse_filters,
+                    inputs=filter_inputs,
+                    outputs=filter_outputs
+                )
+                
+                browse_search.change(
+                    apply_browse_filters,
+                    inputs=filter_inputs,
+                    outputs=filter_outputs
                 )
                 
                 selected_item_dropdown.change(
@@ -5785,8 +6056,9 @@ def create_ui():
                     inputs=[selected_item_dropdown, edit_item_name, edit_item_triggers, edit_item_base, edit_item_category, edit_item_desc],
                     outputs=edit_item_status
                 ).then(
-                    refresh_all_models,
-                    outputs=[all_models_list, selected_item_dropdown, model_scan_status]
+                    apply_browse_filters,
+                    inputs=filter_inputs,
+                    outputs=filter_outputs
                 )
                 
                 # Show/hide trigger word field based on import type
@@ -5802,11 +6074,12 @@ def create_ui():
                     inputs=[import_type, import_file, import_name, import_trigger, import_base_type],
                     outputs=import_status
                 ).then(
-                    refresh_all_models,
-                    outputs=[all_models_list, selected_item_dropdown, model_scan_status]
+                    apply_browse_filters,
+                    inputs=filter_inputs,
+                    outputs=filter_outputs
                 )
                 
-                # Auto-refresh on tab load
+                # Auto-refresh on tab load (no filters initially)
                 demo.load(
                     refresh_all_models,
                     outputs=[all_models_list, selected_item_dropdown, model_scan_status]
