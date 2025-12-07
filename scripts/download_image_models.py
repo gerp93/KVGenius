@@ -45,8 +45,9 @@ def load_models_from_config():
     try:
         with open(path_to_use, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
-            models = config.get('models', {})
-            # Return full model info
+            # Image models are under 'huggingface' key (not 'models')
+            models = config.get('huggingface', {})
+            # Return full model info - only models with 'id' field (HuggingFace repos)
             return {name: preset for name, preset in models.items() if preset.get('id')}
     except Exception as e:
         print(f"❌ Error loading config: {e}")
@@ -122,6 +123,27 @@ def main():
         print("⚠️ Force mode: will re-download all models")
     else:
         downloaded = get_downloaded_models()
+        # Some downloads may have been created by other tools or saved
+        # with slightly different naming. Also check the cache directory
+        # for any "models--owner--repo" folders that match configured
+        # repo ids to avoid unnecessary re-downloads.
+        try:
+            for path in glob.glob(os.path.join(CACHE_DIR, "models--*")):
+                dirname = os.path.basename(path)
+                if not dirname.startswith("models--"):
+                    continue
+                tail = dirname[8:]
+                # Reconstruct repo id by splitting on first double-dash
+                if "--" in tail:
+                    owner, rest = tail.split("--", 1)
+                    repo_guess = f"{owner}/{rest}"
+                    downloaded.add(repo_guess)
+                else:
+                    # Fallback: convert first slash substitution
+                    downloaded.add(tail.replace("--", "/", 1))
+        except Exception:
+            # If any error occurs while scanning directories, ignore and continue
+            pass
     
     print("="*60)
     print("Image Model Downloader")

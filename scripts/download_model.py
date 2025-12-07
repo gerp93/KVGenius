@@ -23,7 +23,7 @@ import fix_dll_paths  # Must be before torch imports
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 
 import yaml
-from huggingface_hub import snapshot_download, scan_cache_dir
+from huggingface_hub import snapshot_download
 
 CACHE_DIR = "./data/model_cache"
 
@@ -47,7 +47,9 @@ def load_all_models():
             try:
                 with open(path_to_use, 'r', encoding='utf-8') as f:
                     config = yaml.safe_load(f)
-                    for name, preset in config.get('models', {}).items():
+                    # Chat models use 'models' key, Image models use 'huggingface' key
+                    models_section = config.get('models', {}) or config.get('huggingface', {})
+                    for name, preset in models_section.items():
                         if preset.get('id'):
                             models[f"{model_type}: {name}"] = preset
             except Exception as e:
@@ -57,23 +59,54 @@ def load_all_models():
 
 
 def get_downloaded_models():
-    """Get set of already downloaded model repo IDs."""
+    """Get set of already downloaded model repo IDs.
+    
+    A model is considered downloaded only if its cache directory contains
+    at least one large file (>100MB for image models, >1MB minimum).
+    This prevents marking in-progress or failed downloads as complete.
+    """
     downloaded = set()
     
     if not os.path.exists(CACHE_DIR):
         return downloaded
+
+    # We use directory-based detection with file size verification.
+    # scan_cache_dir() from huggingface_hub reports repos as present even
+    # when downloads are incomplete, so we don't rely on it.
+    
+    MIN_MODEL_SIZE = 100 * 1024 * 1024  # 100MB - real models are much larger
     
     try:
-        cache_info = scan_cache_dir(CACHE_DIR)
-        for repo in cache_info.repos:
-            downloaded.add(repo.repo_id)
-    except Exception:
-        # Fallback: check directory names
         for path in glob.glob(os.path.join(CACHE_DIR, "models--*")):
+            if not os.path.isdir(path):
+                continue
+            
+            # Calculate total size of all files in the repo cache
+            total_size = 0
+            for root, _, files in os.walk(path):
+                for fname in files:
+                    try:
+                        fpath = os.path.join(root, fname)
+                        total_size += os.path.getsize(fpath)
+                    except Exception:
+                        continue
+                # Early exit if we've found enough data
+                if total_size >= MIN_MODEL_SIZE:
+                    break
+
+            if total_size < MIN_MODEL_SIZE:
+                # Skip directories that don't contain enough data
+                continue
+
             dirname = os.path.basename(path)
             if dirname.startswith("models--"):
-                repo_id = dirname[8:].replace("--", "/", 1)
+                tail = dirname[8:]
+                # Reconstruct repo id (owner/repo). Replace the first double-dash
+                # back to a slash which is how snapshot cache names are formed.
+                repo_id = tail.replace("--", "/", 1)
                 downloaded.add(repo_id)
+    except Exception:
+        pass
     
     return downloaded
 
