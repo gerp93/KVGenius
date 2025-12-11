@@ -17,7 +17,7 @@ import sys
 import logging
 import threading
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 
 # Fix DLL paths before importing torch
 sys.path.insert(0, str(Path(__file__).parent))
@@ -39,7 +39,7 @@ try:
     THEMES_AVAILABLE = True
 except ImportError:
     THEMES_AVAILABLE = False
-    logger.warning("flet_kvg_themes not installed - using default theme")
+    print("Warning: flet_kvg_themes not installed - using default theme")
 
 # Import core engine
 from core import (
@@ -50,8 +50,22 @@ from core import (
     generate_image,
     get_current_model,
     get_generated_images,
+    get_available_loras,
+    download_model,
+    get_setting,
+    set_setting,
     GenerationResult,
     HUGGINGFACE_MODELS,
+    # Chat
+    get_available_chat_models,
+    is_chat_model_downloaded,
+    get_current_chat_model,
+    load_chat_model,
+    unload_chat_model,
+    generate_chat_response,
+    clear_conversation,
+    get_conversation_history,
+    download_chat_model,
 )
 
 # Set up logging with flush
@@ -86,7 +100,8 @@ class AppState:
     def __init__(self):
         self.image_model_loaded: Optional[str] = None
         self.chat_model_loaded: Optional[str] = None
-        self.current_theme: str = "dark"  # Default theme
+        # Load theme from settings, default to "dark"
+        self.current_theme: str = get_setting("theme", "dark")
         self.is_generating: bool = False
         self.cancel_requested: bool = False
 
@@ -405,9 +420,14 @@ class ImageGenTab:
         )
         
         # === SETTINGS PANEL ===
+        # Load available LoRAs
+        lora_options = [dropdown.Option("None")]
+        for lora in get_available_loras():
+            lora_options.append(dropdown.Option(lora["name"]))
+        
         self.lora_dropdown = Dropdown(
             label="LoRA",
-            options=[dropdown.Option("None")],
+            options=lora_options,
             value="None",
             width=160,
         )
@@ -539,6 +559,8 @@ class ImageGenTab:
         
         def do_generate():
             steps = int(self.steps_slider.value)
+            lora_name = self.lora_dropdown.value
+            lora_str = self.lora_strength.value
             
             def progress_cb(step, total):
                 if app_state.cancel_requested:
@@ -557,6 +579,8 @@ class ImageGenTab:
                     width=int(self.width_slider.value),
                     height=int(self.height_slider.value),
                     seed=int(self.seed_field.value or -1),
+                    lora_name=lora_name if lora_name != "None" else None,
+                    lora_strength=lora_str,
                     progress_callback=progress_cb,
                 )
                 
@@ -778,7 +802,7 @@ class ImageGenTab:
 # GALLERY TAB
 # =============================================================================
 class GalleryTab:
-    """Gallery Tab - view generated images."""
+    """Gallery Tab - view generated images with actions."""
     
     def __init__(self, page: Page):
         self.page = page
@@ -795,6 +819,83 @@ class GalleryTab:
         self._load_images()
         self.page.update()
     
+    def _open_folder(self, filepath: str):
+        """Open the folder containing the image."""
+        import subprocess
+        folder = Path(filepath).parent
+        if sys.platform == "win32":
+            subprocess.run(["explorer", str(folder)])
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(folder)])
+        else:
+            subprocess.run(["xdg-open", str(folder)])
+    
+    def _copy_prompt(self, prompt: str):
+        """Copy prompt to clipboard."""
+        self.page.set_clipboard(prompt)
+        self.page.snack_bar = SnackBar(content=Text("📋 Prompt copied to clipboard!"))
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def _delete_image(self, filepath: str):
+        """Delete an image with confirmation."""
+        def do_delete(e):
+            try:
+                Path(filepath).unlink()
+                self._refresh()
+                self.page.snack_bar = SnackBar(content=Text("🗑️ Image deleted"))
+                self.page.snack_bar.open = True
+            except Exception as ex:
+                self.page.snack_bar = SnackBar(content=Text(f"❌ Error: {ex}"))
+                self.page.snack_bar.open = True
+            dialog.open = False
+            self.page.update()
+        
+        def cancel(e):
+            dialog.open = False
+            self.page.update()
+        
+        dialog = AlertDialog(
+            title=Text("Delete Image?"),
+            content=Text(f"Are you sure you want to delete this image?\n{Path(filepath).name}"),
+            actions=[
+                TextButton("Cancel", on_click=cancel),
+                TextButton("Delete", on_click=do_delete),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
+    def _show_metadata(self, img_info: Dict):
+        """Show image metadata in a dialog."""
+        content = Column([
+            Text(f"📄 File: {img_info['filename']}", selectable=True),
+            Text(f"🎨 Model: {img_info.get('model', 'Unknown')}", selectable=True),
+            Text(f"🎲 Seed: {img_info.get('seed', 'Unknown')}", selectable=True),
+            Text(f"📝 Prompt:", weight=FontWeight.BOLD),
+            Container(
+                content=Text(img_info.get('prompt', 'No prompt'), selectable=True, size=12),
+                bgcolor=Colors.with_opacity(0.1, Colors.ON_SURFACE),
+                padding=padding.all(8),
+                border_radius=border_radius.all(5),
+            ),
+            Text(f"⏰ Created: {img_info.get('timestamp', '')}", size=11),
+        ], spacing=8, scroll=ScrollMode.AUTO)
+        
+        def close(e):
+            dialog.open = False
+            self.page.update()
+        
+        dialog = AlertDialog(
+            title=Text("Image Details"),
+            content=Container(content=content, width=400, height=300),
+            actions=[TextButton("Close", on_click=close)],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
     def _load_images(self):
         images = get_generated_images(limit=50)
         self.image_list.controls.clear()
@@ -806,11 +907,43 @@ class GalleryTab:
             return
         
         for img_info in images:
+            filepath = img_info["path"]
+            prompt = img_info.get("prompt", "")
+            
+            # Action buttons
+            actions = Row([
+                IconButton(
+                    icon=Icons.FOLDER_OPEN,
+                    tooltip="Open Folder",
+                    icon_size=18,
+                    on_click=lambda e, p=filepath: self._open_folder(p),
+                ),
+                IconButton(
+                    icon=Icons.CONTENT_COPY,
+                    tooltip="Copy Prompt",
+                    icon_size=18,
+                    on_click=lambda e, pr=prompt: self._copy_prompt(pr),
+                ),
+                IconButton(
+                    icon=Icons.INFO_OUTLINE,
+                    tooltip="View Details",
+                    icon_size=18,
+                    on_click=lambda e, info=img_info: self._show_metadata(info),
+                ),
+                IconButton(
+                    icon=Icons.DELETE_OUTLINE,
+                    tooltip="Delete",
+                    icon_size=18,
+                    icon_color=Colors.RED_400,
+                    on_click=lambda e, p=filepath: self._delete_image(p),
+                ),
+            ], spacing=0)
+            
             card = Card(
                 content=Container(
                     content=Row([
                         Image(
-                            src=img_info["path"],
+                            src=filepath,
                             width=120,
                             height=120,
                             fit=ft.ImageFit.COVER,
@@ -821,6 +954,7 @@ class GalleryTab:
                             Text(f"Model: {img_info['model']}", size=11, color=Colors.GREY_400),
                             Text(f"Seed: {img_info['seed']}", size=11, color=Colors.GREY_400),
                             Text(img_info["timestamp"], size=10, color=Colors.GREY_600),
+                            actions,
                         ], expand=True, spacing=3),
                     ], spacing=15),
                     padding=padding.all(10),
@@ -851,10 +985,57 @@ class ModelManagerTab:
     
     def __init__(self, page: Page):
         self.page = page
+        self._downloading: Dict[str, bool] = {}  # Track downloads in progress
         self._build_ui()
     
     def _build_ui(self):
         self.model_list = ListView(spacing=10, padding=20, expand=True)
+        self.refresh_btn = IconButton(
+            icon=Icons.REFRESH,
+            tooltip="Refresh model list",
+            on_click=lambda e: self._refresh(),
+        )
+        self.status_text = Text("", size=11, color=Colors.GREY_400)
+    
+    def _refresh(self):
+        """Refresh the model list."""
+        self._load_models()
+        if self.page:
+            self.page.update()
+    
+    def _download_model(self, model_name: str, repo_id: str):
+        """Start downloading a model in background."""
+        if repo_id in self._downloading and self._downloading[repo_id]:
+            return  # Already downloading
+        
+        self._downloading[repo_id] = True
+        self.status_text.value = f"Downloading {model_name}..."
+        self.page.update()
+        
+        def do_download():
+            def progress_callback(pct: float, msg: str):
+                self.status_text.value = f"[{pct*100:.0f}%] {msg}"
+                try:
+                    self.page.update()
+                except:
+                    pass
+            
+            success, message = download_model(repo_id, progress_callback)
+            self._downloading[repo_id] = False
+            
+            if success:
+                self.status_text.value = f"✅ {model_name} downloaded!"
+            else:
+                self.status_text.value = f"❌ {message}"
+            
+            # Refresh the list
+            self._load_models()
+            try:
+                self.page.update()
+            except:
+                pass
+        
+        threading.Thread(target=do_download, daemon=True).start()
     
     def _load_models(self):
         models = get_available_image_models()
@@ -862,8 +1043,10 @@ class ModelManagerTab:
         
         for name, info in models.items():
             is_hf = info.get("source") == "huggingface"
-            downloaded = is_model_downloaded(info.get("id", "")) if is_hf else True
+            repo_id = info.get("id", "")
+            downloaded = is_model_downloaded(repo_id) if is_hf else True
             is_loaded = (app_state.image_model_loaded == name)
+            is_downloading = repo_id in self._downloading and self._downloading[repo_id]
             
             if is_loaded:
                 status_icon = Icons.CHECK_CIRCLE
@@ -873,10 +1056,35 @@ class ModelManagerTab:
                 status_icon = Icons.DOWNLOAD_DONE
                 status_color = Colors.YELLOW_400
                 status_text = "Downloaded"
+            elif is_downloading:
+                status_icon = Icons.DOWNLOADING
+                status_color = Colors.BLUE_400
+                status_text = "Downloading..."
             else:
                 status_icon = Icons.CLOUD_DOWNLOAD
                 status_color = Colors.GREY_500
                 status_text = "Not Downloaded"
+            
+            # Action buttons based on state
+            action_buttons = []
+            
+            if is_hf and not downloaded and not is_downloading:
+                # Show download button
+                action_buttons.append(
+                    ElevatedButton(
+                        "Download",
+                        icon=Icons.DOWNLOAD,
+                        on_click=lambda e, n=name, r=repo_id: self._download_model(n, r),
+                    )
+                )
+            elif is_downloading:
+                # Show progress indicator
+                action_buttons.append(
+                    Row([
+                        ft.ProgressRing(width=16, height=16, stroke_width=2),
+                        Text("Downloading...", size=11),
+                    ], spacing=5)
+                )
             
             card = Card(
                 content=Container(
@@ -906,6 +1114,7 @@ class ModelManagerTab:
                                 ),
                             ], spacing=5),
                         ], expand=True, spacing=3),
+                        Column(action_buttons, spacing=5) if action_buttons else Container(),
                     ], spacing=15),
                     padding=padding.all(12),
                 ),
@@ -916,12 +1125,802 @@ class ModelManagerTab:
         self._load_models()
         return Container(
             content=Column([
-                Text("📦 Model Manager", size=18, weight=FontWeight.BOLD),
-                Text("🟢 Loaded | 🟡 Downloaded | 🔴 Not Downloaded", size=11, color=Colors.GREY_500),
+                Row([
+                    Text("📦 Model Manager", size=18, weight=FontWeight.BOLD),
+                    self.refresh_btn,
+                ], alignment=MainAxisAlignment.SPACE_BETWEEN),
+                Row([
+                    Text("🟢 Loaded | 🟡 Downloaded | ⚪ Not Downloaded", size=11, color=Colors.GREY_500),
+                    self.status_text,
+                ], alignment=MainAxisAlignment.SPACE_BETWEEN),
                 Container(height=10),
                 self.model_list,
             ]),
             padding=padding.all(15),
+            expand=True,
+        )
+
+
+# =============================================================================
+# PROMPT LIBRARY TAB
+# =============================================================================
+class PromptLibraryTab:
+    """Manage saved prompts for quick access."""
+    
+    PROMPTS_FILE = Path(__file__).parent / "config" / "saved_prompts.yaml"
+    
+    def __init__(self, page: Page, on_use_prompt: Optional[Callable[[str, str], None]] = None):
+        self.page = page
+        self.on_use_prompt = on_use_prompt  # Callback when user clicks "Use"
+        self._build_ui()
+    
+    def _build_ui(self):
+        self.prompt_list = ListView(spacing=10, padding=10, expand=True)
+        
+        # New prompt form
+        self.name_input = TextField(label="Prompt Name", width=300)
+        self.prompt_input = TextField(
+            label="Prompt Text",
+            multiline=True,
+            min_lines=3,
+            max_lines=6,
+            expand=True,
+        )
+        self.negative_input = TextField(
+            label="Negative Prompt (optional)",
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
+        )
+        self.category_dropdown = Dropdown(
+            label="Category",
+            width=150,
+            options=[
+                dropdown.Option("general", "General"),
+                dropdown.Option("portrait", "Portrait"),
+                dropdown.Option("landscape", "Landscape"),
+                dropdown.Option("fantasy", "Fantasy"),
+                dropdown.Option("scifi", "Sci-Fi"),
+                dropdown.Option("anime", "Anime"),
+                dropdown.Option("other", "Other"),
+            ],
+            value="general",
+        )
+        
+        self.save_btn = ElevatedButton(
+            "Save Prompt",
+            icon=Icons.SAVE,
+            on_click=self._save_prompt,
+        )
+        
+        self.refresh_btn = IconButton(
+            icon=Icons.REFRESH,
+            tooltip="Refresh list",
+            on_click=lambda e: self._load_prompts(),
+        )
+    
+    def _load_saved_prompts(self) -> Dict[str, Any]:
+        """Load prompts from YAML file."""
+        if not self.PROMPTS_FILE.exists():
+            return {"prompts": []}
+        
+        try:
+            import yaml
+            with open(self.PROMPTS_FILE, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f) or {"prompts": []}
+        except Exception as e:
+            logger.error(f"Error loading prompts: {e}")
+            return {"prompts": []}
+    
+    def _save_prompts_file(self, data: Dict[str, Any]) -> bool:
+        """Save prompts to YAML file."""
+        try:
+            import yaml
+            with open(self.PROMPTS_FILE, 'w', encoding='utf-8') as f:
+                yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True)
+            return True
+        except Exception as e:
+            logger.error(f"Error saving prompts: {e}")
+            return False
+    
+    def _load_prompts(self):
+        """Load and display saved prompts."""
+        self.prompt_list.controls.clear()
+        
+        data = self._load_saved_prompts()
+        prompts = data.get("prompts", [])
+        
+        if not prompts:
+            self.prompt_list.controls.append(
+                Container(
+                    content=Text("No saved prompts yet. Add one below!", 
+                                color=Colors.GREY_500, italic=True),
+                    padding=padding.all(20),
+                )
+            )
+            self.page.update()
+            return
+        
+        for idx, prompt in enumerate(prompts):
+            name = prompt.get("name", "Untitled")
+            text = prompt.get("prompt", "")
+            negative = prompt.get("negative", "")
+            category = prompt.get("category", "general")
+            
+            # Category badge color
+            cat_colors = {
+                "portrait": Colors.PURPLE_700,
+                "landscape": Colors.GREEN_700,
+                "fantasy": Colors.ORANGE_700,
+                "scifi": Colors.BLUE_700,
+                "anime": Colors.PINK_700,
+                "general": Colors.GREY_700,
+                "other": Colors.BROWN_700,
+            }
+            
+            card = Card(
+                content=Container(
+                    content=Column([
+                        Row([
+                            Text(name, weight=FontWeight.BOLD, size=14),
+                            Container(
+                                content=Text(category.capitalize(), size=10),
+                                bgcolor=cat_colors.get(category, Colors.GREY_700),
+                                padding=padding.symmetric(horizontal=8, vertical=4),
+                                border_radius=border_radius.all(10),
+                            ),
+                        ], alignment=MainAxisAlignment.SPACE_BETWEEN),
+                        Text(
+                            text[:150] + "..." if len(text) > 150 else text,
+                            size=12, color=Colors.GREY_400,
+                        ),
+                        Row([
+                            ElevatedButton(
+                                "Use",
+                                icon=Icons.PLAY_ARROW,
+                                on_click=lambda e, p=text, n=negative: self._use_prompt(p, n),
+                            ),
+                            IconButton(
+                                icon=Icons.CONTENT_COPY,
+                                tooltip="Copy prompt",
+                                on_click=lambda e, p=text: self._copy_prompt(p),
+                            ),
+                            IconButton(
+                                icon=Icons.DELETE_OUTLINE,
+                                tooltip="Delete",
+                                icon_color=Colors.RED_400,
+                                on_click=lambda e, i=idx: self._delete_prompt(i),
+                            ),
+                        ], spacing=5),
+                    ], spacing=8),
+                    padding=padding.all(12),
+                ),
+            )
+            self.prompt_list.controls.append(card)
+        
+        self.page.update()
+    
+    def _use_prompt(self, prompt: str, negative: str):
+        """Use a saved prompt in the image generator."""
+        if self.on_use_prompt:
+            self.on_use_prompt(prompt, negative)
+        
+        # Show snackbar
+        self.page.snack_bar = SnackBar(
+            content=Text("Prompt loaded! Switch to Generate tab."),
+            action="OK",
+        )
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def _copy_prompt(self, prompt: str):
+        """Copy prompt to clipboard."""
+        self.page.set_clipboard(prompt)
+        self.page.snack_bar = SnackBar(content=Text("Prompt copied!"))
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def _save_prompt(self, e):
+        """Save a new prompt."""
+        name = self.name_input.value.strip()
+        prompt = self.prompt_input.value.strip()
+        negative = self.negative_input.value.strip()
+        category = self.category_dropdown.value
+        
+        if not name or not prompt:
+            self.page.snack_bar = SnackBar(
+                content=Text("Please enter a name and prompt text."),
+                bgcolor=Colors.RED_700,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+        
+        data = self._load_saved_prompts()
+        data["prompts"].append({
+            "name": name,
+            "prompt": prompt,
+            "negative": negative,
+            "category": category,
+        })
+        
+        if self._save_prompts_file(data):
+            # Clear form
+            self.name_input.value = ""
+            self.prompt_input.value = ""
+            self.negative_input.value = ""
+            
+            self.page.snack_bar = SnackBar(content=Text(f"Saved: {name}"))
+            self.page.snack_bar.open = True
+            self._load_prompts()
+        else:
+            self.page.snack_bar = SnackBar(
+                content=Text("Failed to save prompt."),
+                bgcolor=Colors.RED_700,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+    
+    def _delete_prompt(self, index: int):
+        """Delete a saved prompt."""
+        data = self._load_saved_prompts()
+        if 0 <= index < len(data["prompts"]):
+            deleted = data["prompts"].pop(index)
+            self._save_prompts_file(data)
+            self.page.snack_bar = SnackBar(content=Text(f"Deleted: {deleted.get('name', 'prompt')}"))
+            self.page.snack_bar.open = True
+            self._load_prompts()
+    
+    def build(self) -> Container:
+        self._load_prompts()
+        
+        return Container(
+            content=Row([
+                # Saved prompts list
+                Container(
+                    content=Column([
+                        Row([
+                            Text("📚 Saved Prompts", size=18, weight=FontWeight.BOLD),
+                            self.refresh_btn,
+                        ], alignment=MainAxisAlignment.SPACE_BETWEEN),
+                        self.prompt_list,
+                    ]),
+                    expand=2,
+                    padding=padding.all(15),
+                ),
+                # Add new prompt form
+                Container(
+                    content=Column([
+                        Text("➕ Add New Prompt", size=16, weight=FontWeight.BOLD),
+                        Container(height=10),
+                        Row([self.name_input, self.category_dropdown], spacing=10),
+                        self.prompt_input,
+                        self.negative_input,
+                        self.save_btn,
+                    ], spacing=10),
+                    width=400,
+                    padding=padding.all(15),
+                    bgcolor=Colors.with_opacity(0.05, Colors.WHITE),
+                    border_radius=border_radius.all(10),
+                ),
+            ], expand=True),
+            expand=True,
+        )
+
+
+# =============================================================================
+# CHAT TAB
+# =============================================================================
+class ChatTab:
+    """Chat interface with LLM models."""
+    
+    def __init__(self, page: Page):
+        self.page = page
+        self.chat_model_loaded: Optional[str] = None
+        self._build_ui()
+    
+    def _build_ui(self):
+        # Chat model selector
+        chat_models = get_available_chat_models()
+        model_options = [dropdown.Option(key=name, text=name) for name in chat_models.keys()]
+        
+        self.model_dropdown = Dropdown(
+            label="Chat Model",
+            options=model_options,
+            width=250,
+            value=list(chat_models.keys())[0] if chat_models else None,
+        )
+        
+        self.load_btn = ElevatedButton(
+            "Load",
+            icon=Icons.DOWNLOAD,
+            on_click=self._load_model,
+        )
+        
+        self.unload_btn = ElevatedButton(
+            "Unload",
+            icon=Icons.CANCEL,
+            on_click=self._unload_model,
+            visible=False,
+        )
+        
+        self.model_status = Text("No model loaded", size=12, color=Colors.GREY_500)
+        
+        # Chat messages list
+        self.chat_messages = ListView(
+            spacing=10,
+            padding=padding.all(10),
+            expand=True,
+            auto_scroll=True,
+        )
+        
+        # Message input
+        self.message_input = TextField(
+            label="Type your message...",
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
+            expand=True,
+            on_submit=self._send_message,
+        )
+        
+        self.send_btn = ElevatedButton(
+            "Send",
+            icon=Icons.SEND,
+            on_click=self._send_message,
+        )
+        
+        self.clear_btn = IconButton(
+            icon=Icons.DELETE_SWEEP,
+            tooltip="Clear conversation",
+            on_click=self._clear_conversation,
+        )
+        
+        # System prompt
+        self.system_prompt = TextField(
+            label="System Prompt (optional)",
+            value="You are a helpful AI assistant.",
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
+        )
+        
+        # Generation parameters (collapsed by default)
+        self.temp_slider = Slider(
+            min=0.1, max=1.5, value=0.7,
+            divisions=14, label="{value}",
+        )
+        self.max_tokens_slider = Slider(
+            min=64, max=512, value=256,
+            divisions=7, label="{value}",
+        )
+        
+        # Progress indicator
+        self.progress = ProgressBar(visible=False)
+        self.generating = False
+    
+    def _add_message(self, role: str, content: str):
+        """Add a message bubble to the chat."""
+        is_user = role == "user"
+        
+        bubble = Container(
+            content=Column([
+                Text(
+                    "You" if is_user else "AI",
+                    size=10,
+                    weight=FontWeight.BOLD,
+                    color=Colors.BLUE_300 if is_user else Colors.GREEN_300,
+                ),
+                Text(content, selectable=True),
+            ], spacing=3),
+            bgcolor=Colors.BLUE_900 if is_user else Colors.GREY_900,
+            padding=padding.all(12),
+            border_radius=border_radius.all(12),
+            margin=ft.margin.only(
+                left=50 if is_user else 0,
+                right=0 if is_user else 50,
+            ),
+        )
+        
+        self.chat_messages.controls.append(bubble)
+    
+    def _load_model(self, e):
+        """Load the selected chat model."""
+        if not self.model_dropdown.value:
+            return
+        
+        model_key = self.model_dropdown.value
+        self.model_status.value = f"Loading {model_key}..."
+        self.model_status.color = Colors.YELLOW_400
+        self.progress.visible = True
+        self.load_btn.disabled = True
+        self.page.update()
+        
+        def do_load():
+            def progress_cb(pct: float, msg: str):
+                self.model_status.value = msg
+                try:
+                    self.page.update()
+                except:
+                    pass
+            
+            # Unload image model first (exclusive loading)
+            if app_state.image_model_loaded:
+                unload_image_model()
+                app_state.image_model_loaded = None
+            
+            success, message = load_chat_model(model_key, progress_cb)
+            
+            if success:
+                self.chat_model_loaded = model_key
+                self.model_status.value = f"✅ {model_key} loaded"
+                self.model_status.color = Colors.GREEN_400
+                self.load_btn.visible = False
+                self.unload_btn.visible = True
+            else:
+                self.model_status.value = f"❌ {message}"
+                self.model_status.color = Colors.RED_400
+            
+            self.progress.visible = False
+            self.load_btn.disabled = False
+            try:
+                self.page.update()
+            except:
+                pass
+        
+        threading.Thread(target=do_load, daemon=True).start()
+    
+    def _unload_model(self, e):
+        """Unload the current chat model."""
+        unload_chat_model()
+        self.chat_model_loaded = None
+        self.model_status.value = "No model loaded"
+        self.model_status.color = Colors.GREY_500
+        self.load_btn.visible = True
+        self.unload_btn.visible = False
+        self.page.update()
+    
+    def _send_message(self, e):
+        """Send a message and get AI response."""
+        if self.generating:
+            return
+        
+        message = self.message_input.value.strip()
+        if not message:
+            return
+        
+        if not self.chat_model_loaded:
+            self._add_message("assistant", "⚠️ Please load a chat model first.")
+            self.page.update()
+            return
+        
+        # Clear input and add user message
+        self.message_input.value = ""
+        self._add_message("user", message)
+        self.generating = True
+        self.progress.visible = True
+        self.send_btn.disabled = True
+        self.page.update()
+        
+        def do_generate():
+            success, response = generate_chat_response(
+                user_message=message,
+                system_prompt=self.system_prompt.value or None,
+                max_new_tokens=int(self.max_tokens_slider.value),
+                temperature=self.temp_slider.value,
+            )
+            
+            self._add_message("assistant", response)
+            self.generating = False
+            self.progress.visible = False
+            self.send_btn.disabled = False
+            
+            try:
+                self.page.update()
+            except:
+                pass
+        
+        threading.Thread(target=do_generate, daemon=True).start()
+    
+    def _clear_conversation(self, e):
+        """Clear the conversation history."""
+        clear_conversation()
+        self.chat_messages.controls.clear()
+        self.page.update()
+    
+    def build(self) -> Container:
+        return Container(
+            content=Row([
+                # Sidebar
+                Container(
+                    content=Column([
+                        Text("🤖 Chat Model", weight=FontWeight.BOLD),
+                        self.model_dropdown,
+                        Row([self.load_btn, self.unload_btn]),
+                        self.model_status,
+                        Container(height=20),
+                        Text("⚙️ Settings", weight=FontWeight.BOLD),
+                        self.system_prompt,
+                        Container(height=10),
+                        Text("Temperature", size=11),
+                        self.temp_slider,
+                        Text("Max Tokens", size=11),
+                        self.max_tokens_slider,
+                    ], spacing=8),
+                    width=280,
+                    padding=padding.all(15),
+                ),
+                # Main chat area
+                Container(
+                    content=Column([
+                        Row([
+                            Text("💬 Conversation", size=18, weight=FontWeight.BOLD),
+                            self.clear_btn,
+                        ], alignment=MainAxisAlignment.SPACE_BETWEEN),
+                        self.progress,
+                        self.chat_messages,
+                        Row([
+                            self.message_input,
+                            self.send_btn,
+                        ], spacing=10),
+                    ], expand=True),
+                    expand=True,
+                    padding=padding.all(15),
+                ),
+            ], expand=True),
+            expand=True,
+        )
+
+
+# =============================================================================
+# SETTINGS TAB
+# =============================================================================
+class SettingsTab:
+    """Application settings and preferences."""
+    
+    def __init__(self, page: Page):
+        self.page = page
+        self._build_ui()
+    
+    def _build_ui(self):
+        from core import CACHE_DIR, GENERATED_IMAGES_DIR, LORA_DIR, CHECKPOINTS_DIR
+        
+        # Display current paths
+        self.cache_path = TextField(
+            label="Model Cache Directory",
+            value=str(CACHE_DIR),
+            read_only=True,
+            expand=True,
+        )
+        self.output_path = TextField(
+            label="Generated Images Directory",
+            value=str(GENERATED_IMAGES_DIR),
+            read_only=True,
+            expand=True,
+        )
+        self.lora_path = TextField(
+            label="LoRA Models Directory",
+            value=str(LORA_DIR),
+            read_only=True,
+            expand=True,
+        )
+        self.checkpoints_path = TextField(
+            label="Checkpoints Directory",
+            value=str(CHECKPOINTS_DIR),
+            read_only=True,
+            expand=True,
+        )
+        
+        # Default generation settings
+        self.default_steps = Slider(
+            min=1, max=50, value=get_setting("default_steps", 25),
+            divisions=49, label="{value}",
+        )
+        self.default_guidance = Slider(
+            min=1.0, max=20.0, value=get_setting("default_guidance", 7.0),
+            divisions=38, label="{value}",
+        )
+        self.default_width = Dropdown(
+            label="Default Width",
+            width=150,
+            options=[
+                dropdown.Option("512", "512"),
+                dropdown.Option("768", "768"),
+                dropdown.Option("1024", "1024"),
+            ],
+            value=str(get_setting("default_width", 512)),
+        )
+        self.default_height = Dropdown(
+            label="Default Height",
+            width=150,
+            options=[
+                dropdown.Option("512", "512"),
+                dropdown.Option("768", "768"),
+                dropdown.Option("1024", "1024"),
+            ],
+            value=str(get_setting("default_height", 512)),
+        )
+        
+        # Save button
+        self.save_btn = ElevatedButton(
+            "Save Settings",
+            icon=Icons.SAVE,
+            on_click=self._save_settings,
+        )
+        
+        # Clear cache button
+        self.clear_cache_btn = ElevatedButton(
+            "Clear Model Cache",
+            icon=Icons.DELETE_FOREVER,
+            on_click=self._confirm_clear_cache,
+            color=Colors.RED_400,
+        )
+        
+        # Open folder buttons
+        self.open_cache_btn = IconButton(
+            icon=Icons.FOLDER_OPEN,
+            tooltip="Open folder",
+            on_click=lambda e: self._open_folder(CACHE_DIR),
+        )
+        self.open_output_btn = IconButton(
+            icon=Icons.FOLDER_OPEN,
+            tooltip="Open folder",
+            on_click=lambda e: self._open_folder(GENERATED_IMAGES_DIR),
+        )
+        self.open_lora_btn = IconButton(
+            icon=Icons.FOLDER_OPEN,
+            tooltip="Open folder",
+            on_click=lambda e: self._open_folder(LORA_DIR),
+        )
+        self.open_checkpoints_btn = IconButton(
+            icon=Icons.FOLDER_OPEN,
+            tooltip="Open folder",
+            on_click=lambda e: self._open_folder(CHECKPOINTS_DIR),
+        )
+    
+    def _open_folder(self, path: Path):
+        """Open a folder in the file explorer."""
+        import subprocess
+        import platform
+        
+        path_str = str(path)
+        if platform.system() == "Windows":
+            subprocess.run(["explorer", path_str])
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", path_str])
+        else:
+            subprocess.run(["xdg-open", path_str])
+    
+    def _save_settings(self, e):
+        """Save current settings."""
+        set_setting("default_steps", int(self.default_steps.value))
+        set_setting("default_guidance", self.default_guidance.value)
+        set_setting("default_width", int(self.default_width.value))
+        set_setting("default_height", int(self.default_height.value))
+        
+        self.page.snack_bar = SnackBar(content=Text("Settings saved!"))
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def _confirm_clear_cache(self, e):
+        """Show confirmation dialog before clearing cache."""
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+        
+        def do_clear(e):
+            dialog.open = False
+            self._clear_cache()
+            self.page.update()
+        
+        dialog = AlertDialog(
+            title=Text("Clear Model Cache?"),
+            content=Text("This will delete all downloaded models. You'll need to re-download them. Are you sure?"),
+            actions=[
+                TextButton("Cancel", on_click=close_dialog),
+                TextButton("Clear Cache", on_click=do_clear),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
+    def _clear_cache(self):
+        """Clear the model cache directory."""
+        from core import CACHE_DIR
+        import shutil
+        
+        try:
+            if CACHE_DIR.exists():
+                for item in CACHE_DIR.iterdir():
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+            
+            self.page.snack_bar = SnackBar(content=Text("Cache cleared!"))
+        except Exception as e:
+            self.page.snack_bar = SnackBar(
+                content=Text(f"Error: {e}"),
+                bgcolor=Colors.RED_700,
+            )
+        
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def _get_cache_size(self) -> str:
+        """Calculate total size of model cache."""
+        from core import CACHE_DIR
+        
+        total = 0
+        if CACHE_DIR.exists():
+            for root, dirs, files in os.walk(CACHE_DIR):
+                for f in files:
+                    try:
+                        total += os.path.getsize(os.path.join(root, f))
+                    except:
+                        pass
+        
+        # Format size
+        if total < 1024:
+            return f"{total} B"
+        elif total < 1024 * 1024:
+            return f"{total / 1024:.1f} KB"
+        elif total < 1024 * 1024 * 1024:
+            return f"{total / (1024 * 1024):.1f} MB"
+        else:
+            return f"{total / (1024 * 1024 * 1024):.2f} GB"
+    
+    def build(self) -> Container:
+        cache_size = self._get_cache_size()
+        
+        return Container(
+            content=Column([
+                Text("⚙️ Settings", size=20, weight=FontWeight.BOLD),
+                Container(height=20),
+                
+                # Paths section
+                Text("📁 Directories", size=16, weight=FontWeight.BOLD),
+                Container(height=10),
+                Row([self.cache_path, self.open_cache_btn]),
+                Row([self.output_path, self.open_output_btn]),
+                Row([self.lora_path, self.open_lora_btn]),
+                Row([self.checkpoints_path, self.open_checkpoints_btn]),
+                
+                Container(height=20),
+                ft.Divider(),
+                Container(height=20),
+                
+                # Default generation settings
+                Text("🖌️ Default Generation Settings", size=16, weight=FontWeight.BOLD),
+                Container(height=10),
+                Row([
+                    Column([
+                        Text("Steps", size=11),
+                        self.default_steps,
+                    ], expand=True),
+                    Column([
+                        Text("Guidance Scale", size=11),
+                        self.default_guidance,
+                    ], expand=True),
+                ], spacing=20),
+                Row([self.default_width, self.default_height], spacing=20),
+                
+                Container(height=20),
+                self.save_btn,
+                
+                Container(height=30),
+                ft.Divider(),
+                Container(height=20),
+                
+                # Cache management
+                Text("🗄️ Cache Management", size=16, weight=FontWeight.BOLD),
+                Container(height=10),
+                Text(f"Model cache size: {cache_size}", size=12, color=Colors.GREY_400),
+                Container(height=10),
+                self.clear_cache_btn,
+            ], scroll=ScrollMode.AUTO),
+            padding=padding.all(20),
             expand=True,
         )
 
@@ -952,6 +1951,8 @@ def main(page: Page):
             if theme:
                 page.theme = theme
                 app_state.current_theme = theme_id
+                # Save to settings file for persistence
+                set_setting("theme", theme_id)
                 page.update()
                 logger.info(f"Theme changed to: {theme_id}")
     
@@ -971,10 +1972,23 @@ def main(page: Page):
     image_gen_tab = ImageGenTab(page)
     gallery_tab = GalleryTab(page)
     model_manager_tab = ModelManagerTab(page)
+    chat_tab = ChatTab(page)
+    
+    # Prompt library with callback to set prompt in image gen
+    def on_use_prompt(prompt: str, negative: str):
+        image_gen_tab.prompt_input.value = prompt
+        if negative:
+            image_gen_tab.negative_input.value = negative
+        page.update()
+    
+    prompt_library_tab = PromptLibraryTab(page, on_use_prompt=on_use_prompt)
     
     # Callback when model loads/unloads
     def on_model_loaded(success: bool, model_key: Optional[str]):
         image_gen_tab.set_generate_enabled(success and model_key is not None)
+    
+    # Settings tab
+    settings_tab = SettingsTab(page)
     
     # Create header
     header = HeaderBar(page, on_model_loaded=on_model_loaded, theme_dropdown=theme_dropdown)
@@ -989,12 +2003,24 @@ def main(page: Page):
                 content=image_gen_tab.build(),
             ),
             Tab(
+                text="💬 Chat",
+                content=chat_tab.build(),
+            ),
+            Tab(
+                text="📚 Prompts",
+                content=prompt_library_tab.build(),
+            ),
+            Tab(
                 text="🖼️ Gallery",
                 content=gallery_tab.build(),
             ),
             Tab(
                 text="📦 Models",
                 content=model_manager_tab.build(),
+            ),
+            Tab(
+                text="⚙️ Settings",
+                content=settings_tab.build(),
             ),
         ],
         expand=True,

@@ -38,6 +38,40 @@ def load_config(config_name: str) -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def save_config(config_name: str, config: Dict[str, Any]) -> bool:
+    """Save a YAML config file to the config directory."""
+    config_path = CONFIG_DIR / config_name
+    try:
+        with open(config_path, 'w', encoding='utf-8') as f:
+            yaml.safe_dump(config, f, default_flow_style=False)
+        return True
+    except Exception:
+        return False
+
+
+def load_user_settings() -> Dict[str, Any]:
+    """Load user settings from settings.yaml."""
+    return load_config("settings.yaml")
+
+
+def save_user_settings(settings: Dict[str, Any]) -> bool:
+    """Save user settings to settings.yaml."""
+    return save_config("settings.yaml", settings)
+
+
+def get_setting(key: str, default: Any = None) -> Any:
+    """Get a single setting value."""
+    settings = load_user_settings()
+    return settings.get(key, default)
+
+
+def set_setting(key: str, value: Any) -> bool:
+    """Set a single setting value."""
+    settings = load_user_settings()
+    settings[key] = value
+    return save_user_settings(settings)
+
+
 def load_image_model_presets() -> Tuple[Dict, Dict, Dict]:
     """Load image model presets from config file.
     

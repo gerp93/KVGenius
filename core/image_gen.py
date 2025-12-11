@@ -25,6 +25,7 @@ from .config import (
     HUGGINGFACE_MODELS, 
     LOCAL_CHECKPOINTS,
     CHECKPOINTS_DIR,
+    LORA_DIR,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 _current_model: Optional[Any] = None
 _current_model_key: Optional[str] = None
 _loaded_models: Dict[str, Any] = {}
+_current_lora: Optional[str] = None  # Track loaded LoRA
 
 
 @dataclass
@@ -115,6 +117,71 @@ def is_model_downloaded(repo_id: str) -> bool:
 def get_current_model() -> Tuple[Optional[Any], Optional[str]]:
     """Get the currently loaded model and its key."""
     return _current_model, _current_model_key
+
+
+def get_available_loras() -> List[Dict[str, Any]]:
+    """Get list of available LoRA models from the lora_models directory."""
+    loras = []
+    
+    if not LORA_DIR.exists():
+        return loras
+    
+    for item in LORA_DIR.iterdir():
+        if item.is_dir():
+            # Check for adapter files
+            has_adapter = (item / "adapter_model.safetensors").exists() or \
+                         (item / "adapter_model.bin").exists()
+            has_config = (item / "adapter_config.json").exists()
+            
+            # Check for loose safetensors
+            safetensors = list(item.glob("*.safetensors"))
+            
+            if has_adapter or has_config or safetensors:
+                # Try to read metadata
+                metadata_file = item / "lora_metadata.json"
+                metadata = {}
+                if metadata_file.exists():
+                    try:
+                        import json
+                        metadata = json.loads(metadata_file.read_text())
+                    except:
+                        pass
+                
+                loras.append({
+                    "name": item.name,
+                    "path": str(item),
+                    "description": metadata.get("description", ""),
+                    "trigger_words": metadata.get("trigger_words", []),
+                    "has_adapter": has_adapter,
+                })
+        elif item.suffix == ".safetensors" and item.stem not in ["adapter_model"]:
+            # Loose safetensors file
+            loras.append({
+                "name": item.stem,
+                "path": str(item),
+                "description": "Single LoRA file",
+                "trigger_words": [],
+                "has_adapter": False,
+            })
+    
+    return loras
+
+
+def unload_lora():
+    """Unload any currently loaded LoRA."""
+    global _current_model, _current_lora
+    
+    if _current_model is not None and _current_lora is not None:
+        try:
+            if hasattr(_current_model, 'unfuse_lora'):
+                _current_model.unfuse_lora()
+            if hasattr(_current_model, 'unload_lora_weights'):
+                _current_model.unload_lora_weights()
+            logger.info(f"Unloaded LoRA: {_current_lora}")
+        except Exception as e:
+            logger.warning(f"Error unloading LoRA: {e}")
+    
+    _current_lora = None
 
 
 def unload_image_model():
@@ -285,6 +352,8 @@ def generate_image(
     width: int = 512,
     height: int = 512,
     seed: int = -1,
+    lora_name: Optional[str] = None,
+    lora_strength: float = 0.8,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     save_to_disk: bool = True,
 ) -> Optional[GenerationResult]:
@@ -299,13 +368,15 @@ def generate_image(
         width: Output image width
         height: Output image height
         seed: Random seed (-1 for random)
+        lora_name: Name of LoRA to apply (None or "None" to skip)
+        lora_strength: LoRA strength (0.0 to 1.5)
         progress_callback: Optional callback(current_step, total_steps)
         save_to_disk: Whether to save the image to disk
     
     Returns:
         GenerationResult or None if generation fails
     """
-    global _current_model, _current_model_key
+    global _current_model, _current_model_key, _current_lora
     
     if _current_model is None:
         logger.error("No model loaded")
@@ -334,6 +405,36 @@ def generate_image(
     
     logger.info(f"Generating: '{prompt[:50]}...' with {_current_model_key}")
     start_time = time.time()
+    
+    # Handle LoRA loading/unloading
+    lora_loaded = False
+    if lora_name and lora_name != "None":
+        # Find the LoRA
+        lora_path = LORA_DIR / lora_name
+        if lora_path.exists():
+            try:
+                # Unload previous LoRA if different
+                if _current_lora and _current_lora != lora_name:
+                    unload_lora()
+                
+                if _current_lora != lora_name:
+                    logger.info(f"Loading LoRA: {lora_name} with strength {lora_strength}")
+                    _current_model.load_lora_weights(str(lora_path))
+                    _current_model.fuse_lora(lora_scale=lora_strength)
+                    _current_lora = lora_name
+                    lora_loaded = True
+                    logger.info(f"LoRA loaded: {lora_name}")
+                else:
+                    # Same LoRA, just update strength by re-fusing
+                    _current_model.fuse_lora(lora_scale=lora_strength)
+                    lora_loaded = True
+            except Exception as e:
+                logger.warning(f"Failed to load LoRA {lora_name}: {e}")
+        else:
+            logger.warning(f"LoRA not found: {lora_path}")
+    elif _current_lora:
+        # No LoRA requested but one is loaded - unload it
+        unload_lora()
     
     try:
         # Type-specific generation
@@ -380,6 +481,9 @@ def generate_image(
             metadata.add_text("guidance_scale", str(guidance_scale))
             metadata.add_text("seed", str(seed))
             metadata.add_text("model", _current_model_key or "unknown")
+            if lora_name and lora_name != "None":
+                metadata.add_text("lora", lora_name)
+                metadata.add_text("lora_strength", str(lora_strength))
             
             image.save(filepath, pnginfo=metadata)
             logger.info(f"Saved: {filepath}")
@@ -436,3 +540,54 @@ def get_generated_images(limit: int = 50) -> List[Dict[str, Any]]:
             logger.warning(f"Error reading {f}: {e}")
     
     return images
+
+
+def download_model(
+    repo_id: str,
+    progress_callback: Optional[Callable[[float, str], None]] = None
+) -> Tuple[bool, str]:
+    """
+    Download a HuggingFace model.
+    
+    Args:
+        repo_id: HuggingFace repository ID (e.g., "Lykon/dreamshaper-8")
+        progress_callback: Optional callback(progress: 0-1, message: str)
+    
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    from huggingface_hub import snapshot_download
+    import threading
+    
+    def report_progress(pct: float, msg: str):
+        if progress_callback:
+            progress_callback(pct, msg)
+        logger.info(f"[{pct*100:.0f}%] {msg}")
+    
+    # Check if already downloaded
+    if is_model_downloaded(repo_id):
+        return True, f"{repo_id} is already downloaded"
+    
+    report_progress(0.05, f"Starting download: {repo_id}")
+    
+    try:
+        # Disable xet storage for more reliable downloads
+        os.environ["HF_HUB_DISABLE_XET"] = "1"
+        
+        report_progress(0.1, "Connecting to HuggingFace...")
+        
+        path = snapshot_download(
+            repo_id,
+            cache_dir=str(CACHE_DIR),
+            max_workers=1,  # Single-threaded to avoid timeouts
+            resume_download=True,
+        )
+        
+        report_progress(1.0, f"Download complete: {repo_id}")
+        logger.info(f"Model downloaded to: {path}")
+        return True, f"Successfully downloaded {repo_id}"
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Download error: {error_msg}")
+        return False, f"Download failed: {error_msg}"
