@@ -119,8 +119,33 @@ def get_current_model() -> Tuple[Optional[Any], Optional[str]]:
     return _current_model, _current_model_key
 
 
-def get_available_loras() -> List[Dict[str, Any]]:
-    """Get list of available LoRA models from the lora_models directory."""
+def _infer_lora_model_type(base_model: str, name: str) -> str:
+    """Infer the model type (sd, sdxl, flux) from base_model or LoRA name."""
+    if not base_model:
+        # Try to infer from name
+        name_lower = name.lower()
+        if "sdxl" in name_lower or "xl" in name_lower:
+            return "sdxl"
+        elif "flux" in name_lower:
+            return "flux"
+        return "sd"  # Default to SD 1.5
+    
+    base_lower = base_model.lower()
+    if "sdxl" in base_lower or "xl-" in base_lower:
+        return "sdxl"
+    elif "flux" in base_lower:
+        return "flux"
+    elif any(x in base_lower for x in ["sd-1", "sd1", "1.5", "realistic_vision", "dreamshaper", "epicrealism"]):
+        return "sd"
+    return "sd"  # Default
+
+
+def get_available_loras(model_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Get list of available LoRA models from the lora_models directory.
+    
+    Args:
+        model_type: Optional filter - 'sd', 'sdxl', 'flux', or None for all
+    """
     loras = []
     
     if not LORA_DIR.exists():
@@ -147,21 +172,38 @@ def get_available_loras() -> List[Dict[str, Any]]:
                     except:
                         pass
                 
+                # Get base_model and infer type
+                base_model = metadata.get("base_model", "")
+                lora_type = _infer_lora_model_type(base_model, item.name)
+                
+                # Apply filter if specified
+                if model_type and lora_type != model_type:
+                    continue
+                
                 loras.append({
                     "name": item.name,
                     "path": str(item),
                     "description": metadata.get("description", ""),
-                    "trigger_words": metadata.get("trigger_words", []),
+                    "trigger_words": metadata.get("trigger_words", metadata.get("trigger_word", [])),
                     "has_adapter": has_adapter,
+                    "base_model": base_model,
+                    "model_type": lora_type,
                 })
         elif item.suffix == ".safetensors" and item.stem not in ["adapter_model"]:
-            # Loose safetensors file
+            # Loose safetensors file - try to infer type from name
+            lora_type = _infer_lora_model_type("", item.stem)
+            
+            if model_type and lora_type != model_type:
+                continue
+            
             loras.append({
                 "name": item.stem,
                 "path": str(item),
                 "description": "Single LoRA file",
                 "trigger_words": [],
                 "has_adapter": False,
+                "base_model": "",
+                "model_type": lora_type,
             })
     
     return loras
@@ -355,6 +397,7 @@ def generate_image(
     lora_name: Optional[str] = None,
     lora_strength: float = 0.8,
     progress_callback: Optional[Callable[[int, int], None]] = None,
+    cancel_callback: Optional[Callable[[], bool]] = None,
     save_to_disk: bool = True,
 ) -> Optional[GenerationResult]:
     """
@@ -371,10 +414,11 @@ def generate_image(
         lora_name: Name of LoRA to apply (None or "None" to skip)
         lora_strength: LoRA strength (0.0 to 1.5)
         progress_callback: Optional callback(current_step, total_steps)
+        cancel_callback: Optional callback() -> bool, returns True to cancel
         save_to_disk: Whether to save the image to disk
     
     Returns:
-        GenerationResult or None if generation fails
+        GenerationResult or None if generation fails or cancelled
     """
     global _current_model, _current_model_key, _current_lora
     
@@ -397,8 +441,14 @@ def generate_image(
     
     generator = torch.Generator(device="cuda").manual_seed(seed)
     
-    # Progress callback wrapper
+    # Progress callback wrapper with cancellation support
+    class GenerationCancelled(Exception):
+        pass
+    
     def step_callback(pipe, step: int, timestep: int, callback_kwargs):
+        # Check for cancellation
+        if cancel_callback and cancel_callback():
+            raise GenerationCancelled("Generation cancelled by user")
         if progress_callback:
             progress_callback(step, steps)
         return callback_kwargs
@@ -447,6 +497,21 @@ def generate_image(
                 generator=generator,
                 callback_on_step_end=step_callback,
             )
+        elif model_type == "sdxl-lightning":
+            # SDXL Lightning requires guidance_scale=0.0 for best results
+            gen_kwargs = {
+                "prompt": prompt,
+                "num_inference_steps": steps,
+                "guidance_scale": 0.0,  # Lightning models need CFG=0
+                "width": width,
+                "height": height,
+                "generator": generator,
+                "callback_on_step_end": step_callback,
+            }
+            if negative_prompt.strip():
+                gen_kwargs["negative_prompt"] = negative_prompt
+            
+            result = _current_model(**gen_kwargs)
         else:
             # SD / SDXL / SD3
             gen_kwargs = {
@@ -500,6 +565,10 @@ def generate_image(
             filepath=filepath,
             base64_data=base64_data,
         )
+    
+    except GenerationCancelled:
+        logger.info("Generation cancelled by user")
+        return None
         
     except Exception as e:
         import traceback

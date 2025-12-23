@@ -90,16 +90,35 @@ class ChatHistoryDB:
                 name TEXT UNIQUE NOT NULL,
                 prompt TEXT NOT NULL,
                 negative_prompt TEXT,
+                categories TEXT,
                 steps INTEGER DEFAULT 25,
                 guidance_scale REAL DEFAULT 7.5,
                 width INTEGER DEFAULT 512,
                 height INTEGER DEFAULT 768,
+                lora TEXT,
+                lora_strength REAL DEFAULT 0.8,
                 model TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prompt_name ON prompt_library(name)")
+        
+        # Add categories column if it doesn't exist (migration for existing databases)
+        try:
+            cursor.execute("ALTER TABLE prompt_library ADD COLUMN categories TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        # Add lora columns if they don't exist (migration)
+        try:
+            cursor.execute("ALTER TABLE prompt_library ADD COLUMN lora TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute("ALTER TABLE prompt_library ADD COLUMN lora_strength REAL DEFAULT 0.8")
+        except sqlite3.OperationalError:
+            pass
         
         conn.commit()
         conn.close()
@@ -537,17 +556,21 @@ class ChatHistoryDB:
     # ==================== Prompt Library Methods ====================
     
     def save_prompt(self, name: str, prompt: str, negative_prompt: str = "", 
-                    steps: int = 25, guidance_scale: float = 7.5,
-                    width: int = 512, height: int = 768, model: str = None) -> int:
+                    categories: List[str] = None, steps: int = 25, guidance_scale: float = 7.5,
+                    width: int = 512, height: int = 768, lora: str = None,
+                    lora_strength: float = 0.8, model: str = None) -> int:
         """Save a prompt to the library."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        # Convert categories list to JSON string
+        categories_json = json.dumps(categories) if categories else None
+        
         try:
             cursor.execute("""
-                INSERT INTO prompt_library (name, prompt, negative_prompt, steps, guidance_scale, width, height, model)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (name, prompt, negative_prompt, steps, guidance_scale, width, height, model))
+                INSERT INTO prompt_library (name, prompt, negative_prompt, categories, steps, guidance_scale, width, height, lora, lora_strength, model)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (name, prompt, negative_prompt, categories_json, steps, guidance_scale, width, height, lora, lora_strength, model))
             
             prompt_id = cursor.lastrowid
             conn.commit()
@@ -557,10 +580,10 @@ class ChatHistoryDB:
             # Name already exists, update instead
             cursor.execute("""
                 UPDATE prompt_library 
-                SET prompt = ?, negative_prompt = ?, steps = ?, guidance_scale = ?, 
-                    width = ?, height = ?, model = ?, updated_at = CURRENT_TIMESTAMP
+                SET prompt = ?, negative_prompt = ?, categories = ?, steps = ?, guidance_scale = ?, 
+                    width = ?, height = ?, lora = ?, lora_strength = ?, model = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE name = ?
-            """, (prompt, negative_prompt, steps, guidance_scale, width, height, model, name))
+            """, (prompt, negative_prompt, categories_json, steps, guidance_scale, width, height, lora, lora_strength, model, name))
             conn.commit()
             logger.info(f"Updated existing prompt '{name}'")
             return self.get_prompt_by_name(name)['id']
@@ -577,7 +600,19 @@ class ChatHistoryDB:
             SELECT * FROM prompt_library ORDER BY updated_at DESC
         """)
         
-        prompts = [dict(row) for row in cursor.fetchall()]
+        prompts = []
+        for row in cursor.fetchall():
+            prompt = dict(row)
+            # Parse categories JSON back to list
+            if prompt.get('categories'):
+                try:
+                    prompt['categories'] = json.loads(prompt['categories'])
+                except (json.JSONDecodeError, TypeError):
+                    prompt['categories'] = []
+            else:
+                prompt['categories'] = []
+            prompts.append(prompt)
+        
         conn.close()
         return prompts
     
@@ -614,11 +649,14 @@ class ChatHistoryDB:
         cursor = conn.cursor()
         
         # Build update query dynamically
-        allowed_fields = ['name', 'prompt', 'negative_prompt', 'steps', 'guidance_scale', 'width', 'height', 'model']
+        allowed_fields = ['name', 'prompt', 'negative_prompt', 'categories', 'steps', 'guidance_scale', 'width', 'height', 'lora', 'lora_strength', 'model']
         updates = []
         values = []
         for field, value in kwargs.items():
             if field in allowed_fields:
+                # Convert categories list to JSON
+                if field == 'categories' and isinstance(value, list):
+                    value = json.dumps(value)
                 updates.append(f"{field} = ?")
                 values.append(value)
         
