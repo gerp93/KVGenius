@@ -45,6 +45,7 @@ class Card:
     blanks: int = 0  # Number of blanks for black cards
     created_at: str = ""
     favorited: bool = False
+    exported: bool = False  # True if card has been exported to external deck
     
     def __post_init__(self):
         if not self.created_at:
@@ -488,6 +489,36 @@ Format output as JSON array."""
         for i, card in enumerate(self.cards):
             if card.id == card_id:
                 del self.cards[i]
+                self._save_cards()
+                return True
+        return False
+    
+    def update_card_text(self, card_id: str, new_text: str) -> bool:
+        """Update the text of a card by ID."""
+        for card in self.cards:
+            if card.id == card_id:
+                card.text = new_text
+                # Update blanks count for black cards
+                if card.card_type == "black":
+                    card.blanks = new_text.count("___")
+                self._save_cards()
+                return True
+        return False
+    
+    def toggle_exported(self, card_id: str) -> bool:
+        """Toggle exported status of a card."""
+        for card in self.cards:
+            if card.id == card_id:
+                card.exported = not card.exported
+                self._save_cards()
+                return card.exported
+        return False
+    
+    def set_exported(self, card_id: str, exported: bool) -> bool:
+        """Set exported status of a card."""
+        for card in self.cards:
+            if card.id == card_id:
+                card.exported = exported
                 self._save_cards()
                 return True
         return False

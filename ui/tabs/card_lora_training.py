@@ -95,7 +95,7 @@ class CardLoRATrainingTab(BaseTextTrainingTab):
             "📁 Import from File",
             icon=Icons.UPLOAD_FILE,
             on_click=lambda e: self.file_picker.pick_files(
-                allowed_extensions=["json", "txt"]
+                allowed_extensions=["json", "txt", "csv"]
             ),
         )
         
@@ -162,7 +162,70 @@ class CardLoRATrainingTab(BaseTextTrainingTab):
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            if file_path.endswith('.json'):
+            if file_path.endswith('.csv'):
+                import csv
+                import io
+                black_cards = []
+                white_cards = []
+                
+                # Parse CSV - handle both standard format and PROMPT/RESPONSE format
+                lines = content.strip().split('\n')
+                
+                # Check if first line looks like headers
+                first_line_parts = lines[0].split(',', 1) if lines else []
+                is_header_format = len(first_line_parts) == 2 and first_line_parts[0].upper() in ['PROMPT', 'RESPONSE', 'BLACK', 'WHITE']
+                is_kv_format = len(first_line_parts) == 2 and first_line_parts[0].upper() in ['PROMPT', 'RESPONSE']
+                
+                if is_kv_format and not (first_line_parts[0].upper() == 'PROMPT' and first_line_parts[1].upper() == 'RESPONSE'):
+                    # Key-value format: each line is PROMPT,<text> or RESPONSE,<text>
+                    for line in lines:
+                        if not line.strip():
+                            continue
+                        parts = line.split(',', 1)
+                        if len(parts) == 2:
+                            key = parts[0].strip().upper()
+                            value = parts[1].strip().strip('"')  # Remove quotes if present
+                            
+                            if key == 'PROMPT':
+                                black_cards.append(value)
+                            elif key == 'RESPONSE':
+                                white_cards.append(value)
+                else:
+                    # Standard CSV format with headers
+                    csv_reader = csv.DictReader(io.StringIO(content))
+                    for row in csv_reader:
+                        # Look for common column name patterns
+                        prompt = row.get('PROMPT') or row.get('prompt') or row.get('black') or row.get('Black')
+                        response = row.get('RESPONSE') or row.get('response') or row.get('white') or row.get('White')
+                        
+                        # Try to determine card type
+                        if prompt:
+                            # If it has blanks (___), it's a black card
+                            if '___' in prompt or prompt.endswith('?'):
+                                black_cards.append(prompt)
+                            else:
+                                white_cards.append(prompt)
+                        
+                        if response:
+                            white_cards.append(response)
+                
+                # Update text areas
+                if black_cards:
+                    existing = self.black_cards_area.value or ""
+                    if existing.strip():
+                        existing += "\n"
+                    self.black_cards_area.value = existing + "\n".join(black_cards)
+                
+                if white_cards:
+                    existing = self.white_cards_area.value or ""
+                    if existing.strip():
+                        existing += "\n"
+                    self.white_cards_area.value = existing + "\n".join(white_cards)
+                
+                self.file_status.value = f"✅ Loaded {len(black_cards)} black + {len(white_cards)} white cards from CSV"
+                self.file_status.color = Colors.GREEN_400
+                
+            elif file_path.endswith('.json'):
                 data = json.loads(content)
                 
                 # Handle various JSON formats

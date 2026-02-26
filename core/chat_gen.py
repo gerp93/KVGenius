@@ -24,6 +24,8 @@ _current_chat_model: Optional[Any] = None
 _current_chat_model_key: Optional[str] = None
 _current_tokenizer: Optional[Any] = None
 _conversation_history: List[Dict[str, str]] = []
+_current_lora: Optional[str] = None  # Currently loaded LoRA name
+_base_model_backup: Optional[Any] = None  # Backup of base model before LoRA
 
 
 @dataclass
@@ -87,9 +89,18 @@ def get_current_chat_model() -> Tuple[Optional[str], bool]:
     return _current_chat_model_key, _current_chat_model is not None
 
 
+def get_current_lora() -> Optional[str]:
+    """Get the currently loaded LoRA name."""
+    return _current_lora
+
+
 def unload_chat_model():
     """Unload current chat model to free VRAM."""
-    global _current_chat_model, _current_chat_model_key, _current_tokenizer
+    global _current_chat_model, _current_chat_model_key, _current_tokenizer, _current_lora
+    
+    # Unload LoRA first if loaded
+    if _current_lora:
+        unload_chat_lora()
     
     if _current_chat_model is not None:
         logger.info(f"Unloading chat model: {_current_chat_model_key}")
@@ -104,6 +115,171 @@ def unload_chat_model():
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def load_chat_lora(lora_name: str, lora_type: str = "cardgen") -> Tuple[bool, str]:
+    """
+    Load a LoRA adapter onto the current chat model.
+    
+    Args:
+        lora_name: Name of the LoRA to load
+        lora_type: Type of LoRA ("cardgen" for card generation, "text" for personas)
+    
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    global _current_chat_model, _current_lora, _current_chat_model_key
+    
+    if _current_chat_model is None:
+        return False, "No chat model loaded"
+    
+    # Determine LoRA directory
+    if lora_type == "cardgen":
+        lora_dir = Path("./data/lora_models/cardgen")
+    else:
+        lora_dir = Path("./data/lora_models/text")
+    
+    lora_path = lora_dir / lora_name
+    
+    if not lora_path.exists():
+        return False, f"LoRA not found: {lora_name}"
+    
+    # Check for adapter files
+    adapter_config_path = lora_path / "adapter_config.json"
+    if not adapter_config_path.exists():
+        return False, f"Invalid LoRA (no adapter_config.json): {lora_name}"
+    
+    # Load and check adapter config for compatibility
+    try:
+        import json
+        with open(adapter_config_path) as f:
+            adapter_config = json.load(f)
+        
+        base_model = adapter_config.get("base_model_name_or_path", "")
+        
+        # Check if current model matches the LoRA's base model
+        current_model_id = CHAT_MODELS.get(_current_chat_model_key, {}).get("model_id", "")
+        if base_model and current_model_id:
+            # Normalize model names for comparison
+            base_model_norm = base_model.lower().replace("-", "").replace("_", "")
+            current_model_norm = current_model_id.lower().replace("-", "").replace("_", "")
+            
+            if base_model_norm not in current_model_norm and current_model_norm not in base_model_norm:
+                return False, f"LoRA '{lora_name}' was trained on '{base_model}' but current model is '{current_model_id}'. Please load the correct model."
+    except Exception as e:
+        logger.warning(f"Could not verify LoRA compatibility: {e}")
+    
+    try:
+        from peft import PeftModel
+        
+        # Unload existing LoRA if different
+        if _current_lora and _current_lora != lora_name:
+            unload_chat_lora()
+        
+        if _current_lora == lora_name:
+            return True, f"LoRA {lora_name} already loaded"
+        
+        logger.info(f"Loading LoRA: {lora_name} from {lora_path}")
+        
+        # Load LoRA adapter with explicit settings to avoid dtype issues
+        _current_chat_model = PeftModel.from_pretrained(
+            _current_chat_model,
+            str(lora_path),
+            is_trainable=False,
+            torch_dtype=_current_chat_model.dtype if hasattr(_current_chat_model, 'dtype') else torch.float16,
+        )
+        
+        # Ensure model is in eval mode
+        _current_chat_model.eval()
+        
+        _current_lora = lora_name
+        logger.info(f"LoRA loaded successfully: {lora_name}")
+        
+        return True, f"LoRA {lora_name} loaded"
+        
+    except Exception as e:
+        logger.error(f"Failed to load LoRA {lora_name}: {e}")
+        return False, f"Failed to load LoRA: {str(e)}"
+
+
+def unload_chat_lora() -> Tuple[bool, str]:
+    """
+    Unload the currently loaded LoRA and restore base model.
+    
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    global _current_chat_model, _current_lora
+    
+    if _current_lora is None:
+        return True, "No LoRA loaded"
+    
+    try:
+        # Merge and unload - this creates a clean base model
+        if hasattr(_current_chat_model, 'merge_and_unload'):
+            _current_chat_model = _current_chat_model.merge_and_unload()
+            logger.info(f"Unloaded LoRA: {_current_lora}")
+        elif hasattr(_current_chat_model, 'unload'):
+            _current_chat_model.unload()
+            logger.info(f"Unloaded LoRA: {_current_lora}")
+        
+        old_lora = _current_lora
+        _current_lora = None
+        
+        return True, f"LoRA {old_lora} unloaded"
+        
+    except Exception as e:
+        logger.error(f"Failed to unload LoRA: {e}")
+        return False, f"Failed to unload LoRA: {str(e)}"
+
+
+def get_available_chat_loras(lora_type: str = "cardgen") -> List[Dict[str, Any]]:
+    """
+    Get list of available chat LoRAs.
+    
+    Args:
+        lora_type: "cardgen" for card generation LoRAs, "text" for persona LoRAs
+    
+    Returns:
+        List of LoRA info dicts
+    """
+    import json
+    
+    if lora_type == "cardgen":
+        lora_dir = Path("./data/lora_models/cardgen")
+    else:
+        lora_dir = Path("./data/lora_models/text")
+    
+    if not lora_dir.exists():
+        return []
+    
+    loras = []
+    for folder in lora_dir.iterdir():
+        if not folder.is_dir():
+            continue
+        
+        adapter_config = folder / "adapter_config.json"
+        if not adapter_config.exists():
+            continue
+        
+        # Load metadata if available
+        metadata_path = folder / "training_metadata.json"
+        metadata = {}
+        if metadata_path.exists():
+            try:
+                with open(metadata_path) as f:
+                    metadata = json.load(f)
+            except:
+                pass
+        
+        loras.append({
+            "name": folder.name,
+            "description": metadata.get("description", ""),
+            "base_model": metadata.get("base_model", "Unknown"),
+            "created_at": metadata.get("created_at", ""),
+        })
+    
+    return sorted(loras, key=lambda x: x["name"])
 
 
 def load_chat_model(
@@ -146,7 +322,7 @@ def load_chat_model(
     report_progress(0.1, f"Loading {model_key}...")
     
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
         
         report_progress(0.2, "Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(
@@ -161,18 +337,26 @@ def load_chat_model(
         
         report_progress(0.4, "Loading model weights...")
         
-        # Determine dtype
+        # Determine dtype for compute
         dtype = torch.float16
         if torch.cuda.is_available():
-            # Check if bf16 is supported
             if torch.cuda.is_bf16_supported():
                 dtype = torch.bfloat16
         
+        # Always use 4-bit quantization for chat models
+        # Benefits: ~4x less VRAM, compatible with QLoRA-trained LoRAs, fast inference
+        logger.info("Loading model with 4-bit quantization")
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=dtype,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4"
+        )
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
             cache_dir=str(CACHE_DIR),
-            torch_dtype=dtype,
-            device_map="auto",
+            quantization_config=bnb_config,
+            device_map={"": 0},
             trust_remote_code=True,
             low_cpu_mem_usage=True,
         )
@@ -295,6 +479,7 @@ def generate_chat_response(
     top_k: int = 50,
     repetition_penalty: float = 1.1,
     progress_callback: Optional[Callable[[str], None]] = None,
+    use_history: bool = True,
 ) -> Tuple[bool, str]:
     """
     Generate a chat response.
@@ -308,6 +493,7 @@ def generate_chat_response(
         top_k: Top-k sampling parameter
         repetition_penalty: Penalty for repeating tokens
         progress_callback: Optional callback for streaming tokens
+        use_history: Whether to use/update conversation history (default True)
     
     Returns:
         Tuple of (success: bool, response: str)
@@ -318,8 +504,9 @@ def generate_chat_response(
         return False, "No chat model loaded. Please load a model first."
     
     try:
-        # Format prompt with history
-        prompt = format_prompt(user_message, system_prompt, _conversation_history)
+        # Format prompt - only include history if use_history is True
+        history_to_use = _conversation_history if use_history else []
+        prompt = format_prompt(user_message, system_prompt, history_to_use)
         
         # Tokenize
         inputs = _current_tokenizer.encode(
@@ -355,13 +542,14 @@ def generate_chat_response(
             if stop in response:
                 response = response.split(stop)[0].strip()
         
-        # Add to history
-        _conversation_history.append({"role": "user", "content": user_message})
-        _conversation_history.append({"role": "assistant", "content": response})
-        
-        # Keep history manageable (last 10 exchanges)
-        if len(_conversation_history) > 20:
-            _conversation_history = _conversation_history[-20:]
+        # Only add to history if use_history is True
+        if use_history:
+            _conversation_history.append({"role": "user", "content": user_message})
+            _conversation_history.append({"role": "assistant", "content": response})
+            
+            # Keep history manageable (last 10 exchanges)
+            if len(_conversation_history) > 20:
+                _conversation_history = _conversation_history[-20:]
         
         return True, response
         

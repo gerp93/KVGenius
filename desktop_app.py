@@ -72,6 +72,9 @@ from core import (
 # Import database for character/persona management
 from src.database import ChatHistoryDB
 
+# Import CardGeneratorTab from ui.tabs
+from ui.tabs.card_generator import CardGeneratorTab
+
 
 def get_gpu_info():
     """Get GPU name and compute capability for display."""
@@ -110,24 +113,9 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# GLOBAL STATE
+# GLOBAL STATE - Import from ui.state for shared state across tabs
 # =============================================================================
-class AppState:
-    """Global application state - mirrors Gradio's global variables."""
-    
-    def __init__(self):
-        self.loaded_model: Optional[str] = None  # Currently loaded model name
-        self.loaded_model_type: Optional[str] = None  # "image" or "chat"
-        self.image_model_arch: Optional[str] = None  # "sd", "sdxl", "flux" - architecture type
-        # Legacy compatibility
-        self.image_model_loaded: Optional[str] = None
-        self.chat_model_loaded: Optional[str] = None
-        # Load theme from settings, default to "dark"
-        self.current_theme: str = get_setting("theme", "dark")
-        self.is_generating: bool = False
-        self.cancel_requested: bool = False
-
-app_state = AppState()
+from ui.state import app_state
 
 
 # =============================================================================
@@ -2566,6 +2554,17 @@ class ChatTab:
         self.selected_persona = None  # Current selected persona dict
         self.editing_character_id = None  # ID of character being edited (None = new)
         self.editing_persona_id = None  # ID of persona being edited (None = new)
+        # Conversation tracking
+        self.current_conversation_id = None  # Active conversation DB id
+        self.last_user_message = None  # For regeneration
+        # Regen carousel state
+        self.regen_responses = []  # All generated responses for current turn
+        self.regen_index = 0  # Currently displayed response index
+        self.response_committed = True  # Whether current response is committed to history
+        self.regen_text_ctrl = None  # Text widget in carousel bubble
+        self.regen_counter_text = None  # "1/3" counter text widget
+        self.regen_prev_btn = None  # Prev button
+        self.regen_next_btn = None  # Next button
         self._build_ui()
     
     def _update_slider_label(self, label_control: Text, format_str: str, value):
@@ -2648,12 +2647,14 @@ class ChatTab:
             expand=True,
             shift_enter=True,
             on_submit=self._send_message,
+            on_change=self._on_message_input_change,
         )
         
         self.send_btn = ElevatedButton(
             "Send",
             icon=Icons.SEND,
             on_click=self._send_message,
+            disabled=True,  # Disabled until text is entered
             style=ButtonStyle(
                 bgcolor={
                     ControlState.DEFAULT: Colors.BLUE_700,
@@ -2669,8 +2670,8 @@ class ChatTab:
         
         self.clear_btn = IconButton(
             icon=Icons.DELETE_SWEEP,
-            tooltip="Clear conversation",
-            on_click=self._clear_conversation,
+            tooltip="Delete conversation",
+            on_click=self._delete_current_conversation,
         )
         
         # Typing indicator (positioned above message input)
@@ -2695,6 +2696,60 @@ class ChatTab:
         # Progress indicator
         self.progress = ProgressBar(visible=False)
         self.generating = False
+        
+        # File picker for export (will be added to page overlay in build())
+        self.export_file_picker = ft.FilePicker(on_result=self._on_export_file_picked)
+        self._pending_export_data = None  # Holds data to export when file picker returns
+        
+        # Suggest response button (shown after first AI response)
+        self.suggest_prompt_btn = ElevatedButton(
+            "💡 Suggest Response",
+            on_click=self._suggest_prompt,
+            visible=False,
+            height=30,
+            style=ButtonStyle(
+                padding=padding.symmetric(horizontal=10, vertical=2),
+                text_style=ft.TextStyle(size=11),
+            ),
+        )
+        self.suggested_prompt_container = Container(
+            content=Column([], spacing=4),
+            visible=False,
+            bgcolor=Colors.with_opacity(0.2, Colors.BLUE_900),
+            padding=padding.all(8),
+            border_radius=border_radius.all(8),
+        )
+        # Suggested response carousel state
+        self.suggestion_responses = []  # All suggested responses
+        self.suggestion_index = 0  # Currently displayed suggestion index
+        self.suggestion_text_ctrl = None  # Text widget in suggestion display
+        self.suggestion_counter_text = None  # "1/3" counter
+        self.suggestion_prev_btn = None  # Prev button
+        self.suggestion_next_btn = None  # Next button
+        
+        # =========== HISTORY TAB COMPONENTS ===========
+        self.history_list = ListView(
+            spacing=8,
+            padding=padding.only(top=4, bottom=4, left=10, right=10),
+            expand=True,
+        )
+        self.history_search = TextField(
+            label="🔍 Search conversations...",
+            on_change=self._refresh_history_list,
+            expand=True,
+        )
+        self.history_delete_all_btn = ElevatedButton(
+            "🗑️ Delete All",
+            on_click=self._confirm_delete_all_conversations,
+            color=Colors.RED_400,
+            height=30,
+            style=ButtonStyle(
+                padding=padding.symmetric(horizontal=10, vertical=2),
+                text_style=ft.TextStyle(size=11),
+            ),
+        )
+        self.history_status = Text("", size=12)
+        self.history_export_dialog_content = Text("", selectable=True)
         
         # =========== CHARACTERS TAB COMPONENTS ===========
         
@@ -2830,12 +2885,25 @@ class ChatTab:
     def update_model_state(self):
         """Update UI based on current model state."""
         has_model = app_state.loaded_model_type == "chat"
-        self.send_btn.disabled = not has_model
+        has_text = bool(self.message_input.value and self.message_input.value.strip())
+        self.send_btn.disabled = not (has_model and has_text)
         self.no_model_banner.visible = not has_model
         try:
             self.page.update()
         except:
             pass
+    
+    def _on_message_input_change(self, e):
+        """Enable/disable send button based on message input content."""
+        has_text = bool(self.message_input.value and self.message_input.value.strip())
+        has_model = app_state.loaded_model_type == "chat"
+        should_enable = has_text and has_model and not self.generating
+        if self.send_btn.disabled != (not should_enable):
+            self.send_btn.disabled = not should_enable
+            try:
+                self.page.update()
+            except:
+                pass
     
     def _add_message(self, role: str, content: str):
         """Add a message bubble to the chat."""
@@ -2891,6 +2959,29 @@ class ChatTab:
             self.page.update()
             return
         
+        # Commit any pending uncommitted response before sending new message
+        self._commit_pending_response()
+        
+        # Create conversation in DB if this is the first message
+        if self.current_conversation_id is None:
+            model_name = app_state.loaded_model or "unknown"
+            char_id = self.selected_character['id'] if self.selected_character else None
+            persona_id = self.selected_persona['id'] if self.selected_persona else None
+            title = message[:60] + ("..." if len(message) > 60 else "")
+            self.current_conversation_id = self.db.create_conversation(
+                model=model_name,
+                ai_character_id=char_id,
+                user_persona_id=persona_id,
+                title=title,
+            )
+        
+        # Save user message to DB
+        self.db.add_message(self.current_conversation_id, "user", message)
+        self.last_user_message = message
+        
+        # Lock dropdowns now that we have messages
+        self._update_dropdown_lock()
+        
         # Clear input and add user message
         self.message_input.value = ""
         self._add_message("user", message)
@@ -2898,6 +2989,10 @@ class ChatTab:
         self.typing_indicator.visible = True
         self.progress.visible = True
         self.send_btn.disabled = True
+        self.suggest_prompt_btn.visible = False
+        self.suggested_prompt_container.visible = False
+        self.suggestion_responses = []
+        self.suggestion_index = 0
         self.page.update()
         
         def do_generate():
@@ -2924,11 +3019,28 @@ class ChatTab:
                 temperature=temp,
             )
             
-            self._add_message("assistant", response)
+            # generate_chat_response added user+assistant to _conversation_history
+            # Pop the assistant - it stays uncommitted until user sends next message
+            import core.chat_gen as _chat_mod
+            if _chat_mod._conversation_history and _chat_mod._conversation_history[-1].get("role") == "assistant":
+                _chat_mod._conversation_history.pop()
+            
+            # Initialize regen carousel with this response (uncommitted)
+            self.regen_responses = [response]
+            self.regen_index = 0
+            self.response_committed = False
+            
+            # Build carousel bubble (not a plain bubble)
+            carousel_bubble = self._build_ai_carousel_bubble()
+            self.chat_messages.controls.append(carousel_bubble)
+            
             self.generating = False
             self.typing_indicator.visible = False
             self.progress.visible = False
-            self.send_btn.disabled = False
+            # Only re-enable send if there's text in the input
+            has_text = bool(self.message_input.value and self.message_input.value.strip())
+            self.send_btn.disabled = not has_text
+            self.suggest_prompt_btn.visible = True
             
             try:
                 self.page.update()
@@ -2937,11 +3049,863 @@ class ChatTab:
         
         threading.Thread(target=do_generate, daemon=True).start()
     
-    def _clear_conversation(self, e):
-        """Clear the conversation history."""
+    def _clear_conversation(self, e=None):
+        """Clear the conversation UI and start fresh (no DB delete)."""
         clear_conversation()
         self.chat_messages.controls.clear()
+        self.current_conversation_id = None
+        self.last_user_message = None
+        self.regen_responses = []
+        self.regen_index = 0
+        self.response_committed = True
+        self.regen_text_ctrl = None
+        self.regen_counter_text = None
+        self.regen_prev_btn = None
+        self.regen_next_btn = None
+        self.suggest_prompt_btn.visible = False
+        self.suggested_prompt_container.visible = False
+        self.suggestion_responses = []
+        self.suggestion_index = 0
+        self.suggestion_text_ctrl = None
+        self.suggestion_counter_text = None
+        self.suggestion_prev_btn = None
+        self.suggestion_next_btn = None
+        self._update_dropdown_lock()
         self.page.update()
+    
+    def _new_chat(self, e=None):
+        """Start a new chat - commits pending response if any, then clears."""
+        self._commit_pending_response()
+        self._clear_conversation()
+    
+    def _delete_current_conversation(self, e=None):
+        """Delete the current conversation from DB and clear UI."""
+        if self.current_conversation_id:
+            try:
+                self.db.delete_conversation(self.current_conversation_id)
+            except Exception as ex:
+                self.page.snack_bar = SnackBar(
+                    content=Text(f"❌ Delete failed: {ex}"),
+                    bgcolor=Colors.RED_700,
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+                return
+        self._clear_conversation()
+        self.page.snack_bar = SnackBar(content=Text("🗑️ Conversation deleted."))
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def _update_dropdown_lock(self):
+        """Lock/unlock char and persona dropdowns based on active chat state."""
+        should_lock = self.current_conversation_id is not None
+        self.char_dropdown.disabled = should_lock
+        self.persona_dropdown.disabled = should_lock
+    
+    # =========== REGEN CAROUSEL ===========
+    
+    def _build_ai_carousel_bubble(self):
+        """Build the AI response bubble with regen carousel controls."""
+        display_name = self.selected_character['name'] if self.selected_character else "AI"
+        current_response = self.regen_responses[self.regen_index] if self.regen_responses else ""
+        total = len(self.regen_responses)
+        show_nav = total > 1
+        
+        self.regen_text_ctrl = Text(current_response, selectable=True)
+        self.regen_counter_text = Text(
+            f"{self.regen_index + 1}/{total}",
+            size=11, color=Colors.GREY_400,
+            width=40, text_align=ft.TextAlign.CENTER,
+            visible=show_nav,
+        )
+        self.regen_prev_btn = IconButton(
+            icon=Icons.CHEVRON_LEFT, icon_size=16,
+            tooltip="Previous response",
+            on_click=self._regen_prev,
+            disabled=self.regen_index == 0,
+            visible=show_nav,
+        )
+        self.regen_next_btn = IconButton(
+            icon=Icons.CHEVRON_RIGHT, icon_size=16,
+            tooltip="Next response",
+            on_click=self._regen_next,
+            disabled=self.regen_index >= total - 1,
+            visible=show_nav,
+        )
+        regen_inline_btn = IconButton(
+            icon=Icons.REFRESH, icon_size=16,
+            tooltip="Generate another response",
+            on_click=self._regenerate_response,
+            icon_color=Colors.BLUE_400,
+        )
+        
+        carousel_row = Row([
+            self.regen_prev_btn,
+            self.regen_counter_text,
+            self.regen_next_btn,
+            Container(width=4),
+            regen_inline_btn,
+        ], spacing=0, alignment=MainAxisAlignment.START)
+        
+        bubble = Container(
+            content=Column([
+                Text(display_name, size=10, weight=FontWeight.BOLD, color=Colors.SECONDARY),
+                self.regen_text_ctrl,
+                carousel_row,
+            ], spacing=3),
+            bgcolor=Colors.with_opacity(0.15, Colors.ON_SURFACE),
+            padding=padding.all(12),
+            border_radius=border_radius.all(12),
+            margin=ft.margin.only(left=0, right=50),
+        )
+        return bubble
+    
+    def _update_regen_display(self):
+        """Update the carousel display with current regen index."""
+        if not self.regen_responses or self.regen_text_ctrl is None:
+            return
+        self.regen_text_ctrl.value = self.regen_responses[self.regen_index]
+        total = len(self.regen_responses)
+        show_nav = total > 1
+        self.regen_counter_text.value = f"{self.regen_index + 1}/{total}"
+        self.regen_counter_text.visible = show_nav
+        self.regen_prev_btn.visible = show_nav
+        self.regen_next_btn.visible = show_nav
+        self.regen_prev_btn.disabled = self.regen_index == 0
+        self.regen_next_btn.disabled = self.regen_index >= total - 1
+        try:
+            self.page.update()
+        except:
+            pass
+    
+    def _regen_prev(self, e):
+        """Show previous regen response."""
+        if self.regen_index > 0:
+            self.regen_index -= 1
+            self._update_regen_display()
+    
+    def _regen_next(self, e):
+        """Show next regen response."""
+        if self.regen_index < len(self.regen_responses) - 1:
+            self.regen_index += 1
+            self._update_regen_display()
+    
+    def _commit_pending_response(self):
+        """Commit the currently selected regen response to history and DB."""
+        if self.response_committed or not self.regen_responses:
+            return
+        
+        selected_response = self.regen_responses[self.regen_index]
+        
+        # Add to core conversation history
+        import core.chat_gen as _chat_mod
+        _chat_mod._conversation_history.append({"role": "assistant", "content": selected_response})
+        
+        # Save to DB
+        if self.current_conversation_id:
+            self.db.add_message(self.current_conversation_id, "assistant", selected_response)
+        
+        # Replace carousel bubble with plain bubble
+        if self.chat_messages.controls:
+            self.chat_messages.controls.pop()
+            self._add_message("assistant", selected_response)
+        
+        # Reset regen state
+        self.regen_responses = []
+        self.regen_index = 0
+        self.response_committed = True
+        self.regen_text_ctrl = None
+        self.regen_counter_text = None
+        self.regen_prev_btn = None
+        self.regen_next_btn = None
+    
+    def _regenerate_response(self, e):
+        """Generate another AI response and add to carousel."""
+        if self.generating or not self.last_user_message:
+            return
+        if app_state.loaded_model_type != "chat":
+            return
+        
+        import core.chat_gen as _chat_mod
+        
+        # If response is currently committed, convert to carousel mode first
+        if self.response_committed:
+            # Get the committed assistant response from history
+            if _chat_mod._conversation_history and _chat_mod._conversation_history[-1].get("role") == "assistant":
+                old_response = _chat_mod._conversation_history[-1]["content"]
+                _chat_mod._conversation_history.pop()
+            else:
+                return  # No response to regenerate
+            
+            # Initialize carousel with the existing response
+            self.regen_responses = [old_response]
+            self.regen_index = 0
+            self.response_committed = False
+            
+            # Replace the plain bubble with a carousel bubble
+            if self.chat_messages.controls:
+                self.chat_messages.controls.pop()
+            carousel_bubble = self._build_ai_carousel_bubble()
+            self.chat_messages.controls.append(carousel_bubble)
+            self.page.update()
+        
+        # Now generate a new alternative response
+        self.generating = True
+        self.send_btn.disabled = True
+        self.typing_indicator.visible = True
+        self.page.update()
+        
+        def _do_regenerate():
+            import core.chat_gen as _chat_mod
+            
+            # Pop user from history (generate_chat_response will re-add it)
+            if _chat_mod._conversation_history and _chat_mod._conversation_history[-1].get("role") == "user":
+                _chat_mod._conversation_history.pop()
+            
+            if self.selected_character:
+                system = self.selected_character.get('system_prompt', '')
+                temp = self.selected_character.get('temperature', 0.7)
+            else:
+                system = self.system_prompt.value or None
+                temp = self.temp_slider.value
+            
+            if self.selected_persona and self.selected_persona.get('background'):
+                persona_context = f"\n\n[User is roleplaying as: {self.selected_persona['name']}]\n{self.selected_persona['background']}"
+                if system:
+                    system = system + persona_context
+                else:
+                    system = persona_context
+            
+            success, response = generate_chat_response(
+                user_message=self.last_user_message,
+                system_prompt=system,
+                max_new_tokens=int(self.max_tokens_slider.value),
+                temperature=temp,
+            )
+            
+            # Pop assistant from history (keep user)
+            if _chat_mod._conversation_history and _chat_mod._conversation_history[-1].get("role") == "assistant":
+                _chat_mod._conversation_history.pop()
+            
+            # Add to carousel and show latest
+            self.regen_responses.append(response)
+            self.regen_index = len(self.regen_responses) - 1
+            
+            # Update carousel display
+            self._update_regen_display()
+            
+            self.generating = False
+            has_text = bool(self.message_input.value and self.message_input.value.strip())
+            self.send_btn.disabled = not has_text
+            self.typing_indicator.visible = False
+            
+            try:
+                self.page.update()
+            except:
+                pass
+        
+        threading.Thread(target=_do_regenerate, daemon=True).start()
+    
+    # =========== SUGGESTED RESPONSE ===========
+    
+    def _suggest_prompt(self, e):
+        """Generate a suggested user response based on the full conversation context."""
+        if self.generating:
+            return
+        if app_state.loaded_model_type != "chat":
+            return
+        
+        self.generating = True
+        self.suggest_prompt_btn.disabled = True
+        self.page.update()
+        
+        def _do_suggest():
+            import core.chat_gen as _chat_mod
+            
+            # Build conversation transcript for context
+            history = _chat_mod._conversation_history.copy()
+            
+            # Include the pending (uncommitted) response if any
+            if self.regen_responses and not self.response_committed:
+                history.append({"role": "assistant", "content": self.regen_responses[self.regen_index]})
+            
+            # Build readable transcript (last 20 messages max)
+            context_lines = []
+            for msg in history[-20:]:
+                role = "User" if msg["role"] == "user" else "AI"
+                context_lines.append(f"{role}: {msg['content']}")
+            context = "\n".join(context_lines)
+            
+            if context:
+                suggestion_system = (
+                    f"Here is the conversation so far:\n{context}\n\n"
+                    "Based on this conversation, suggest a short, natural follow-up message "
+                    "that the user could send next. Reply ONLY with the suggested message text, "
+                    "nothing else. No quotes, no explanation, no preamble."
+                )
+            else:
+                suggestion_system = (
+                    "Suggest a short, interesting conversation starter message. "
+                    "Reply ONLY with the suggested message text, nothing else."
+                )
+            
+            success, suggestion = generate_chat_response(
+                user_message="Suggest what the user should say next.",
+                system_prompt=suggestion_system,
+                max_new_tokens=100,
+                temperature=0.9,
+                use_history=False,
+            )
+            
+            if success and suggestion.strip():
+                suggested_text = suggestion.strip().strip('"').strip("'")
+                # Add to suggestion carousel
+                self.suggestion_responses.append(suggested_text)
+                self.suggestion_index = len(self.suggestion_responses) - 1
+                self._build_suggestion_display()
+                self.suggested_prompt_container.visible = True
+            
+            self.generating = False
+            self.suggest_prompt_btn.disabled = False
+            
+            try:
+                self.page.update()
+            except:
+                pass
+        
+        threading.Thread(target=_do_suggest, daemon=True).start()
+    
+    def _build_suggestion_display(self):
+        """Build/rebuild the suggestion carousel display."""
+        if not self.suggestion_responses:
+            return
+        
+        total = len(self.suggestion_responses)
+        show_nav = total > 1
+        current_text = self.suggestion_responses[self.suggestion_index]
+        
+        self.suggestion_text_ctrl = Text(current_text, size=13, selectable=True)
+        self.suggestion_counter_text = Text(
+            f"{self.suggestion_index + 1}/{total}",
+            size=11, color=Colors.GREY_400,
+            width=40, text_align=ft.TextAlign.CENTER,
+            visible=show_nav,
+        )
+        self.suggestion_prev_btn = IconButton(
+            icon=Icons.CHEVRON_LEFT, icon_size=14,
+            tooltip="Previous suggestion",
+            on_click=self._suggestion_prev,
+            disabled=self.suggestion_index == 0,
+            visible=show_nav,
+        )
+        self.suggestion_next_btn = IconButton(
+            icon=Icons.CHEVRON_RIGHT, icon_size=14,
+            tooltip="Next suggestion",
+            on_click=self._suggestion_next,
+            disabled=self.suggestion_index >= total - 1,
+            visible=show_nav,
+        )
+        
+        self.suggested_prompt_container.content = Column([
+            Row([
+                Text("💡 Suggested Response:", size=11, color=Colors.BLUE_300, italic=True),
+                IconButton(
+                    icon=Icons.REFRESH,
+                    icon_size=14,
+                    tooltip="Generate another suggestion",
+                    on_click=self._suggest_prompt,
+                ),
+                IconButton(
+                    icon=Icons.CLOSE,
+                    icon_size=14,
+                    tooltip="Dismiss",
+                    on_click=lambda e: self._dismiss_suggestion(),
+                ),
+            ], spacing=4, alignment=MainAxisAlignment.START),
+            Row([
+                self.suggestion_text_ctrl,
+                IconButton(
+                    icon=Icons.ARROW_FORWARD,
+                    icon_size=16,
+                    tooltip="Use this response",
+                    icon_color=Colors.BLUE_400,
+                    on_click=lambda e: self._use_suggestion(self.suggestion_responses[self.suggestion_index]),
+                ),
+            ], spacing=4, expand=True, vertical_alignment=CrossAxisAlignment.START),
+            Row([
+                self.suggestion_prev_btn,
+                self.suggestion_counter_text,
+                self.suggestion_next_btn,
+            ], spacing=0, alignment=MainAxisAlignment.START, visible=show_nav),
+        ], spacing=2)
+    
+    def _update_suggestion_display(self):
+        """Update suggestion carousel to show current index."""
+        if not self.suggestion_responses or self.suggestion_text_ctrl is None:
+            return
+        total = len(self.suggestion_responses)
+        show_nav = total > 1
+        self.suggestion_text_ctrl.value = self.suggestion_responses[self.suggestion_index]
+        self.suggestion_counter_text.value = f"{self.suggestion_index + 1}/{total}"
+        self.suggestion_counter_text.visible = show_nav
+        self.suggestion_prev_btn.visible = show_nav
+        self.suggestion_next_btn.visible = show_nav
+        self.suggestion_prev_btn.disabled = self.suggestion_index == 0
+        self.suggestion_next_btn.disabled = self.suggestion_index >= total - 1
+        try:
+            self.page.update()
+        except:
+            pass
+    
+    def _suggestion_prev(self, e):
+        """Show previous suggestion."""
+        if self.suggestion_index > 0:
+            self.suggestion_index -= 1
+            self._update_suggestion_display()
+    
+    def _suggestion_next(self, e):
+        """Show next suggestion."""
+        if self.suggestion_index < len(self.suggestion_responses) - 1:
+            self.suggestion_index += 1
+            self._update_suggestion_display()
+    
+    def _use_suggestion(self, text: str):
+        """Use a suggested response - put it in the message input."""
+        self.message_input.value = text
+        self.suggested_prompt_container.visible = False
+        # Enable send since we just put text in
+        self.send_btn.disabled = False
+        self.page.update()
+        self.message_input.focus()
+    
+    def _dismiss_suggestion(self):
+        """Dismiss the suggested response display and reset state."""
+        self.suggested_prompt_container.visible = False
+        self.suggestion_responses = []
+        self.suggestion_index = 0
+        self.suggestion_text_ctrl = None
+        self.suggestion_counter_text = None
+        self.suggestion_prev_btn = None
+        self.suggestion_next_btn = None
+        self.page.update()
+    
+    # =========== HISTORY TAB ===========
+    
+    def _refresh_history_list(self, e=None):
+        """Refresh the conversation history list."""
+        self.history_list.controls.clear()
+        search_term = self.history_search.value.strip().lower() if self.history_search.value else ""
+        
+        conversations = self.db.get_recent_conversations(limit=100)
+        
+        if not conversations:
+            self.history_list.controls.append(
+                Container(
+                    content=Text("No conversations yet. Start chatting!", 
+                                 size=14, color=Colors.GREY_500, italic=True),
+                    padding=padding.all(20),
+                    alignment=alignment.center,
+                )
+            )
+            try:
+                self.page.update()
+            except:
+                pass
+            return
+        
+        for conv in conversations:
+            title = conv.get('title', 'Untitled')
+            model = conv.get('model', 'unknown')
+            updated = conv.get('updated_at', '')
+            conv_id = conv['id']
+            
+            # Look up character and persona names
+            char_name = None
+            persona_name = None
+            if conv.get('ai_character_id'):
+                char = self.db.get_ai_character(conv['ai_character_id'])
+                char_name = f"{char['avatar']} {char['name']}" if char else "❓ Deleted"
+            if conv.get('user_persona_id'):
+                persona = self.db.get_user_persona(conv['user_persona_id'])
+                persona_name = f"{persona['avatar']} {persona['name']}" if persona else "❓ Deleted"
+            
+            # Filter by search
+            if search_term and search_term not in title.lower() and search_term not in model.lower():
+                if not (char_name and search_term in char_name.lower()):
+                    if not (persona_name and search_term in persona_name.lower()):
+                        continue
+            
+            # Highlight if this is the active conversation
+            is_active = conv_id == self.current_conversation_id
+            bg_color = Colors.with_opacity(0.3, Colors.BLUE_700) if is_active else Colors.GREY_900
+            
+            # Format date  
+            date_display = updated[:16] if updated else ""
+            
+            # Build info row items
+            info_items = [
+                Text(f"🤖 {model}", size=10, color=Colors.GREY_500),
+            ]
+            if char_name:
+                info_items.append(Text(f"🎭 {char_name}", size=10, color=Colors.GREY_500))
+            if persona_name:
+                info_items.append(Text(f"👤 {persona_name}", size=10, color=Colors.GREY_500))
+            info_items.append(Text(f"📅 {date_display}", size=10, color=Colors.GREY_500))
+            
+            entry = Container(
+                content=Row([
+                    Column([
+                        Text(title, weight=FontWeight.BOLD, size=13, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                        Row(info_items, spacing=10, wrap=True),
+                    ], spacing=2, expand=True),
+                    Row([
+                        IconButton(
+                            icon=Icons.OPEN_IN_NEW,
+                            icon_size=18,
+                            tooltip="Load conversation",
+                            on_click=lambda e, cid=conv_id: self._load_conversation(cid),
+                        ),
+                        IconButton(
+                            icon=Icons.DOWNLOAD,
+                            icon_size=18,
+                            tooltip="Export conversation",
+                            on_click=lambda e, cid=conv_id: self._export_conversation(cid),
+                        ),
+                        IconButton(
+                            icon=Icons.DELETE_OUTLINE,
+                            icon_size=18,
+                            tooltip="Delete conversation",
+                            on_click=lambda e, cid=conv_id, t=title: self._confirm_delete_conversation(cid, t),
+                            icon_color=Colors.RED_400,
+                        ),
+                    ], spacing=0),
+                ], spacing=8),
+                bgcolor=bg_color,
+                padding=padding.all(10),
+                border_radius=border_radius.all(8),
+                border=border.all(1, Colors.BLUE_400) if is_active else None,
+                on_click=lambda e, cid=conv_id: self._load_conversation(cid),
+                ink=True,
+            )
+            self.history_list.controls.append(entry)
+        
+        try:
+            self.page.update()
+        except:
+            pass
+    
+    def _load_conversation(self, conversation_id: int):
+        """Load a prior conversation into the chat view, restoring character, persona, and model."""
+        # Clear current chat UI and core history
+        clear_conversation()
+        self.chat_messages.controls.clear()
+        self.current_conversation_id = conversation_id
+        self.last_user_message = None
+        self.regen_responses = []
+        self.regen_index = 0
+        self.response_committed = True
+        self.regen_text_ctrl = None
+        self.regen_counter_text = None
+        self.regen_prev_btn = None
+        self.regen_next_btn = None
+        self.suggestion_responses = []
+        self.suggestion_index = 0
+        self.suggestion_text_ctrl = None
+        self.suggested_prompt_container.visible = False
+        
+        # Get conversation metadata
+        conv = self.db.get_conversation(conversation_id)
+        warnings = []
+        
+        # Restore character
+        if conv and conv.get('ai_character_id'):
+            char = self.db.get_ai_character(conv['ai_character_id'])
+            if char:
+                self.selected_character = char
+                self.char_dropdown.value = str(char['id'])
+                self.system_prompt.visible = False
+                self.temp_slider.value = char.get('temperature', 0.7)
+            else:
+                self.selected_character = None
+                self.char_dropdown.value = "none"
+                self.system_prompt.visible = True
+                warnings.append("⚠️ The AI character used in this conversation no longer exists. Defaulting to None.")
+        else:
+            self.selected_character = None
+            self.char_dropdown.value = "none"
+            self.system_prompt.visible = True
+        
+        # Restore persona
+        if conv and conv.get('user_persona_id'):
+            persona = self.db.get_user_persona(conv['user_persona_id'])
+            if persona:
+                self.selected_persona = persona
+                self.persona_dropdown.value = str(persona['id'])
+            else:
+                self.selected_persona = None
+                self.persona_dropdown.value = "none"
+                warnings.append("⚠️ The user persona used in this conversation no longer exists. Defaulting to None.")
+        else:
+            self.selected_persona = None
+            self.persona_dropdown.value = "none"
+        
+        # Check if model needs to be loaded
+        conv_model = conv.get('model', '') if conv else ''
+        if conv_model and conv_model != 'unknown':
+            current_model = app_state.loaded_model
+            current_type = app_state.loaded_model_type
+            
+            if current_model != conv_model or current_type != "chat":
+                # Model differs - show warning popup that we need to switch
+                self._show_model_switch_dialog(conv_model, current_model)
+            # If same model already loaded, nothing to do
+        
+        # Get messages from DB
+        message_pairs = self.db.get_conversation_messages(conversation_id)
+        
+        if not message_pairs:
+            self._add_message("assistant", "📂 This conversation is empty.")
+            self._update_dropdown_lock()
+            self.page.update()
+            return
+        
+        # Rebuild core conversation history and UI
+        import core.chat_gen as _chat_mod
+        _chat_mod._conversation_history = []
+        
+        for user_msg, assistant_msg in message_pairs:
+            _chat_mod._conversation_history.append({"role": "user", "content": user_msg})
+            _chat_mod._conversation_history.append({"role": "assistant", "content": assistant_msg})
+            self._add_message("user", user_msg)
+            self._add_message("assistant", assistant_msg)
+            self.last_user_message = user_msg
+        
+        # Show suggest button since we have history
+        self.suggest_prompt_btn.visible = True
+        
+        # Lock dropdowns since we have messages
+        self._update_dropdown_lock()
+        
+        # Refresh history list to show active highlight
+        self._refresh_history_list()
+        
+        # Show any warnings as popup
+        if warnings:
+            warning_dialog = AlertDialog(
+                title=Text("⚠️ Loading Warnings"),
+                content=Column([Text(w) for w in warnings], spacing=8, tight=True),
+                actions=[TextButton("OK", on_click=lambda e: self._close_dialog(warning_dialog))],
+            )
+            self.page.overlay.append(warning_dialog)
+            warning_dialog.open = True
+        
+        self.page.snack_bar = SnackBar(content=Text("📂 Conversation loaded!"))
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def _close_dialog(self, dialog):
+        """Helper to close an AlertDialog."""
+        dialog.open = False
+        try:
+            self.page.update()
+        except:
+            pass
+    
+    def _show_model_switch_dialog(self, needed_model: str, current_model: str):
+        """Show a popup warning the user they need to load a different model."""
+        if current_model:
+            msg = f"This conversation used model '{needed_model}', but '{current_model}' is currently loaded.\n\nPlease load '{needed_model}' from the header dropdown to continue chatting."
+        else:
+            msg = f"This conversation used model '{needed_model}', but no model is currently loaded.\n\nPlease load '{needed_model}' from the header dropdown to continue chatting."
+        
+        dialog = AlertDialog(
+            title=Text("🤖 Model Mismatch"),
+            content=Text(msg),
+            actions=[TextButton("OK", on_click=lambda e: self._close_dialog(dialog))],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+    
+    def _export_conversation(self, conversation_id: int):
+        """Export a conversation to JSON file using a file picker dialog."""
+        import json
+        
+        try:
+            data = self.db.export_conversation(conversation_id)
+            self._pending_export_data = data
+            
+            safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in data.get('title', 'export'))
+            filename = f"{safe_title}_{conversation_id}.json"
+            
+            # Default to user's Downloads folder
+            downloads_dir = str(Path.home() / "Downloads")
+            
+            self.export_file_picker.save_file(
+                dialog_title="Export Conversation",
+                file_name=filename,
+                initial_directory=downloads_dir,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["json"],
+            )
+        except Exception as ex:
+            self.page.snack_bar = SnackBar(
+                content=Text(f"❌ Export failed: {ex}"),
+                bgcolor=Colors.RED_700,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+    
+    def _on_export_file_picked(self, e: ft.FilePickerResultEvent):
+        """Handle file picker result for export."""
+        import json
+        
+        if e.path and self._pending_export_data:
+            try:
+                filepath = e.path
+                # Ensure .json extension
+                if not filepath.endswith('.json'):
+                    filepath += '.json'
+                
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(self._pending_export_data, f, indent=2, ensure_ascii=False)
+                
+                self.page.snack_bar = SnackBar(
+                    content=Text(f"✅ Exported to {filepath}"),
+                )
+                self.page.snack_bar.open = True
+            except Exception as ex:
+                self.page.snack_bar = SnackBar(
+                    content=Text(f"❌ Export failed: {ex}"),
+                    bgcolor=Colors.RED_700,
+                )
+                self.page.snack_bar.open = True
+            finally:
+                self._pending_export_data = None
+                self.page.update()
+        else:
+            self._pending_export_data = None
+    
+    def _confirm_delete_conversation(self, conversation_id: int, title: str):
+        """Show confirmation dialog before deleting a conversation."""
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+        
+        def do_delete(e):
+            dialog.open = False
+            self._delete_conversation(conversation_id)
+            self.page.update()
+        
+        dialog = AlertDialog(
+            title=Text("Delete Conversation?"),
+            content=Text(f"Delete \"{title}\"?\n\nThis cannot be undone."),
+            actions=[
+                TextButton("Cancel", on_click=close_dialog),
+                TextButton("Delete", on_click=do_delete),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
+    def _delete_conversation(self, conversation_id: int):
+        """Delete a conversation from the database."""
+        try:
+            # If we're deleting the active conversation, clear the chat
+            if conversation_id == self.current_conversation_id:
+                clear_conversation()
+                self.chat_messages.controls.clear()
+                self.current_conversation_id = None
+                self.last_user_message = None
+                self.regen_responses = []
+                self.regen_index = 0
+                self.response_committed = True
+                self.regen_text_ctrl = None
+                self.suggest_prompt_btn.visible = False
+                self.suggested_prompt_container.visible = False
+                self.suggestion_responses = []
+                self.suggestion_index = 0
+                self.suggestion_text_ctrl = None
+                self._update_dropdown_lock()
+            
+            self.db.delete_conversation(conversation_id)
+            self._refresh_history_list()
+            
+            self.page.snack_bar = SnackBar(content=Text("🗑️ Conversation deleted."))
+            self.page.snack_bar.open = True
+            self.page.update()
+        except Exception as ex:
+            self.page.snack_bar = SnackBar(
+                content=Text(f"❌ Delete failed: {ex}"),
+                bgcolor=Colors.RED_700,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+    
+    def _confirm_delete_all_conversations(self, e):
+        """Show confirmation dialog before deleting all conversations."""
+        conversations = self.db.get_recent_conversations(limit=10000)
+        count = len(conversations)
+        if count == 0:
+            self.page.snack_bar = SnackBar(content=Text("No conversations to delete."))
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+        
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+        
+        def do_delete(e):
+            dialog.open = False
+            self._delete_all_conversations()
+            self.page.update()
+        
+        dialog = AlertDialog(
+            title=Text("Delete All Conversations?"),
+            content=Text(f"This will permanently delete all {count} conversation(s).\n\nThis cannot be undone."),
+            actions=[
+                TextButton("Cancel", on_click=close_dialog),
+                TextButton("Delete All", on_click=do_delete),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
+    def _delete_all_conversations(self):
+        """Delete all conversations from the database."""
+        try:
+            # If active conversation exists, clear it
+            if self.current_conversation_id:
+                clear_conversation()
+                self.chat_messages.controls.clear()
+                self.current_conversation_id = None
+                self.last_user_message = None
+                self.regen_responses = []
+                self.regen_index = 0
+                self.response_committed = True
+                self.regen_text_ctrl = None
+                self.suggest_prompt_btn.visible = False
+                self.suggested_prompt_container.visible = False
+                self.suggestion_responses = []
+                self.suggestion_index = 0
+                self.suggestion_text_ctrl = None
+                self._update_dropdown_lock()
+            
+            self.db.delete_all_conversations()
+            self._refresh_history_list()
+            
+            self.page.snack_bar = SnackBar(content=Text("🗑️ All conversations deleted."))
+            self.page.snack_bar.open = True
+            self.page.update()
+        except Exception as ex:
+            self.page.snack_bar = SnackBar(
+                content=Text(f"❌ Delete all failed: {ex}"),
+                bgcolor=Colors.RED_700,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
     
     # =========== CHARACTER MANAGEMENT ===========
     
@@ -2974,7 +3938,26 @@ class ChatTab:
                             Text(char['name'], weight=FontWeight.BOLD),
                             Text(char.get('description', '')[:50] or "No description", size=11, color=Colors.GREY_500),
                         ], spacing=2, expand=True),
-                        ft.Icon(Icons.EDIT, size=18, color=Colors.GREY_400),
+                        Row([
+                            IconButton(
+                                icon=Icons.COPY, icon_size=18,
+                                tooltip="Clone character",
+                                on_click=lambda e, c=char: self._clone_character(c),
+                                icon_color=Colors.BLUE_400,
+                            ),
+                            IconButton(
+                                icon=Icons.DOWNLOAD, icon_size=18,
+                                tooltip="Export as JSON",
+                                on_click=lambda e, c=char: self._export_character(c),
+                                icon_color=Colors.GREEN_400,
+                            ),
+                            IconButton(
+                                icon=Icons.EDIT, icon_size=18,
+                                tooltip="Edit character",
+                                on_click=lambda e, c=char: self._edit_character(c),
+                                icon_color=Colors.GREY_400,
+                            ),
+                        ], spacing=0),
                     ], spacing=10),
                     bgcolor=Colors.GREY_900,
                     padding=padding.all(12),
@@ -3094,7 +4077,26 @@ class ChatTab:
                             Text(persona['name'], weight=FontWeight.BOLD),
                             Text(persona.get('description', '')[:50] or "No description", size=11, color=Colors.GREY_500),
                         ], spacing=2, expand=True),
-                        ft.Icon(Icons.EDIT, size=18, color=Colors.GREY_400),
+                        Row([
+                            IconButton(
+                                icon=Icons.COPY, icon_size=18,
+                                tooltip="Clone persona",
+                                on_click=lambda e, p=persona: self._clone_persona(p),
+                                icon_color=Colors.PURPLE_400,
+                            ),
+                            IconButton(
+                                icon=Icons.DOWNLOAD, icon_size=18,
+                                tooltip="Export as JSON",
+                                on_click=lambda e, p=persona: self._export_persona(p),
+                                icon_color=Colors.GREEN_400,
+                            ),
+                            IconButton(
+                                icon=Icons.EDIT, icon_size=18,
+                                tooltip="Edit persona",
+                                on_click=lambda e, p=persona: self._edit_persona(p),
+                                icon_color=Colors.GREY_400,
+                            ),
+                        ], spacing=0),
                     ], spacing=10),
                     bgcolor=Colors.GREY_900,
                     padding=padding.all(12),
@@ -3176,6 +4178,128 @@ class ChatTab:
                 self.persona_status.value = f"❌ Error: {ex}"
                 self.persona_status.color = Colors.RED_400
                 self.page.update()
+    
+    # =========== CLONE & EXPORT ===========
+    
+    def _clone_character(self, char):
+        """Clone an AI character with '- Clone' suffix (auto-increments if name taken)."""
+        try:
+            base_name = f"{char['name']} - Clone"
+            clone_name = base_name
+            existing = [c['name'] for c in self.db.get_all_ai_characters()]
+            counter = 2
+            while clone_name in existing:
+                clone_name = f"{base_name} {counter}"
+                counter += 1
+            new_id = self.db.create_ai_character(
+                name=clone_name,
+                system_prompt=char.get('system_prompt', ''),
+                temperature=char.get('temperature', 0.7),
+                top_p=char.get('top_p', 0.95),
+                top_k=char.get('top_k', 50),
+                description=char.get('description', ''),
+                avatar=char.get('avatar', '🤖'),
+            )
+            self._refresh_dropdowns()
+            self._build_char_list()
+            self.page.snack_bar = SnackBar(content=Text(f"✅ Cloned '{char['name']}' as '{clone_name}'"))
+            self.page.snack_bar.open = True
+            self.page.update()
+        except Exception as ex:
+            self.page.snack_bar = SnackBar(
+                content=Text(f"❌ Clone failed: {ex}"),
+                bgcolor=Colors.RED_700,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+    
+    def _clone_persona(self, persona):
+        """Clone a user persona with '- Clone' suffix (auto-increments if name taken)."""
+        try:
+            base_name = f"{persona['name']} - Clone"
+            clone_name = base_name
+            existing = [p['name'] for p in self.db.get_all_user_personas()]
+            counter = 2
+            while clone_name in existing:
+                clone_name = f"{base_name} {counter}"
+                counter += 1
+            new_id = self.db.create_user_persona(
+                name=clone_name,
+                description=persona.get('description', ''),
+                background=persona.get('background', ''),
+                avatar=persona.get('avatar', '👤'),
+            )
+            self._refresh_dropdowns()
+            self._build_persona_list()
+            self.page.snack_bar = SnackBar(content=Text(f"✅ Cloned '{persona['name']}' as '{clone_name}'"))
+            self.page.snack_bar.open = True
+            self.page.update()
+        except Exception as ex:
+            self.page.snack_bar = SnackBar(
+                content=Text(f"❌ Clone failed: {ex}"),
+                bgcolor=Colors.RED_700,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+    
+    def _export_character(self, char):
+        """Export an AI character as JSON using file picker."""
+        import json
+        
+        export_data = {
+            "type": "ai_character",
+            "name": char['name'],
+            "description": char.get('description', ''),
+            "system_prompt": char.get('system_prompt', ''),
+            "temperature": char.get('temperature', 0.7),
+            "top_p": char.get('top_p', 0.95),
+            "top_k": char.get('top_k', 50),
+            "avatar": char.get('avatar', '🤖'),
+        }
+        
+        self._pending_export_data = export_data
+        safe_name = "".join(c if c.isalnum() or c in " -_" else "" for c in char['name'])
+        filename = f"character_{safe_name}.json"
+        downloads_dir = str(Path.home() / "Downloads")
+        
+        self.export_file_picker.save_file(
+            dialog_title="Export Character",
+            file_name=filename,
+            initial_directory=downloads_dir,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["json"],
+        )
+    
+    def _export_persona(self, persona):
+        """Export a user persona as JSON using file picker."""
+        import json
+        
+        export_data = {
+            "type": "user_persona",
+            "name": persona['name'],
+            "description": persona.get('description', ''),
+            "background": persona.get('background', ''),
+            "avatar": persona.get('avatar', '👤'),
+        }
+        
+        self._pending_export_data = export_data
+        safe_name = "".join(c if c.isalnum() or c in " -_" else "" for c in persona['name'])
+        filename = f"persona_{safe_name}.json"
+        downloads_dir = str(Path.home() / "Downloads")
+        
+        self.export_file_picker.save_file(
+            dialog_title="Export Persona",
+            file_name=filename,
+            initial_directory=downloads_dir,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["json"],
+        )
+    
+    def _on_chat_tab_change(self, e):
+        """Handle sub-tab changes - refresh History when selected."""
+        tab_index = e.control.selected_index if hasattr(e.control, 'selected_index') else None
+        if tab_index == 1:  # History tab
+            self._refresh_history_list()
     
     def build(self) -> Container:
         """Build the chat tab with sub-tabs."""
@@ -3266,10 +4390,25 @@ class ChatTab:
                     self.no_model_banner,
                     Row([
                         Text("💬 Conversation", size=18, weight=FontWeight.BOLD),
-                        self.clear_btn,
+                        Row([
+                            ElevatedButton(
+                                "➕ New Chat",
+                                on_click=self._new_chat,
+                                height=30,
+                                style=ButtonStyle(
+                                    padding=padding.symmetric(horizontal=8, vertical=2),
+                                    text_style=ft.TextStyle(size=11),
+                                ),
+                            ),
+                            self.clear_btn,
+                        ], spacing=4),
                     ], alignment=MainAxisAlignment.SPACE_BETWEEN),
                     self.progress,
                     self.chat_messages,
+                    # Suggest response button
+                    self.suggest_prompt_btn,
+                    # Suggested response display
+                    self.suggested_prompt_container,
                     # Typing indicator above message input
                     self.typing_indicator,
                     Row([
@@ -3284,7 +4423,8 @@ class ChatTab:
         
         # Update initial state
         has_model = app_state.loaded_model_type == "chat"
-        self.send_btn.disabled = not has_model
+        has_text = bool(self.message_input.value and self.message_input.value.strip())
+        self.send_btn.disabled = not (has_model and has_text)
         self.no_model_banner.visible = not has_model
         
         # Characters tab content
@@ -3307,12 +4447,35 @@ class ChatTab:
             padding=padding.all(15),
         )
         
+        # History tab content
+        self._refresh_history_list()
+        history_content = Container(
+            content=Column([
+                Row([
+                    Text("📜 Conversation History", size=18, weight=FontWeight.BOLD),
+                    self.history_delete_all_btn,
+                ], alignment=MainAxisAlignment.SPACE_BETWEEN),
+                Text("Load, export, or delete prior conversations.", size=12, color=Colors.GREY_500),
+                self.history_search,
+                self.history_list,
+            ], expand=True, spacing=6),
+            expand=True,
+            padding=padding.all(15),
+        )
+        
+        # Add file picker to page overlay so it can show dialogs
+        self.page.overlay.append(self.export_file_picker)
+        
         return Container(
             content=Tabs(
                 tabs=[
                     Tab(
                         text="💬 Conversation",
                         content=conversation_content,
+                    ),
+                    Tab(
+                        text="📜 History",
+                        content=history_content,
                     ),
                     Tab(
                         text="👤 Characters",
@@ -3324,6 +4487,7 @@ class ChatTab:
                     ),
                 ],
                 expand=True,
+                on_change=self._on_chat_tab_change,
             ),
             expand=True,
         )
@@ -3607,8 +4771,8 @@ def main(page: Page):
     page.title = "KVGenius - AI Image Generator"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
-    page.window.width = 1200
-    page.window.height = 900
+    page.window.width = 1600
+    page.window.height = 1000
     
     # Apply theme from KVG Themes if available
     if THEMES_AVAILABLE:
@@ -3655,6 +4819,7 @@ def main(page: Page):
     gallery_tab = GalleryTab(page)
     model_manager_tab = ModelManagerTab(page)
     chat_tab = ChatTab(page)
+    card_generator_tab = CardGeneratorTab(page)
     
     # Callback to set prompt in image gen from library
     def on_use_prompt(prompt: str, negative: str):
@@ -3691,6 +4856,10 @@ def main(page: Page):
             Tab(
                 text="💬 Chat",
                 content=chat_tab.build(),
+            ),
+            Tab(
+                text="🃏 Cards",
+                content=card_generator_tab.build(),
             ),
             Tab(
                 text="📚 Prompts",

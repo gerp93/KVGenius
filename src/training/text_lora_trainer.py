@@ -324,7 +324,7 @@ class TextLoRATrainer:
                 from core.config import CHAT_MODELS as CHAT_MODEL_CONFIG
                 
                 model_key, is_loaded = get_current_chat_model()
-                if model_key and is_loaded:
+                if model_key:
                     base_model_id = CHAT_MODEL_CONFIG.get(model_key, {}).get("id")
             except:
                 pass
@@ -333,6 +333,23 @@ class TextLoRATrainer:
             text_training_state.error = "No base model specified and no chat model is loaded. Load a chat model first or specify a base model."
             text_training_state.status_message = text_training_state.error
             return
+        
+        # Unload the chat model to free up VRAM before training
+        text_training_state.status_message = "Freeing GPU memory..."
+        try:
+            from core.chat_gen import unload_chat_model
+            unload_chat_model()
+            logger.info("Unloaded chat model to free VRAM for training")
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                logger.info("Cleared CUDA cache")
+        except Exception as e:
+            logger.warning(f"Could not unload chat model: {e}")
         
         text_training_state.status_message = f"Loading base model: {base_model_id}..."
         
@@ -352,18 +369,27 @@ class TextLoRATrainer:
                 "cache_dir": str(MODEL_CACHE_DIR),
                 "trust_remote_code": True,
                 "torch_dtype": torch.float16,
-                "device_map": "auto"
             }
             
             if config.use_8bit:
                 try:
                     from transformers import BitsAndBytesConfig
+                    # Use 4-bit quantization for better memory efficiency
+                    # 8-bit still uses too much VRAM for training large models
                     model_kwargs["quantization_config"] = BitsAndBytesConfig(
-                        load_in_8bit=True,
-                        llm_int8_threshold=6.0
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=torch.float16,
+                        bnb_4bit_use_double_quant=True,
+                        bnb_4bit_quant_type="nf4"
                     )
+                    # For quantized training, put everything on GPU 0 to avoid device issues
+                    model_kwargs["device_map"] = {"": 0}
+                    logger.info("Using 4-bit quantization (QLoRA) for memory efficiency")
                 except ImportError:
-                    logger.warning("bitsandbytes not available, training without 8-bit quantization")
+                    logger.warning("bitsandbytes not available, training without quantization")
+                    model_kwargs["device_map"] = "auto"
+            else:
+                model_kwargs["device_map"] = "auto"
             
             model = AutoModelForCausalLM.from_pretrained(base_model_id, **model_kwargs)
             
@@ -452,28 +478,51 @@ class TextLoRATrainer:
                 dataloader_pin_memory=False,
             )
             
+            logger.info("TrainingArguments created successfully")
+            
             # Custom callback for progress updates
-            class ProgressCallback:
-                def __init__(self, state: TextTrainingState, callback: Optional[Callable]):
-                    self.state = state
+            from transformers import TrainerCallback
+            
+            class ProgressCallback(TrainerCallback):
+                def __init__(self, training_state: TextTrainingState, callback: Optional[Callable]):
+                    self.training_state = training_state
                     self.callback = callback
                 
+                def on_train_begin(self, args, state, control, **kwargs):
+                    logger.info(">>> on_train_begin called - training is starting!")
+                    return control
+                
+                def on_step_begin(self, args, state, control, **kwargs):
+                    if state.global_step % 10 == 0:
+                        logger.info(f">>> on_step_begin: step {state.global_step}")
+                    return control
+                
+                def on_step_end(self, args, state, control, **kwargs):
+                    if state.global_step % 10 == 0:
+                        logger.info(f">>> on_step_end: step {state.global_step}")
+                    return control
+                
                 def on_log(self, args, state, control, logs=None, **kwargs):
+                    logger.info(f">>> on_log called: step {state.global_step}, logs={logs}")
                     if logs:
-                        self.state.loss = logs.get("loss", 0.0)
-                        self.state.current_step = state.global_step
-                        self.state.current_epoch = int(state.epoch) if state.epoch else 0
-                        self.state.progress_pct = (state.global_step / self.state.total_steps) * 100
-                        self.state.status_message = f"Epoch {self.state.current_epoch}/{self.state.total_epochs} | Step {state.global_step}/{self.state.total_steps} | Loss: {self.state.loss:.4f}"
+                        self.training_state.loss = logs.get("loss", 0.0)
+                        self.training_state.current_step = state.global_step
+                        self.training_state.current_epoch = int(state.epoch) if state.epoch else 0
+                        self.training_state.progress_pct = (state.global_step / self.training_state.total_steps) * 100
+                        self.training_state.status_message = f"Epoch {self.training_state.current_epoch}/{self.training_state.total_epochs} | Step {state.global_step}/{self.training_state.total_steps} | Loss: {self.training_state.loss:.4f}"
                         
                         if self.callback:
-                            self.callback(self.state)
+                            self.callback(self.training_state)
+            
+            logger.info("Creating DataCollator...")
             
             # Data collator
             data_collator = DataCollatorForLanguageModeling(
                 tokenizer=tokenizer,
                 mlm=False
             )
+            
+            logger.info("Creating Trainer...")
             
             # Trainer
             trainer = Trainer(
@@ -483,12 +532,25 @@ class TextLoRATrainer:
                 data_collator=data_collator,
             )
             
+            logger.info("Adding progress callback...")
+            
             # Add callback
             progress_cb = ProgressCallback(text_training_state, progress_callback)
             trainer.add_callback(progress_cb)
             
+            logger.info("Starting trainer.train()...")
+            logger.info(f"Total steps: {text_training_state.total_steps}, Epochs: {config.num_train_epochs}")
+            
+            # Check GPU memory before training
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / 1024**3
+                reserved = torch.cuda.memory_reserved() / 1024**3
+                logger.info(f"GPU Memory before training: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+            
             # Train!
             trainer.train()
+            
+            logger.info("trainer.train() completed")
             
             if self._stop_requested:
                 text_training_state.status_message = "Training stopped by user"
