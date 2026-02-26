@@ -1,0 +1,5 @@
+default_guidance: 7.0
+default_height: 512
+default_steps: 25
+default_width: 512
+theme: neon

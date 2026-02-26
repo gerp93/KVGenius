@@ -19,9 +19,16 @@ class ChatHistoryDB:
         self.db_path = db_path
         self._init_database()
     
+    def _connect(self):
+        """Open a SQLite connection with WAL mode and timeout to prevent locking."""
+        conn = sqlite3.connect(self.db_path, timeout=30, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
+    
     def _init_database(self):
         """Create database tables if they don't exist."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         # Conversations table
@@ -90,10 +97,13 @@ class ChatHistoryDB:
                 name TEXT UNIQUE NOT NULL,
                 prompt TEXT NOT NULL,
                 negative_prompt TEXT,
+                categories TEXT,
                 steps INTEGER DEFAULT 25,
                 guidance_scale REAL DEFAULT 7.5,
                 width INTEGER DEFAULT 512,
                 height INTEGER DEFAULT 768,
+                lora TEXT,
+                lora_strength REAL DEFAULT 0.8,
                 model TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -101,66 +111,76 @@ class ChatHistoryDB:
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prompt_name ON prompt_library(name)")
         
+        # Add categories column if it doesn't exist (migration for existing databases)
+        try:
+            cursor.execute("ALTER TABLE prompt_library ADD COLUMN categories TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        # Add lora columns if they don't exist (migration)
+        try:
+            cursor.execute("ALTER TABLE prompt_library ADD COLUMN lora TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute("ALTER TABLE prompt_library ADD COLUMN lora_strength REAL DEFAULT 0.8")
+        except sqlite3.OperationalError:
+            pass
+        
         conn.commit()
         conn.close()
         logger.info(f"Database initialized at {self.db_path}")
     
     def create_conversation(self, model: str, ai_character_id: Optional[int] = None, user_persona_id: Optional[int] = None, title: Optional[str] = None) -> int:
         """Create a new conversation."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
         if not title:
             title = f"Chat - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        
-        cursor.execute("""
-            INSERT INTO conversations (title, model, ai_character_id, user_persona_id)
-            VALUES (?, ?, ?, ?)
-        """, (title, model, ai_character_id, user_persona_id))
-        
-        conv_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO conversations (title, model, ai_character_id, user_persona_id)
+                VALUES (?, ?, ?, ?)
+            """, (title, model, ai_character_id, user_persona_id))
+            conv_id = cursor.lastrowid
+            conn.commit()
+        finally:
+            conn.close()
         logger.info(f"Created conversation {conv_id}: {title}")
         return conv_id
     
     def add_message(self, conversation_id: int, role: str, content: str):
         """Add a message to a conversation."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT INTO messages (conversation_id, role, content)
-            VALUES (?, ?, ?)
-        """, (conversation_id, role, content))
-        
-        # Update conversation's updated_at timestamp
-        cursor.execute("""
-            UPDATE conversations
-            SET updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (conversation_id,))
-        
-        conn.commit()
-        conn.close()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO messages (conversation_id, role, content)
+                VALUES (?, ?, ?)
+            """, (conversation_id, role, content))
+            cursor.execute("""
+                UPDATE conversations
+                SET updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (conversation_id,))
+            conn.commit()
+        finally:
+            conn.close()
     
     def get_conversation_messages(self, conversation_id: int) -> List[Tuple[str, str]]:
         """Get all messages from a conversation in Gradio format [(user, assistant), ...]."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT role, content
-            FROM messages
-            WHERE conversation_id = ?
-            ORDER BY timestamp ASC
-        """, (conversation_id,))
-        
-        messages = cursor.fetchall()
-        conn.close()
-        
-        # Convert to Gradio chat format
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT role, content
+                FROM messages
+                WHERE conversation_id = ?
+                ORDER BY timestamp ASC
+            """, (conversation_id,))
+            messages = cursor.fetchall()
+        finally:
+            conn.close()
         history = []
         user_msg = None
         for role, content in messages:
@@ -169,24 +189,22 @@ class ChatHistoryDB:
             elif role == "assistant" and user_msg:
                 history.append((user_msg, content))
                 user_msg = None
-        
         return history
     
     def get_recent_conversations(self, limit: int = 20) -> List[Dict]:
         """Get recent conversations."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, title, model, ai_character_id, user_persona_id, created_at, updated_at
-            FROM conversations
-            ORDER BY updated_at DESC
-            LIMIT ?
-        """, (limit,))
-        
-        rows = cursor.fetchall()
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, title, model, ai_character_id, user_persona_id, created_at, updated_at
+                FROM conversations
+                ORDER BY updated_at DESC
+                LIMIT ?
+            """, (limit,))
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
         conversations = []
         for row in rows:
             conversations.append({
@@ -198,59 +216,90 @@ class ChatHistoryDB:
                 "created_at": row[5],
                 "updated_at": row[6]
             })
-        
         return conversations
+    
+    def get_conversation(self, conversation_id: int) -> Optional[Dict]:
+        """Get a single conversation by ID."""
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, title, model, ai_character_id, user_persona_id, created_at, updated_at
+                FROM conversations
+                WHERE id = ?
+            """, (conversation_id,))
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+        if row:
+            return {
+                "id": row[0],
+                "title": row[1],
+                "model": row[2],
+                "ai_character_id": row[3],
+                "user_persona_id": row[4],
+                "created_at": row[5],
+                "updated_at": row[6]
+            }
+        return None
     
     def update_conversation_title(self, conversation_id: int, title: str):
         """Update conversation title."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            UPDATE conversations
-            SET title = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (title, conversation_id))
-        
-        conn.commit()
-        conn.close()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE conversations
+                SET title = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (title, conversation_id))
+            conn.commit()
+        finally:
+            conn.close()
     
     def delete_conversation(self, conversation_id: int):
         """Delete a conversation and all its messages."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
-        
-        conn.commit()
-        conn.close()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+            conn.commit()
+        finally:
+            conn.close()
         logger.info(f"Deleted conversation {conversation_id}")
+    
+    def delete_all_conversations(self):
+        """Delete all conversations and their messages."""
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM messages")
+            cursor.execute("DELETE FROM conversations")
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info("Deleted all conversations")
     
     def export_conversation(self, conversation_id: int) -> Dict:
         """Export conversation as JSON."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Get conversation info
-        cursor.execute("""
-            SELECT title, model, ai_character_id, user_persona_id, created_at, updated_at
-            FROM conversations
-            WHERE id = ?
-        """, (conversation_id,))
-        
-        conv = cursor.fetchone()
-        
-        # Get messages
-        cursor.execute("""
-            SELECT role, content, timestamp
-            FROM messages
-            WHERE conversation_id = ?
-            ORDER BY timestamp ASC
-        """, (conversation_id,))
-        
-        messages = cursor.fetchall()
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT title, model, ai_character_id, user_persona_id, created_at, updated_at
+                FROM conversations
+                WHERE id = ?
+            """, (conversation_id,))
+            conv = cursor.fetchone()
+            cursor.execute("""
+                SELECT role, content, timestamp
+                FROM messages
+                WHERE conversation_id = ?
+                ORDER BY timestamp ASC
+            """, (conversation_id,))
+            messages = cursor.fetchall()
+        finally:
+            conn.close()
         return {
             "id": conversation_id,
             "title": conv[0],
@@ -272,35 +321,33 @@ class ChatHistoryDB:
                       top_p: float = 0.95, top_k: int = 50, description: str = "",
                       avatar: str = "🤖") -> int:
         """Create a new AI character."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT INTO ai_characters (name, system_prompt, temperature, top_p, top_k, description, avatar)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (name, system_prompt, temperature, top_p, top_k, description, avatar))
-        
-        char_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO ai_characters (name, system_prompt, temperature, top_p, top_k, description, avatar)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (name, system_prompt, temperature, top_p, top_k, description, avatar))
+            char_id = cursor.lastrowid
+            conn.commit()
+        finally:
+            conn.close()
         logger.info(f"Created AI character {char_id}: {name}")
         return char_id
     
     def get_ai_character(self, character_id: int) -> Optional[Dict]:
         """Get AI character by ID."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, name, system_prompt, temperature, top_p, top_k, description, avatar
-            FROM ai_characters
-            WHERE id = ?
-        """, (character_id,))
-        
-        row = cursor.fetchone()
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, system_prompt, temperature, top_p, top_k, description, avatar
+                FROM ai_characters
+                WHERE id = ?
+            """, (character_id,))
+            row = cursor.fetchone()
+        finally:
+            conn.close()
         if row:
             return {
                 "id": row[0],
@@ -316,18 +363,17 @@ class ChatHistoryDB:
     
     def get_all_ai_characters(self) -> List[Dict]:
         """Get all AI characters."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, name, system_prompt, temperature, top_p, top_k, description, avatar
-            FROM ai_characters
-            ORDER BY name ASC
-        """)
-        
-        rows = cursor.fetchall()
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, system_prompt, temperature, top_p, top_k, description, avatar
+                FROM ai_characters
+                ORDER BY name ASC
+            """)
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
         characters = []
         for row in rows:
             characters.append({
@@ -340,73 +386,70 @@ class ChatHistoryDB:
                 "description": row[6],
                 "avatar": row[7]
             })
-        
         return characters
     
     def update_ai_character(self, character_id: int, **kwargs):
         """Update AI character fields."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
         fields = []
         values = []
         for key, value in kwargs.items():
             if key in ['name', 'system_prompt', 'temperature', 'top_p', 'top_k', 'description', 'avatar']:
                 fields.append(f"{key} = ?")
                 values.append(value)
-        
-        if fields:
+        if not fields:
+            return
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
             query = f"UPDATE ai_characters SET {', '.join(fields)} WHERE id = ?"
             values.append(character_id)
             cursor.execute(query, values)
             conn.commit()
-        
-        conn.close()
+        finally:
+            conn.close()
     
     def delete_ai_character(self, character_id: int):
         """Delete an AI character."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("DELETE FROM ai_characters WHERE id = ?", (character_id,))
-        
-        conn.commit()
-        conn.close()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM ai_characters WHERE id = ?", (character_id,))
+            conn.commit()
+        finally:
+            conn.close()
         logger.info(f"Deleted AI character {character_id}")
     
     # User Persona Methods
     def create_user_persona(self, name: str, description: str = "", background: str = "",
                            avatar: str = "👤") -> int:
         """Create a new user persona."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT INTO user_personas (name, description, background, avatar)
-            VALUES (?, ?, ?, ?)
-        """, (name, description, background, avatar))
-        
-        persona_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO user_personas (name, description, background, avatar)
+                VALUES (?, ?, ?, ?)
+            """, (name, description, background, avatar))
+            persona_id = cursor.lastrowid
+            conn.commit()
+        finally:
+            conn.close()
         logger.info(f"Created user persona {persona_id}: {name}")
         return persona_id
     
     def get_user_persona(self, persona_id: int) -> Optional[Dict]:
         """Get user persona by ID."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, name, description, background, avatar
-            FROM user_personas
-            WHERE id = ?
-        """, (persona_id,))
-        
-        row = cursor.fetchone()
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, description, background, avatar
+                FROM user_personas
+                WHERE id = ?
+            """, (persona_id,))
+            row = cursor.fetchone()
+        finally:
+            conn.close()
         if row:
             return {
                 "id": row[0],
@@ -419,18 +462,17 @@ class ChatHistoryDB:
     
     def get_all_user_personas(self) -> List[Dict]:
         """Get all user personas."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, name, description, background, avatar
-            FROM user_personas
-            ORDER BY name ASC
-        """)
-        
-        rows = cursor.fetchall()
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, description, background, avatar
+                FROM user_personas
+                ORDER BY name ASC
+            """)
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
         personas = []
         for row in rows:
             personas.append({
@@ -440,38 +482,37 @@ class ChatHistoryDB:
                 "background": row[3],
                 "avatar": row[4]
             })
-        
         return personas
     
     def update_user_persona(self, persona_id: int, **kwargs):
         """Update user persona fields."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
         fields = []
         values = []
         for key, value in kwargs.items():
             if key in ['name', 'description', 'background', 'avatar']:
                 fields.append(f"{key} = ?")
                 values.append(value)
-        
-        if fields:
+        if not fields:
+            return
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
             query = f"UPDATE user_personas SET {', '.join(fields)} WHERE id = ?"
             values.append(persona_id)
             cursor.execute(query, values)
             conn.commit()
-        
-        conn.close()
+        finally:
+            conn.close()
     
     def delete_user_persona(self, persona_id: int):
         """Delete a user persona."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("DELETE FROM user_personas WHERE id = ?", (persona_id,))
-        
-        conn.commit()
-        conn.close()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM user_personas WHERE id = ?", (persona_id,))
+            conn.commit()
+        finally:
+            conn.close()
         logger.info(f"Deleted user persona {persona_id}")
     
     def init_defaults(self):
@@ -537,17 +578,21 @@ class ChatHistoryDB:
     # ==================== Prompt Library Methods ====================
     
     def save_prompt(self, name: str, prompt: str, negative_prompt: str = "", 
-                    steps: int = 25, guidance_scale: float = 7.5,
-                    width: int = 512, height: int = 768, model: str = None) -> int:
+                    categories: List[str] = None, steps: int = 25, guidance_scale: float = 7.5,
+                    width: int = 512, height: int = 768, lora: str = None,
+                    lora_strength: float = 0.8, model: str = None) -> int:
         """Save a prompt to the library."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
+        
+        # Convert categories list to JSON string
+        categories_json = json.dumps(categories) if categories else None
         
         try:
             cursor.execute("""
-                INSERT INTO prompt_library (name, prompt, negative_prompt, steps, guidance_scale, width, height, model)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (name, prompt, negative_prompt, steps, guidance_scale, width, height, model))
+                INSERT INTO prompt_library (name, prompt, negative_prompt, categories, steps, guidance_scale, width, height, lora, lora_strength, model)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (name, prompt, negative_prompt, categories_json, steps, guidance_scale, width, height, lora, lora_strength, model))
             
             prompt_id = cursor.lastrowid
             conn.commit()
@@ -557,10 +602,10 @@ class ChatHistoryDB:
             # Name already exists, update instead
             cursor.execute("""
                 UPDATE prompt_library 
-                SET prompt = ?, negative_prompt = ?, steps = ?, guidance_scale = ?, 
-                    width = ?, height = ?, model = ?, updated_at = CURRENT_TIMESTAMP
+                SET prompt = ?, negative_prompt = ?, categories = ?, steps = ?, guidance_scale = ?, 
+                    width = ?, height = ?, lora = ?, lora_strength = ?, model = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE name = ?
-            """, (prompt, negative_prompt, steps, guidance_scale, width, height, model, name))
+            """, (prompt, negative_prompt, categories_json, steps, guidance_scale, width, height, lora, lora_strength, model, name))
             conn.commit()
             logger.info(f"Updated existing prompt '{name}'")
             return self.get_prompt_by_name(name)['id']
@@ -569,40 +614,51 @@ class ChatHistoryDB:
     
     def get_all_prompts(self) -> List[Dict]:
         """Get all saved prompts."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT * FROM prompt_library ORDER BY updated_at DESC
-        """)
-        
-        prompts = [dict(row) for row in cursor.fetchall()]
-        conn.close()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM prompt_library ORDER BY updated_at DESC
+            """)
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+        prompts = []
+        for row in rows:
+            prompt = dict(row)
+            if prompt.get('categories'):
+                try:
+                    prompt['categories'] = json.loads(prompt['categories'])
+                except (json.JSONDecodeError, TypeError):
+                    prompt['categories'] = []
+            else:
+                prompt['categories'] = []
+            prompts.append(prompt)
         return prompts
     
     def get_prompt_by_id(self, prompt_id: int) -> Optional[Dict]:
         """Get a prompt by ID."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM prompt_library WHERE id = ?", (prompt_id,))
-        row = cursor.fetchone()
-        conn.close()
-        
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM prompt_library WHERE id = ?", (prompt_id,))
+            row = cursor.fetchone()
+        finally:
+            conn.close()
         return dict(row) if row else None
     
     def get_prompt_by_name(self, name: str) -> Optional[Dict]:
         """Get a prompt by name."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM prompt_library WHERE name = ?", (name,))
-        row = cursor.fetchone()
-        conn.close()
-        
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM prompt_library WHERE name = ?", (name,))
+            row = cursor.fetchone()
+        finally:
+            conn.close()
         return dict(row) if row else None
     
     def update_prompt(self, prompt_id: int, **kwargs) -> bool:
@@ -610,15 +666,18 @@ class ChatHistoryDB:
         if not kwargs:
             return False
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         # Build update query dynamically
-        allowed_fields = ['name', 'prompt', 'negative_prompt', 'steps', 'guidance_scale', 'width', 'height', 'model']
+        allowed_fields = ['name', 'prompt', 'negative_prompt', 'categories', 'steps', 'guidance_scale', 'width', 'height', 'lora', 'lora_strength', 'model']
         updates = []
         values = []
         for field, value in kwargs.items():
             if field in allowed_fields:
+                # Convert categories list to JSON
+                if field == 'categories' and isinstance(value, list):
+                    value = json.dumps(value)
                 updates.append(f"{field} = ?")
                 values.append(value)
         
@@ -645,13 +704,13 @@ class ChatHistoryDB:
     
     def delete_prompt(self, prompt_id: int) -> bool:
         """Delete a prompt from the library."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("DELETE FROM prompt_library WHERE id = ?", (prompt_id,))
-        conn.commit()
-        success = cursor.rowcount > 0
-        conn.close()
-        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM prompt_library WHERE id = ?", (prompt_id,))
+            conn.commit()
+            success = cursor.rowcount > 0
+        finally:
+            conn.close()
         logger.info(f"Deleted prompt {prompt_id}: {success}")
         return success

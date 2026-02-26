@@ -46,10 +46,9 @@ KVGenius/
 │   ├── config.yaml          # Main configuration
 │   └── image_model_presets.yaml  # Image model settings
 │
-├── web_app_multi.py         # Main Gradio web app
+├── desktop_app.py           # Main Flet desktop application
 ├── cli_app.py               # CLI interface
 ├── fix_dll_paths.py         # CUDA DLL path fix (required)
-├── run_kvgenius.bat         # Windows launcher
 └── requirements.txt
 ```
 
@@ -99,16 +98,14 @@ copy .env.example .env
 
 ## Usage
 
-### Web Interface (Recommended)
+### Desktop Application (Recommended)
 ```powershell
-# Option 1: Use the launcher
-.\run_kvgenius.bat
-
-# Option 2: Direct Python
+# Activate environment
 conda activate kvgen
-python -u web_app_multi.py
+
+# Run the desktop app
+python desktop_app.py
 ```
-Opens at **http://127.0.0.1:7860**
 
 ### CLI Interface
 ```powershell
@@ -221,7 +218,7 @@ Open source for educational purposes.
 
 - [Hugging Face Transformers](https://huggingface.co/)
 - [Diffusers](https://github.com/huggingface/diffusers)
-- [Gradio](https://gradio.app/)
+- [Flet](https://flet.dev/) for desktop UI
 - [PEFT](https://github.com/huggingface/peft) for LoRA training
 
 ---
