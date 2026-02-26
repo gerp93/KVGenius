@@ -1,8 +1,0 @@
-✅ add a search for saved prompts. 
-✅ the category dropdown on the saved prompts goes off the screen...also convert the category to be tags so multiple can be selected.  and make the prompt text and negative prompt taller vertically to make use of the entire sidebar
-✅ save prompt needs to be disabled if nothing is in the name or text fields
-✅ when a user clicks "use" on the saved prompt, it should automatically navigate to the generate tab
-✅ option to clone the prompts (just copies it and places a copy in the list)
-✅ negative prompt also needs to be displayed where the list of prompts is shown
-
-- cross off everything you complete on the to do.
