@@ -74,3 +74,4 @@ chat_*_Chat_-_*
 # OS
 .DS_Store
 Thumbs.db
+config/saved_prompts.yaml

@@ -127,6 +127,19 @@ class ChatHistoryDB:
         except sqlite3.OperationalError:
             pass
         
+        # Conversation Memories table - key facts the AI should remember
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                source TEXT DEFAULT 'auto',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_mem_conv ON conversation_memories(conversation_id)")
+        
         conn.commit()
         conn.close()
         logger.info(f"Database initialized at {self.db_path}")
@@ -281,7 +294,7 @@ class ChatHistoryDB:
         logger.info("Deleted all conversations")
     
     def export_conversation(self, conversation_id: int) -> Dict:
-        """Export conversation as JSON."""
+        """Export conversation as JSON, including memories."""
         conn = self._connect()
         try:
             cursor = conn.cursor()
@@ -298,6 +311,13 @@ class ChatHistoryDB:
                 ORDER BY timestamp ASC
             """, (conversation_id,))
             messages = cursor.fetchall()
+            cursor.execute("""
+                SELECT id, content, source, created_at
+                FROM conversation_memories
+                WHERE conversation_id = ?
+                ORDER BY created_at ASC
+            """, (conversation_id,))
+            memories = cursor.fetchall()
         finally:
             conn.close()
         return {
@@ -311,6 +331,10 @@ class ChatHistoryDB:
             "messages": [
                 {"role": msg[0], "content": msg[1], "timestamp": msg[2]}
                 for msg in messages
+            ],
+            "memories": [
+                {"id": m[0], "content": m[1], "source": m[2], "created_at": m[3]}
+                for m in memories
             ]
         }
     
@@ -514,6 +538,84 @@ class ChatHistoryDB:
         finally:
             conn.close()
         logger.info(f"Deleted user persona {persona_id}")
+    
+    # ==================== Conversation Memory Methods ====================
+    
+    def add_memory(self, conversation_id: int, content: str, source: str = "auto") -> int:
+        """Add a memory to a conversation.
+        
+        Args:
+            conversation_id: The conversation this memory belongs to
+            content: The memory text
+            source: 'auto' (AI-generated) or 'manual' (user-added)
+        
+        Returns:
+            The new memory's ID
+        """
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO conversation_memories (conversation_id, content, source)
+                VALUES (?, ?, ?)
+            """, (conversation_id, content, source))
+            mem_id = cursor.lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info(f"Added memory {mem_id} to conversation {conversation_id} ({source})")
+        return mem_id
+    
+    def get_memories(self, conversation_id: int) -> List[Dict]:
+        """Get all memories for a conversation, ordered by creation time."""
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, conversation_id, content, source, created_at
+                FROM conversation_memories
+                WHERE conversation_id = ?
+                ORDER BY created_at ASC
+            """, (conversation_id,))
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+        return [
+            {"id": r[0], "conversation_id": r[1], "content": r[2], "source": r[3], "created_at": r[4]}
+            for r in rows
+        ]
+    
+    def update_memory(self, memory_id: int, content: str):
+        """Update a memory's content."""
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE conversation_memories SET content = ? WHERE id = ?
+            """, (content, memory_id))
+            conn.commit()
+        finally:
+            conn.close()
+    
+    def delete_memory(self, memory_id: int):
+        """Delete a single memory."""
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM conversation_memories WHERE id = ?", (memory_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    
+    def delete_all_memories(self, conversation_id: int):
+        """Delete all memories for a conversation."""
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM conversation_memories WHERE conversation_id = ?", (conversation_id,))
+            conn.commit()
+        finally:
+            conn.close()
     
     def init_defaults(self):
         """Initialize default AI characters and user personas if none exist."""

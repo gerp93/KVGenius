@@ -114,6 +114,62 @@ def is_model_downloaded(repo_id: str) -> bool:
     return False
 
 
+def _is_model_fully_downloaded(repo_id: str) -> bool:
+    """Check if a HuggingFace model is fully downloaded.
+    
+    Checks:
+    1. Cache folder exists with refs/ and snapshots/
+    2. No .incomplete files in blobs/ (HF writes these during active downloads)
+    3. Has substantial content (>100MB)
+    """
+    cache_name = "models--" + repo_id.replace("/", "--")
+    cache_path = CACHE_DIR / cache_name
+    
+    if not cache_path.exists():
+        return False
+    
+    # Check for .incomplete files in blobs/ - these indicate an in-progress or interrupted download
+    blobs_path = cache_path / "blobs"
+    if blobs_path.exists():
+        incomplete_files = list(blobs_path.glob("*.incomplete"))
+        if incomplete_files:
+            return False  # Still has incomplete downloads
+    
+    # Verify refs/ and snapshots/ exist (created by snapshot_download)
+    refs_path = cache_path / "refs"
+    if not refs_path.exists():
+        return False
+    
+    ref_files = list(refs_path.iterdir()) if refs_path.is_dir() else []
+    if not ref_files:
+        return False
+    
+    try:
+        commit_hash = ref_files[0].read_text().strip()
+        snapshot_path = cache_path / "snapshots" / commit_hash
+        if not snapshot_path.exists():
+            return False
+        snapshot_files = list(snapshot_path.rglob('*'))
+        if len(snapshot_files) < 2:
+            return False
+    except Exception:
+        return False
+    
+    # Check minimum size to confirm files aren't just stubs
+    min_size = 100 * 1024 * 1024
+    total_size = 0
+    for root, _, files in os.walk(cache_path):
+        for fname in files:
+            try:
+                total_size += os.path.getsize(os.path.join(root, fname))
+                if total_size >= min_size:
+                    return True
+            except:
+                pass
+    
+    return False
+
+
 def get_current_model() -> Tuple[Optional[Any], Optional[str]]:
     """Get the currently loaded model and its key."""
     return _current_model, _current_model_key
@@ -625,7 +681,7 @@ def download_model(
     Returns:
         Tuple of (success: bool, message: str)
     """
-    from huggingface_hub import snapshot_download
+    from huggingface_hub import snapshot_download, HfApi
     import threading
     
     def report_progress(pct: float, msg: str):
@@ -633,17 +689,86 @@ def download_model(
             progress_callback(pct, msg)
         logger.info(f"[{pct*100:.0f}%] {msg}")
     
-    # Check if already downloaded
-    if is_model_downloaded(repo_id):
+    # Check if already fully downloaded
+    if _is_model_fully_downloaded(repo_id):
         return True, f"{repo_id} is already downloaded"
     
-    report_progress(0.05, f"Starting download: {repo_id}")
+    report_progress(0.02, f"Starting download: {repo_id}")
+    
+    stop_monitor = threading.Event()
     
     try:
         # Disable xet storage for more reliable downloads
         os.environ["HF_HUB_DISABLE_XET"] = "1"
         
-        report_progress(0.1, "Connecting to HuggingFace...")
+        report_progress(0.05, "Fetching model info from HuggingFace...")
+        
+        # Get total size for progress tracking - try multiple methods
+        cache_name = "models--" + repo_id.replace("/", "--")
+        cache_path = CACHE_DIR / cache_name
+        total_size = 0
+        
+        try:
+            api = HfApi()
+            # Method 1: model_info with files_metadata
+            info = api.model_info(repo_id, files_metadata=True)
+            siblings = info.siblings or []
+            total_size = sum(s.size or 0 for s in siblings)
+            
+            # Method 2: if sizes were all 0, try list_repo_tree
+            if total_size == 0 and siblings:
+                try:
+                    tree = list(api.list_repo_tree(repo_id, recursive=True))
+                    total_size = sum(getattr(item, 'size', 0) or 0 for item in tree)
+                except Exception:
+                    pass
+            
+            file_count = len(siblings)
+            if total_size > 0:
+                report_progress(0.08, f"Found {file_count} files ({total_size / (1024**3):.1f} GB total)")
+            else:
+                report_progress(0.08, f"Found {file_count} files (calculating size...)")
+        except Exception as e:
+            logger.warning(f"Could not get model info: {e}")
+            file_count = 0
+        
+        # Track progress via a monitoring thread - ALWAYS start it
+        last_reported_size = [0]  # Use list for mutability in closure
+        
+        def monitor_progress():
+            """Periodically check downloaded size and report progress."""
+            while not stop_monitor.is_set():
+                try:
+                    if cache_path.exists():
+                        # Only count blobs/ directory to avoid double-counting symlinked snapshots
+                        blobs_path = cache_path / "blobs"
+                        if blobs_path.exists():
+                            downloaded = sum(
+                                f.stat().st_size for f in blobs_path.iterdir() if f.is_file()
+                            )
+                        else:
+                            downloaded = sum(
+                                f.stat().st_size for f in cache_path.rglob('*') if f.is_file()
+                            )
+                        
+                        # Only report if size actually changed
+                        if downloaded != last_reported_size[0]:
+                            last_reported_size[0] = downloaded
+                            size_gb = downloaded / (1024**3)
+                            
+                            if total_size > 0:
+                                pct = min(downloaded / total_size, 0.98)
+                                total_gb = total_size / (1024**3)
+                                report_progress(pct, f"Downloading: {size_gb:.2f} / {total_gb:.2f} GB")
+                            else:
+                                # Unknown total - show size downloaded with indeterminate progress
+                                report_progress(min(0.5, size_gb / 20.0), f"Downloading: {size_gb:.2f} GB...")
+                except Exception:
+                    pass
+                stop_monitor.wait(3.0)  # Check every 3 seconds
+        
+        monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
+        monitor_thread.start()
         
         path = snapshot_download(
             repo_id,
@@ -652,11 +777,14 @@ def download_model(
             resume_download=True,
         )
         
+        stop_monitor.set()
+        
         report_progress(1.0, f"Download complete: {repo_id}")
         logger.info(f"Model downloaded to: {path}")
         return True, f"Successfully downloaded {repo_id}"
         
     except Exception as e:
+        stop_monitor.set()
         error_msg = str(e)
         logger.error(f"Download error: {error_msg}")
         return False, f"Download failed: {error_msg}"
