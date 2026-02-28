@@ -49,6 +49,8 @@ from .chat_gen import (
     clear_conversation,
     get_conversation_history,
     download_chat_model,
+    parse_message_with_actions,
+    build_message_with_directions,
 )
 
 __all__ = [
@@ -96,4 +98,6 @@ __all__ = [
     "clear_conversation",
     "get_conversation_history",
     "download_chat_model",
+    "parse_message_with_actions",
+    "build_message_with_directions",
 ]

@@ -3,6 +3,7 @@ Core chat generation engine for KVGenius.
 UI-agnostic - can be used by Gradio, Flet, or CLI.
 """
 import os
+import re
 import sys
 import logging
 from pathlib import Path
@@ -442,6 +443,114 @@ def get_conversation_history() -> List[Dict[str, str]]:
     return _conversation_history.copy()
 
 
+def parse_message_with_actions(message: str) -> Dict:
+    """
+    Parse a message for *action* markers and dialog.
+
+    Returns:
+        {
+            "has_actions": bool,
+            "has_dialog": bool,
+            "action_parts": List[str],  # extracted *action* text (without asterisks)
+            "dialog_parts": List[str],  # non-action text
+            "segments": List[Dict],     # ordered list of {"type": "action"|"dialog", "text": str}
+            "formatted": str,           # markdown formatted version
+            "plain": str,               # plain text with actions preserved as *...*
+            "display_text": str         # what to show in UI (same as plain)
+        }
+
+    Examples:
+        "*looks around confused*"
+        -> action_parts: ["looks around confused"]
+
+        "I don't understand. *nervous laugh*"
+        -> dialog_parts: ["I don't understand."]
+        -> action_parts: ["nervous laugh"]
+
+        "*picks up the sword and examines it* That's a fine weapon."
+        -> action_parts: ["picks up the sword and examines it"]
+        -> dialog_parts: ["That's a fine weapon."]
+    """
+    if not message:
+        return {
+            "has_actions": False,
+            "has_dialog": False,
+            "action_parts": [],
+            "dialog_parts": [],
+            "segments": [],
+            "formatted": "",
+            "plain": "",
+            "display_text": "",
+        }
+
+    segments = []
+    action_parts = []
+    dialog_parts = []
+
+    # Split on *...* patterns, keeping delimiters
+    parts = re.split(r'(\*[^*]+\*)', message)
+    for part in parts:
+        if not part:
+            continue
+        action_match = re.fullmatch(r'\*([^*]+)\*', part)
+        if action_match:
+            action_text = action_match.group(1).strip()
+            if action_text:
+                segments.append({"type": "action", "text": action_text})
+                action_parts.append(action_text)
+        else:
+            dialog_text = part.strip()
+            if dialog_text:
+                segments.append({"type": "dialog", "text": dialog_text})
+                dialog_parts.append(dialog_text)
+
+    has_actions = len(action_parts) > 0
+    has_dialog = len(dialog_parts) > 0
+
+    # Use the original message as plain text (actions are already in *...* format)
+    plain = message
+
+    # Formatted uses same format (markdown *italic*)
+    formatted = plain
+
+    return {
+        "has_actions": has_actions,
+        "has_dialog": has_dialog,
+        "action_parts": action_parts,
+        "dialog_parts": dialog_parts,
+        "segments": segments,
+        "formatted": formatted,
+        "plain": plain,
+        "display_text": plain,
+    }
+
+
+def build_message_with_directions(dialog: str, directions: str) -> Tuple[str, Optional[str]]:
+    """
+    Build the final message and optional system prompt addendum to send to the model,
+    incorporating directions as a system-level instruction without making them part of dialog.
+
+    Args:
+        dialog: What the user/character is saying (supports *actions*)
+        directions: Optional meta-instructions for how to respond
+
+    Returns:
+        Tuple of (user_message, directions_block or None)
+        - user_message: The dialog text to send as the user turn
+        - directions_block: Text to append to the system prompt for this turn, or None
+    """
+    parsed = parse_message_with_actions(dialog)
+    user_message = parsed["plain"] if parsed["plain"] else dialog
+
+    directions_block = None
+    if directions and directions.strip():
+        directions_block = (
+            f"\n[CURRENT SCENE INSTRUCTIONS]\n{directions.strip()}\n[/CURRENT SCENE INSTRUCTIONS]"
+        )
+
+    return user_message, directions_block
+
+
 def format_prompt(
     user_message: str,
     system_prompt: Optional[str] = None,
@@ -535,12 +644,13 @@ def generate_chat_response(
     repetition_penalty: float = 1.1,
     progress_callback: Optional[Callable[[str], None]] = None,
     use_history: bool = True,
+    directions: str = "",
 ) -> Tuple[bool, str]:
     """
     Generate a chat response.
     
     Args:
-        user_message: The user's message
+        user_message: The user's message (supports *action* markers)
         system_prompt: Optional system prompt for AI behavior
         max_new_tokens: Maximum tokens to generate
         temperature: Sampling temperature
@@ -549,6 +659,8 @@ def generate_chat_response(
         repetition_penalty: Penalty for repeating tokens
         progress_callback: Optional callback for streaming tokens
         use_history: Whether to use/update conversation history (default True)
+        directions: Optional meta-instructions for character behavior (injected into
+                    system prompt for this turn only; not stored in history)
     
     Returns:
         Tuple of (success: bool, response: str)
@@ -559,9 +671,17 @@ def generate_chat_response(
         return False, "No chat model loaded. Please load a model first."
     
     try:
+        # Parse actions and build message/directions block
+        parsed_message, directions_block = build_message_with_directions(user_message, directions)
+        
+        # Inject directions into system prompt for this turn only
+        effective_system = system_prompt
+        if directions_block:
+            effective_system = (system_prompt or "") + directions_block
+        
         # Format prompt - only include history if use_history is True
         history_to_use = _conversation_history if use_history else []
-        prompt = format_prompt(user_message, system_prompt, history_to_use)
+        prompt = format_prompt(parsed_message, effective_system, history_to_use)
         
         # Tokenize
         inputs = _current_tokenizer.encode(
@@ -598,8 +718,9 @@ def generate_chat_response(
                 response = response.split(stop)[0].strip()
         
         # Only add to history if use_history is True
+        # Store parsed_message (with *actions* preserved) but without directions
         if use_history:
-            _conversation_history.append({"role": "user", "content": user_message})
+            _conversation_history.append({"role": "user", "content": parsed_message})
             _conversation_history.append({"role": "assistant", "content": response})
             
             # Keep history manageable (last 10 exchanges)
