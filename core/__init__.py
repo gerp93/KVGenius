@@ -51,6 +51,21 @@ from .chat_gen import (
     download_chat_model,
     parse_message_with_actions,
     build_message_with_directions,
+    _last_debug_info,
+)
+
+from .prompt_builder import (
+    PromptBuilder,
+    load_prompt_templates,
+    save_prompt_templates,
+)
+
+from .semantic_index import (
+    SemanticRetriever,
+    get_retriever,
+    retrieve_memories,
+    RetrievalResult,
+    ScoredChunk,
 )
 
 __all__ = [
@@ -100,4 +115,15 @@ __all__ = [
     "download_chat_model",
     "parse_message_with_actions",
     "build_message_with_directions",
+    "_last_debug_info",
+    # Prompt Builder
+    "PromptBuilder",
+    "load_prompt_templates",
+    "save_prompt_templates",
+    # Semantic Retrieval
+    "SemanticRetriever",
+    "get_retriever",
+    "retrieve_memories",
+    "RetrievalResult",
+    "ScoredChunk",
 ]

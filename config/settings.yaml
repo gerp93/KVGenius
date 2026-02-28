@@ -3,3 +3,12 @@ default_height: 512
 default_steps: 25
 default_width: 512
 theme: neon
+
+# --- Memory Retrieval Settings ---
+# Controls how memories are selected for injection into the chat prompt.
+# Uses semantic similarity to pick the most relevant memories.
+memory_retrieval_enabled: true
+memory_top_k: 10                # Max memories to inject per turn
+memory_min_score: 0.25          # Minimum cosine similarity (0.0-1.0)
+memory_token_budget: 400        # Approximate token budget for memory text
+memory_pin_manual: true         # Always include manually-added memories regardless of score

@@ -28,6 +28,9 @@ _conversation_history: List[Dict[str, str]] = []
 _current_lora: Optional[str] = None  # Currently loaded LoRA name
 _base_model_backup: Optional[Any] = None  # Backup of base model before LoRA
 
+# Debug info from the last generation call — read by the UI console
+_last_debug_info: Dict[str, Any] = {}
+
 
 @dataclass
 class ChatMessage:
@@ -645,6 +648,7 @@ def generate_chat_response(
     progress_callback: Optional[Callable[[str], None]] = None,
     use_history: bool = True,
     directions: str = "",
+    extra_stop_phrases: Optional[List[str]] = None,
 ) -> Tuple[bool, str]:
     """
     Generate a chat response.
@@ -661,6 +665,9 @@ def generate_chat_response(
         use_history: Whether to use/update conversation history (default True)
         directions: Optional meta-instructions for character behavior (injected into
                     system prompt for this turn only; not stored in history)
+        extra_stop_phrases: Optional list of additional stop phrases to truncate
+                           response (e.g., character/persona names to prevent the
+                           model from writing dialog for both sides)
     
     Returns:
         Tuple of (success: bool, response: str)
@@ -682,6 +689,15 @@ def generate_chat_response(
         # Format prompt - only include history if use_history is True
         history_to_use = _conversation_history if use_history else []
         prompt = format_prompt(parsed_message, effective_system, history_to_use)
+        
+        # Capture debug info
+        _last_debug_info.clear()
+        _last_debug_info["system_prompt"] = effective_system or ""
+        _last_debug_info["user_message"] = parsed_message
+        _last_debug_info["history_length"] = len(history_to_use)
+        _last_debug_info["history_turns"] = list(history_to_use)  # copy of prior turns
+        _last_debug_info["full_prompt"] = prompt
+        _last_debug_info["stop_phrases"] = list(extra_stop_phrases or [])
         
         # Tokenize
         inputs = _current_tokenizer.encode(
@@ -711,8 +727,14 @@ def generate_chat_response(
             skip_special_tokens=True,
         ).strip()
         
-        # Clean up response
-        stop_phrases = ["\nUser:", "\nAssistant:", "\n\n\n", "<|im_end|>", "</s>", "[INST]"]
+        # Capture raw response before cleanup
+        _last_debug_info["raw_response"] = response
+        _last_debug_info["input_tokens"] = inputs.shape[1]
+        _last_debug_info["output_tokens"] = outputs.shape[1] - inputs.shape[1]
+        
+        # Clean up response — use stop phrases from prompt template config
+        # (passed in via extra_stop_phrases; no hardcoded list here)
+        stop_phrases = list(extra_stop_phrases) if extra_stop_phrases else []
         for stop in stop_phrases:
             if stop in response:
                 response = response.split(stop)[0].strip()
@@ -727,10 +749,13 @@ def generate_chat_response(
             if len(_conversation_history) > 20:
                 _conversation_history = _conversation_history[-20:]
         
+        _last_debug_info["cleaned_response"] = response
+        
         return True, response
         
     except Exception as e:
         error_msg = str(e)
+        _last_debug_info["error"] = error_msg
         logger.error(f"Generation error: {error_msg}")
         return False, f"Error: {error_msg}"
 

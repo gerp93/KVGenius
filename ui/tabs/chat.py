@@ -376,28 +376,45 @@ class ChatTab:
         def do_generate():
             try:
                 from core.chat_gen import generate_chat_response, clear_conversation
+                from core.prompt_builder import PromptBuilder
                 
                 # Build system prompt from character or manual input
                 if self.selected_character:
-                    system = self.selected_character.get('system_prompt', '')
+                    base_system = self.selected_character.get('system_prompt', '')
                     temp = self.selected_character.get('temperature', 0.7)
                 else:
-                    system = self.system_prompt.value or None
+                    base_system = self.system_prompt.value or None
                     temp = self.temp_slider.value
                 
-                # Append persona background if selected
+                # Prepare PromptBuilder with character overrides
+                builder = PromptBuilder()
+                builder.load_character_overrides(self.selected_character)
+                
+                # Gather persona info
+                persona_name = None
+                persona_bg = None
                 if self.selected_persona and self.selected_persona.get('background'):
-                    persona_context = f"\n\n[User is roleplaying as: {self.selected_persona['name']}]\n{self.selected_persona['background']}"
-                    if system:
-                        system = system + persona_context
-                    else:
-                        system = persona_context
+                    persona_name = self.selected_persona['name']
+                    persona_bg = self.selected_persona['background']
+                
+                # Assemble system prompt
+                system = builder.build_system_prompt(
+                    base_system_prompt=base_system,
+                    persona_name=persona_name,
+                    persona_background=persona_bg,
+                )
+                
+                # Get stop phrases from builder
+                char_name = self.selected_character.get('name') if self.selected_character else None
+                p_name = self.selected_persona.get('name') if self.selected_persona else None
+                extra_stops = builder.get_stop_phrases(character_name=char_name, persona_name=p_name)
                 
                 success, response = generate_chat_response(
                     user_message=message,
                     system_prompt=system,
                     max_new_tokens=int(self.max_tokens_slider.value),
                     temperature=temp,
+                    extra_stop_phrases=extra_stops,
                 )
                 
                 self._add_message("assistant", response)

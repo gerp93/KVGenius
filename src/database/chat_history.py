@@ -140,6 +140,12 @@ class ChatHistoryDB:
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_mem_conv ON conversation_memories(conversation_id)")
         
+        # Add prompt_overrides column to ai_characters if it doesn't exist (migration)
+        try:
+            cursor.execute("ALTER TABLE ai_characters ADD COLUMN prompt_overrides TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
         conn.commit()
         conn.close()
         logger.info(f"Database initialized at {self.db_path}")
@@ -343,15 +349,15 @@ class ChatHistoryDB:
     # AI Character Methods
     def create_ai_character(self, name: str, system_prompt: str = "", temperature: float = 0.7,
                       top_p: float = 0.95, top_k: int = 50, description: str = "",
-                      avatar: str = "🤖") -> int:
+                      avatar: str = "🤖", prompt_overrides: str = "") -> int:
         """Create a new AI character."""
         conn = self._connect()
         try:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO ai_characters (name, system_prompt, temperature, top_p, top_k, description, avatar)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (name, system_prompt, temperature, top_p, top_k, description, avatar))
+                INSERT INTO ai_characters (name, system_prompt, temperature, top_p, top_k, description, avatar, prompt_overrides)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (name, system_prompt, temperature, top_p, top_k, description, avatar, prompt_overrides or None))
             char_id = cursor.lastrowid
             conn.commit()
         finally:
@@ -365,7 +371,7 @@ class ChatHistoryDB:
         try:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, name, system_prompt, temperature, top_p, top_k, description, avatar
+                SELECT id, name, system_prompt, temperature, top_p, top_k, description, avatar, prompt_overrides
                 FROM ai_characters
                 WHERE id = ?
             """, (character_id,))
@@ -373,6 +379,13 @@ class ChatHistoryDB:
         finally:
             conn.close()
         if row:
+            overrides_raw = row[8]
+            overrides = None
+            if overrides_raw:
+                try:
+                    overrides = json.loads(overrides_raw)
+                except (json.JSONDecodeError, ValueError):
+                    overrides = None
             return {
                 "id": row[0],
                 "name": row[1],
@@ -381,7 +394,8 @@ class ChatHistoryDB:
                 "top_p": row[4],
                 "top_k": row[5],
                 "description": row[6],
-                "avatar": row[7]
+                "avatar": row[7],
+                "prompt_overrides": overrides,
             }
         return None
     
@@ -391,7 +405,7 @@ class ChatHistoryDB:
         try:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, name, system_prompt, temperature, top_p, top_k, description, avatar
+                SELECT id, name, system_prompt, temperature, top_p, top_k, description, avatar, prompt_overrides
                 FROM ai_characters
                 ORDER BY name ASC
             """)
@@ -400,6 +414,13 @@ class ChatHistoryDB:
             conn.close()
         characters = []
         for row in rows:
+            overrides_raw = row[8] if len(row) > 8 else None
+            overrides = None
+            if overrides_raw:
+                try:
+                    overrides = json.loads(overrides_raw)
+                except (json.JSONDecodeError, ValueError):
+                    overrides = None
             characters.append({
                 "id": row[0],
                 "name": row[1],
@@ -408,7 +429,8 @@ class ChatHistoryDB:
                 "top_p": row[4],
                 "top_k": row[5],
                 "description": row[6],
-                "avatar": row[7]
+                "avatar": row[7],
+                "prompt_overrides": overrides,
             })
         return characters
     
@@ -417,7 +439,10 @@ class ChatHistoryDB:
         fields = []
         values = []
         for key, value in kwargs.items():
-            if key in ['name', 'system_prompt', 'temperature', 'top_p', 'top_k', 'description', 'avatar']:
+            if key in ['name', 'system_prompt', 'temperature', 'top_p', 'top_k', 'description', 'avatar', 'prompt_overrides']:
+                # Store prompt_overrides as JSON string
+                if key == 'prompt_overrides' and isinstance(value, dict):
+                    value = json.dumps(value)
                 fields.append(f"{key} = ?")
                 values.append(value)
         if not fields:
@@ -660,19 +685,19 @@ class ChatHistoryDB:
             self.create_user_persona(
                 name="Fantasy Adventurer",
                 description="A brave adventurer in a fantasy world",
-                background="You are a skilled warrior/mage on a quest for glory and treasure.",
+                background="A skilled warrior/mage on a quest for glory and treasure in a dangerous fantasy realm.",
                 avatar="⚔️"
             )
             self.create_user_persona(
                 name="Space Explorer",
                 description="A starship captain exploring the cosmos",
-                background="You command a starship in the far future, exploring unknown galaxies.",
+                background="A starship captain in the far future, commanding a vessel exploring unknown galaxies.",
                 avatar="🚀"
             )
             self.create_user_persona(
                 name="Detective",
                 description="A hard-boiled detective solving mysteries",
-                background="You're a private investigator in a noir-style city, solving cases.",
+                background="A private investigator in a noir-style city, solving cases with sharp wits and determination.",
                 avatar="🕵️"
             )
             logger.info("Initialized default user personas")

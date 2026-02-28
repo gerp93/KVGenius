@@ -1,0 +1,32 @@
+character_instructions_template: '[CHARACTER RULES]
+
+  You must ONLY write your own character''s dialog and actions.
+
+  NEVER write dialog, actions, or thoughts for the user or any other character.
+
+  Wait for the user to provide their own words and actions.
+
+  [/CHARACTER RULES]'
+directions_template: '[CURRENT SCENE INSTRUCTIONS]
+
+  {directions}
+
+  [/CURRENT SCENE INSTRUCTIONS]'
+memory_template: '[Key memories from this conversation - use these to maintain continuity:]
+
+  {memories}'
+persona_context_template: '[USER PERSONA]
+
+  The user is playing a character named "{persona_name}". Address them as {persona_name}.
+
+  {persona_name}''s background: {persona_background}
+
+  [/USER PERSONA]'
+stop_phrases:
+- 'User:'
+- 'Assistant:'
+- <|im_end|>
+- </s>
+- '[INST]'
+use_character_name_as_stop: true
+use_persona_name_as_stop: true

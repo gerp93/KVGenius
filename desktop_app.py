@@ -3234,6 +3234,49 @@ class ChatTab:
             ),
         )
         
+        # ===== DEBUG / PROMPT CONSOLE =====
+        # Each section is built dynamically in _populate_debug_console
+        self.debug_panel_list = Column([], spacing=0)
+        self.debug_copy_btn = IconButton(
+            icon=Icons.COPY,
+            tooltip="Copy all to clipboard",
+            on_click=self._copy_debug_to_clipboard,
+            icon_size=16,
+        )
+        self.debug_no_data_text = Text(
+            "Send a message to see the prompt debug info here.",
+            size=13, color=Colors.GREY_500, italic=True,
+        )
+        self.debug_color_key = Row([
+            Container(width=12, height=12, bgcolor=Colors.PINK_200, border_radius=2),
+            Text("System", size=9, color=Colors.PINK_200),
+            Container(width=8),
+            Container(width=12, height=12, bgcolor=Colors.LIGHT_BLUE_400, border_radius=2),
+            Text("User", size=9, color=Colors.LIGHT_BLUE_400),
+            Container(width=8),
+            Container(width=12, height=12, bgcolor=Colors.GREEN_200, border_radius=2),
+            Text("LLM", size=9, color=Colors.GREEN_200),
+            Container(width=8),
+            Container(width=12, height=12, bgcolor=Colors.AMBER_400, border_radius=2),
+            Text("Tags", size=9, color=Colors.AMBER_400),
+        ], spacing=4, visible=False)
+        self.debug_console_content = Container(
+            content=Column([
+                Row([
+                    Text("🔍 Prompt Debug Console", size=16, weight=FontWeight.BOLD, color=Colors.AMBER_300),
+                    self.debug_copy_btn,
+                ], alignment=MainAxisAlignment.SPACE_BETWEEN),
+                self.debug_color_key,
+                self.debug_no_data_text,
+                Container(
+                    content=self.debug_panel_list,
+                    expand=True,
+                ),
+            ], spacing=6, expand=True, scroll=ScrollMode.AUTO),
+            padding=padding.all(15),
+            expand=True,
+        )
+        
         self.clear_btn = IconButton(
             icon=Icons.DELETE_SWEEP,
             tooltip="Delete conversation",
@@ -3373,9 +3416,30 @@ class ChatTab:
         self.char_delete_btn = ElevatedButton("🗑️ Delete", icon=Icons.DELETE, on_click=self._delete_character, color=Colors.RED_400)
         self.char_back_btn = TextButton("← Back to Gallery", on_click=self._show_char_browse)
         
+        # Character prompt override controls (shown inside expansion panel)
+        self.char_override_mode = Dropdown(
+            label="Override Mode",
+            width=180,
+            options=[
+                dropdown.Option("replace", "Replace — use this instead of default"),
+                dropdown.Option("append", "Append — add after default"),
+            ],
+            value="replace",
+        )
+        self.char_override_char_instructions = TextField(
+            label="Character Instructions Override",
+            hint_text="Leave blank to use global default. No placeholders needed.",
+            multiline=True, min_lines=2, max_lines=5,
+        )
+        self.char_override_memory = TextField(
+            label="Memory Template Override",
+            hint_text="Leave blank to use global default. Supports {memories}.",
+            multiline=True, min_lines=2, max_lines=5,
+        )
+        
         # Browse vs Edit views
         self.char_browse_view = Column([], expand=True)
-        self.char_edit_view = Column([], expand=True, visible=False)
+        self.char_edit_view = Column([], expand=True, visible=False, scroll=ScrollMode.AUTO)
         
         self.char_status = Text("", size=12, color=Colors.GREEN_400)
         
@@ -3409,6 +3473,39 @@ class ChatTab:
         self.persona_edit_view = Column([], expand=True, visible=False)
         
         self.persona_status = Text("", size=12, color=Colors.GREEN_400)
+        
+        # =========== PROMPT TEMPLATES TAB COMPONENTS ===========
+        
+        self.pt_char_instructions_input = TextField(
+            label="Character Instructions (always sent)",
+            hint_text="Baseline rules for all characters. No placeholders needed.",
+            multiline=True, min_lines=4, max_lines=10, expand=True,
+        )
+        self.pt_persona_input = TextField(
+            label="Persona Context Template",
+            hint_text="Use {persona_name} and {persona_background} as placeholders",
+            multiline=True, min_lines=4, max_lines=10, expand=True,
+        )
+        self.pt_directions_input = TextField(
+            label="Directions Template",
+            hint_text="Use {directions} as placeholder",
+            multiline=True, min_lines=3, max_lines=8, expand=True,
+        )
+        self.pt_memory_input = TextField(
+            label="Memory Template",
+            hint_text="Use {memories} as placeholder",
+            multiline=True, min_lines=3, max_lines=8, expand=True,
+        )
+        self.pt_stop_phrases_input = TextField(
+            label="Stop Phrases (one per line)",
+            hint_text="\\nUser:\\n\\nAssistant:\\netc.",
+            multiline=True, min_lines=3, max_lines=8, expand=True,
+        )
+        self.pt_char_name_stop = Checkbox(label="Auto-add character name as stop phrase", value=True)
+        self.pt_persona_name_stop = Checkbox(label="Auto-add persona name as stop phrase", value=True)
+        self.pt_save_btn = ElevatedButton("💾 Save Templates", icon=Icons.SAVE, on_click=self._save_prompt_templates)
+        self.pt_reset_btn = TextButton("↺ Reset to Defaults", on_click=self._reset_prompt_templates)
+        self.pt_status = Text("", size=12, color=Colors.GREEN_400)
     
     def _get_character_options(self):
         """Get character options for dropdown."""
@@ -3494,6 +3591,739 @@ class ChatTab:
         )
         self.page.update()
     
+    def _switch_to_debug_tab(self):
+        """Switch the chat sub-tabs to the Debug Console tab."""
+        if hasattr(self, '_chat_sub_tabs'):
+            # Debug tab is the last tab
+            self._chat_sub_tabs.selected_index = len(self._chat_sub_tabs.tabs) - 1
+            try:
+                self.page.update()
+            except:
+                pass
+
+    def _copy_debug_to_clipboard(self, e=None):
+        """Copy the debug console text to clipboard as plain text."""
+        from core.chat_gen import _last_debug_info as dbg
+        if not dbg:
+            return
+        # Build a plain-text version for clipboard
+        sections = []
+        # Prompt components
+        sections.append(("── PROMPT COMPONENTS ──", ""))
+        sections.append(("BASE SYSTEM PROMPT", dbg.get("_base_system", "")))
+        if dbg.get("_char_instructions"):
+            sections.append(("CHARACTER INSTRUCTIONS (always sent)", dbg["_char_instructions"]))
+        if dbg.get("_persona_name"):
+            sections.append(("PERSONA", f"{dbg['_persona_name']}: {dbg.get('_persona_bg', '')}"))
+        # Scene Instructions as separate section
+        directions_text = dbg.get("_directions", "").strip()
+        if directions_text:
+            sections.append(("── SCENE INSTRUCTIONS ──", ""))
+            sections.append(("INSTRUCTIONS (this turn)", directions_text))
+        # Memories
+        mem_list = dbg.get("_memories", [])
+        if mem_list:
+            retrieval = dbg.get("_retrieval")
+            sections.append(("── MEMORIES ──", ""))
+            if retrieval:
+                mem_lines = []
+                for c in retrieval.selected:
+                    pin = " 📌" if c.pinned else ""
+                    mem_lines.append(f"  {c.score:+.3f}  {c.text}{pin}")
+                sections.append(("SELECTED MEMORIES", "\n".join(mem_lines)))
+            else:
+                sections.append(("MEMORIES (all injected)", "\n".join(f"  • {m}" for m in mem_list)))
+        # Conversation history
+        history_turns = dbg.get("history_turns", [])
+        if history_turns:
+            sections.append(("── CONVERSATION HISTORY ──", ""))
+            hist_lines = []
+            turn_num = 0
+            for t in history_turns:
+                role = t.get("role", "unknown")
+                content = t.get("content", "")
+                if role == "user":
+                    turn_num += 1
+                    hist_lines.append(f"── Turn {turn_num} ──")
+                    hist_lines.append(f"  User: {content}")
+                elif role == "assistant":
+                    if len(content) > 300:
+                        content = content[:300] + "..."
+                    hist_lines.append(f"  Assistant: {content}")
+            sections.append(("PRIOR MESSAGES", "\n".join(hist_lines)))
+        # Assembled
+        sections.append(("── ASSEMBLED & SENT ──", ""))
+        sections.append(("ASSEMBLED SYSTEM PROMPT", dbg.get("system_prompt", "")))
+        sections.append(("USER MESSAGE", dbg.get("user_message", "")))
+        sections.append(("HISTORY TURNS", str(dbg.get("history_length", 0))))
+        sections.append(("TOKENS", f"input={dbg.get('input_tokens','?')}, output={dbg.get('output_tokens','?')}"))
+        # Pipeline
+        sections.append(("── GENERATION PIPELINE ──", ""))
+        sections.append(("FULL FORMATTED PROMPT", dbg.get("full_prompt", "")))
+        sections.append(("RAW RESPONSE", dbg.get("raw_response", "")))
+        sections.append(("STOP PHRASES", ", ".join(repr(s) for s in dbg.get("stop_phrases", []))))
+        sections.append(("CLEANED RESPONSE", dbg.get("cleaned_response", "")))
+        if "error" in dbg:
+            sections.append(("ERROR", dbg["error"]))
+        lines = ["=" * 60, "  PROMPT DEBUG — Last Generation", "=" * 60]
+        for title, body in sections:
+            if body:
+                lines.append(f"\n── {title} {'─' * max(1, 45 - len(title))}")
+                lines.append(body)
+            elif title.startswith("──"):
+                lines.append(f"\n{title}")
+        lines.append("\n" + "=" * 60)
+        self.page.set_clipboard("\n".join(lines))
+        self.page.snack_bar = SnackBar(content=Text("Debug info copied to clipboard"))
+        self.page.snack_bar.open = True
+        self.page.update()
+
+    # ── Rich-text span builders for debug console ──────────────
+
+    def _build_rich_body_spans(self, body: str, text_color: str) -> list:
+        """Parse bracket tags [LIKE THIS] and color them distinctly from body text."""
+        import re
+        TAG_COLOR = Colors.AMBER_400
+        parts = re.split(r'(\[/?[A-Z][A-Z _/]*\])', body)
+        spans = []
+        for part in parts:
+            if not part:
+                continue
+            if re.match(r'^\[/?[A-Z][A-Z _/]*\]$', part):
+                spans.append(ft.TextSpan(
+                    text=part,
+                    style=ft.TextStyle(size=11, font_family="Courier New",
+                                       color=TAG_COLOR, weight=FontWeight.BOLD),
+                ))
+            else:
+                spans.append(ft.TextSpan(
+                    text=part,
+                    style=ft.TextStyle(size=11, font_family="Courier New",
+                                       color=text_color),
+                ))
+        return spans
+
+    def _build_history_spans(self, body: str) -> list:
+        """Build rich text spans for conversation history with role coloring."""
+        HEADER_COLOR = Colors.GREY_500
+        USER_COLOR = Colors.LIGHT_BLUE_400
+        ASST_COLOR = Colors.GREEN_200
+        DEFAULT_COLOR = Colors.GREY_300
+        spans = []
+        for line in body.split('\n'):
+            if spans:
+                spans.append(ft.TextSpan(
+                    text='\n',
+                    style=ft.TextStyle(size=11, font_family="Courier New"),
+                ))
+            stripped = line.strip()
+            if stripped.startswith('── Turn'):
+                spans.append(ft.TextSpan(
+                    text=line,
+                    style=ft.TextStyle(size=11, font_family="Courier New",
+                                       color=HEADER_COLOR, weight=FontWeight.BOLD),
+                ))
+            elif '  User: ' in line or stripped.startswith('User: '):
+                idx = line.index('User:')
+                prefix = line[:idx]
+                label = 'User:'
+                content = line[idx + 5:]
+                if prefix:
+                    spans.append(ft.TextSpan(text=prefix,
+                        style=ft.TextStyle(size=11, font_family="Courier New", color=DEFAULT_COLOR)))
+                spans.append(ft.TextSpan(text=label,
+                    style=ft.TextStyle(size=11, font_family="Courier New",
+                                       color=USER_COLOR, weight=FontWeight.BOLD)))
+                spans.append(ft.TextSpan(text=content,
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=USER_COLOR)))
+            elif '  Assistant: ' in line or stripped.startswith('Assistant: '):
+                idx = line.index('Assistant:')
+                prefix = line[:idx]
+                label = 'Assistant:'
+                content = line[idx + 10:]
+                if prefix:
+                    spans.append(ft.TextSpan(text=prefix,
+                        style=ft.TextStyle(size=11, font_family="Courier New", color=DEFAULT_COLOR)))
+                spans.append(ft.TextSpan(text=label,
+                    style=ft.TextStyle(size=11, font_family="Courier New",
+                                       color=ASST_COLOR, weight=FontWeight.BOLD)))
+                spans.append(ft.TextSpan(text=content,
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=ASST_COLOR)))
+            else:
+                spans.append(ft.TextSpan(
+                    text=line,
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=DEFAULT_COLOR),
+                ))
+        return spans
+
+    def _build_memory_spans(self, body: str) -> list:
+        """Build rich text spans for memory display with score coloring."""
+        import re
+        HEADER_COLOR = Colors.YELLOW_200
+        SCORE_HIGH = Colors.GREEN_300
+        SCORE_MED = Colors.YELLOW_300
+        SCORE_LOW = Colors.ORANGE_300
+        PIN_COLOR = Colors.AMBER_300
+        LABEL_COLOR = Colors.GREY_400
+        TEXT_COLOR = Colors.GREY_300
+        spans = []
+        for line in body.split('\n'):
+            if spans:
+                spans.append(ft.TextSpan(
+                    text='\n',
+                    style=ft.TextStyle(size=11, font_family="Courier New"),
+                ))
+            stripped = line.strip()
+            if stripped.startswith('── ') and stripped.endswith(' ──'):
+                spans.append(ft.TextSpan(
+                    text=line,
+                    style=ft.TextStyle(size=11, font_family="Courier New",
+                                       color=HEADER_COLOR, weight=FontWeight.BOLD),
+                ))
+            elif re.match(r'^\s*[+-]\d+\.\d+', stripped):
+                match = re.match(r'^(\s*)([+-]\d+\.\d+)(\s+)(.*?)(\s*📌)?$', line)
+                if match:
+                    indent, score, gap, text, pin = match.groups()
+                    score_val = float(score)
+                    if score_val >= 0.5:
+                        score_color = SCORE_HIGH
+                    elif score_val >= 0.3:
+                        score_color = SCORE_MED
+                    else:
+                        score_color = SCORE_LOW
+                    if indent:
+                        spans.append(ft.TextSpan(text=indent,
+                            style=ft.TextStyle(size=11, font_family="Courier New")))
+                    spans.append(ft.TextSpan(text=score,
+                        style=ft.TextStyle(size=11, font_family="Courier New",
+                                           color=score_color, weight=FontWeight.BOLD)))
+                    spans.append(ft.TextSpan(text=gap,
+                        style=ft.TextStyle(size=11, font_family="Courier New")))
+                    spans.append(ft.TextSpan(text=text,
+                        style=ft.TextStyle(size=11, font_family="Courier New", color=TEXT_COLOR)))
+                    if pin:
+                        spans.append(ft.TextSpan(text=pin,
+                            style=ft.TextStyle(size=11, font_family="Courier New", color=PIN_COLOR)))
+                else:
+                    spans.append(ft.TextSpan(text=line,
+                        style=ft.TextStyle(size=11, font_family="Courier New", color=TEXT_COLOR)))
+            elif stripped.startswith('Query:') or stripped.startswith('Pool:') or stripped.startswith('Token budget:'):
+                colon_idx = stripped.index(':')
+                label = stripped[:colon_idx + 1]
+                rest = stripped[colon_idx + 1:]
+                indent = line[:len(line) - len(line.lstrip())]
+                if indent:
+                    spans.append(ft.TextSpan(text=indent,
+                        style=ft.TextStyle(size=11, font_family="Courier New")))
+                spans.append(ft.TextSpan(text=label,
+                    style=ft.TextStyle(size=11, font_family="Courier New",
+                                       color=LABEL_COLOR, weight=FontWeight.BOLD)))
+                spans.append(ft.TextSpan(text=rest,
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=TEXT_COLOR)))
+            elif stripped.startswith('•'):
+                spans.append(ft.TextSpan(
+                    text=line,
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=TEXT_COLOR),
+                ))
+            else:
+                spans.append(ft.TextSpan(
+                    text=line,
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=TEXT_COLOR),
+                ))
+        return spans
+
+    def _build_stop_phrase_spans(self, body: str) -> list:
+        """Build rich spans for stop phrases — each repr'd phrase gets highlighted."""
+        PHRASE_COLOR = Colors.ORANGE_200
+        REPR_COLOR = Colors.ORANGE_400
+        spans = []
+        for line in body.split('\n'):
+            if spans:
+                spans.append(ft.TextSpan(
+                    text='\n',
+                    style=ft.TextStyle(size=11, font_family="Courier New"),
+                ))
+            stripped = line.strip()
+            if stripped.startswith("'") or stripped.startswith('"'):
+                spans.append(ft.TextSpan(
+                    text=line,
+                    style=ft.TextStyle(size=11, font_family="Courier New",
+                                       color=REPR_COLOR),
+                ))
+            else:
+                spans.append(ft.TextSpan(
+                    text=line,
+                    style=ft.TextStyle(size=11, font_family="Courier New",
+                                       color=PHRASE_COLOR),
+                ))
+        return spans
+
+    # ── Debug section builders ───────────────────────────────
+
+    def _build_debug_section(self, title: str, body: str, color: str, icon: str,
+                              initially_expanded: bool = False,
+                              custom_spans: list = None) -> ft.ExpansionPanelList:
+        """Build a single color-coded collapsible debug section with rich text and copy button."""
+        if custom_spans is not None:
+            spans = custom_spans
+        else:
+            spans = self._build_rich_body_spans(body, color)
+
+        text_widget = ft.SelectionArea(
+            content=ft.Text(
+                spans=spans,
+                selectable=True,
+            ),
+        )
+
+        # Per-section copy button (captures body in closure)
+        plain_body = body
+        def _copy_this(e, _text=plain_body, _title=title):
+            self.page.set_clipboard(_text)
+            self.page.snack_bar = SnackBar(content=Text(f"Copied: {_title}"))
+            self.page.snack_bar.open = True
+            self.page.update()
+
+        copy_btn = IconButton(
+            icon=Icons.COPY,
+            icon_size=14,
+            tooltip=f"Copy {title}",
+            on_click=_copy_this,
+            style=ButtonStyle(padding=padding.all(0)),
+        )
+
+        return ft.ExpansionPanelList(
+            elevation=0,
+            expanded_header_padding=padding.all(0),
+            controls=[
+                ft.ExpansionPanel(
+                    header=ft.ListTile(
+                        leading=Text(icon, size=14),
+                        title=Row([
+                            Text(title, size=12, weight=FontWeight.BOLD, color=color),
+                            copy_btn,
+                        ], spacing=4, alignment=MainAxisAlignment.START),
+                        dense=True,
+                        content_padding=padding.only(left=8),
+                    ),
+                    bgcolor=Colors.with_opacity(0.2, Colors.BLACK),
+                    expanded=initially_expanded,
+                    content=Container(
+                        content=text_widget,
+                        padding=padding.only(left=16, right=16, bottom=12, top=4),
+                        alignment=alignment.top_left,
+                    ),
+                ),
+            ],
+        )
+
+    def _build_debug_section_empty(self, title: str, icon: str) -> Container:
+        """Build a greyed-out, non-expandable placeholder for an empty debug section."""
+        return Container(
+            content=Row([
+                Text(icon, size=14, opacity=0.35),
+                Text(title, size=12, weight=FontWeight.BOLD, color=Colors.GREY_700),
+                Text("— (empty)", size=10, color=Colors.GREY_800, italic=True),
+            ], spacing=8, vertical_alignment=CrossAxisAlignment.CENTER),
+            padding=padding.only(left=16, top=6, bottom=6),
+        )
+
+    def _build_rich_prompt_section(self, prompt_text: str,
+                                     initially_expanded: bool = False) -> ft.ExpansionPanelList:
+        """Build a color-coded collapsible section for the full formatted prompt.
+
+        Parses [INST], [/INST], </s> tags and renders each segment in a
+        distinct color with line breaks between turns for readability.
+        """
+        import re
+
+        # Colour key
+        TAG_COLOR = Colors.AMBER_400           # [INST], [/INST], </s>
+        SYSTEM_COLOR = Colors.PINK_200         # First system block
+        USER_COLOR = Colors.LIGHT_BLUE_400     # User messages
+        LLM_COLOR = Colors.GREEN_200           # LLM replies
+        LINEBREAK_COLOR = Colors.GREY_800      # Visual separator line
+
+        # Split the prompt around tags, keeping the tags as separate tokens
+        tokens = re.split(r'(\[INST\]|\[/INST\]|</s>)', prompt_text)
+
+        spans: list[ft.TextSpan] = []
+        # State: track what region we're in
+        # "system_inst" = first [INST]...[/INST] pair (system prompt)
+        # "user" = subsequent [INST]...[/INST] pairs
+        # "assistant" = after [/INST] (non-first)
+        inst_count = 0  # How many [INST] we've seen
+
+        for tok in tokens:
+            if not tok:
+                continue
+            if tok == "[INST]":
+                inst_count += 1
+                # Add a blank line before [INST] for readability (except the very first)
+                if inst_count > 1:
+                    spans.append(ft.TextSpan(
+                        text="\n\n",
+                        style=ft.TextStyle(size=11, font_family="Courier New", color=LINEBREAK_COLOR),
+                    ))
+                spans.append(ft.TextSpan(
+                    text="[INST]",
+                    style=ft.TextStyle(
+                        size=11, font_family="Courier New", color=TAG_COLOR,
+                        weight=FontWeight.BOLD,
+                    ),
+                ))
+            elif tok == "[/INST]":
+                # Add line break before [/INST] tag
+                spans.append(ft.TextSpan(
+                    text="\n",
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=LINEBREAK_COLOR),
+                ))
+                spans.append(ft.TextSpan(
+                    text="[/INST]",
+                    style=ft.TextStyle(
+                        size=11, font_family="Courier New", color=TAG_COLOR,
+                        weight=FontWeight.BOLD,
+                    ),
+                ))
+                # Add line break after [/INST] tag
+                spans.append(ft.TextSpan(
+                    text="\n",
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=LINEBREAK_COLOR),
+                ))
+            elif tok == "</s>":
+                spans.append(ft.TextSpan(
+                    text="\n",
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=LINEBREAK_COLOR),
+                ))
+                spans.append(ft.TextSpan(
+                    text="</s>",
+                    style=ft.TextStyle(
+                        size=11, font_family="Courier New", color=TAG_COLOR,
+                        weight=FontWeight.BOLD,
+                    ),
+                ))
+            else:
+                # Determine colour based on context
+                # After the first [INST] and before first [/INST] → system/user prompt
+                # After [/INST] → assistant text
+                # We look at preceding tags to figure out context
+                # Simple heuristic: count preceding tags
+                # If we just saw [INST] → user content (or system on first)
+                # If we just saw [/INST] → assistant content
+                last_tag = None
+                for s in reversed(spans):
+                    if s.text and s.text.strip() in ("[INST]", "[/INST]", "</s>"):
+                        last_tag = s.text.strip()
+                        break
+
+                if last_tag == "[/INST]":
+                    if inst_count == 1:
+                        text_color = SYSTEM_COLOR  # "Understood." acknowledgment
+                    else:
+                        text_color = LLM_COLOR
+                elif last_tag == "[INST]":
+                    if inst_count == 1:
+                        text_color = SYSTEM_COLOR
+                    else:
+                        text_color = USER_COLOR
+                else:
+                    text_color = Colors.GREY_300  # fallback
+
+                spans.append(ft.TextSpan(
+                    text=tok,
+                    style=ft.TextStyle(size=11, font_family="Courier New", color=text_color),
+                ))
+
+        rich_text = ft.SelectionArea(
+            content=ft.Text(
+                spans=spans,
+                selectable=True,
+            ),
+        )
+
+        # Per-section copy button for the full prompt
+        _prompt_text = prompt_text
+        def _copy_prompt(e, _text=_prompt_text):
+            self.page.set_clipboard(_text)
+            self.page.snack_bar = SnackBar(content=Text("Copied: Full Formatted Prompt"))
+            self.page.snack_bar.open = True
+            self.page.update()
+
+        prompt_copy_btn = IconButton(
+            icon=Icons.COPY,
+            icon_size=14,
+            tooltip="Copy Full Formatted Prompt",
+            on_click=_copy_prompt,
+            style=ButtonStyle(padding=padding.all(0)),
+        )
+
+        return ft.ExpansionPanelList(
+            elevation=0,
+            expanded_header_padding=padding.all(0),
+            controls=[
+                ft.ExpansionPanel(
+                    header=ft.ListTile(
+                        leading=Text("📜", size=14),
+                        title=Row([
+                            Text("Full Formatted Prompt", size=12, weight=FontWeight.BOLD,
+                                 color=Colors.AMBER_300),
+                            prompt_copy_btn,
+                        ], spacing=4, alignment=MainAxisAlignment.START),
+                        dense=True,
+                        content_padding=padding.only(left=8),
+                    ),
+                    bgcolor=Colors.with_opacity(0.2, Colors.BLACK),
+                    expanded=initially_expanded,
+                    content=Container(
+                        content=Column([
+                            rich_text,
+                        ], spacing=0, horizontal_alignment=CrossAxisAlignment.START),
+                        padding=padding.only(left=16, right=16, bottom=12, top=4),
+                        alignment=alignment.top_left,
+                    ),
+                ),
+            ],
+        )
+
+    def _populate_debug_console(self):
+        """Populate the debug console with color-coded collapsible sections.
+        
+        ALL sections are always shown. Empty sections appear greyed-out and
+        non-expandable so the user can see at a glance what was/wasn't present.
+        """
+        from core.chat_gen import _last_debug_info as dbg
+        if not dbg:
+            return
+        
+        # Hide placeholder text once we have data, show color key
+        self.debug_no_data_text.visible = False
+        self.debug_color_key.visible = True
+        
+        panels = []
+        
+        def _section(key_or_value, title, color, icon, expanded=False, value_override=None, custom_spans=None):
+            """Append an expandable section if value exists, else a greyed-out placeholder."""
+            value = value_override if value_override is not None else dbg.get(key_or_value, "")
+            if value and str(value).strip():
+                panels.append(self._build_debug_section(title, str(value), color, icon, expanded, custom_spans=custom_spans))
+            else:
+                panels.append(self._build_debug_section_empty(title, icon))
+        
+        # ──────────────────────────────────────────────────────
+        # 1. PROMPT COMPONENTS — building blocks of the system prompt
+        # ──────────────────────────────────────────────────────
+        panels.append(
+            Container(
+                content=Text("▸ PROMPT COMPONENTS", size=10, weight=FontWeight.BOLD,
+                             color=Colors.GREY_500),
+                padding=padding.only(left=8, top=8, bottom=2),
+            )
+        )
+        
+        _section("_base_system", "Base System Prompt (Character)", Colors.CYAN_300, "👤", True)
+        _section("_char_instructions", "Character Instructions (always sent)", Colors.ORANGE_200, "📋", False)
+        
+        # Persona — build display string if present
+        if dbg.get("_persona_name"):
+            persona_display = f"Name: {dbg['_persona_name']}\nBackground: {dbg.get('_persona_bg', '(none)')}"
+        else:
+            persona_display = ""
+        _section(None, "Persona Context", Colors.PURPLE_200, "🎭", False, value_override=persona_display)
+        
+        # ──────────────────────────────────────────────────────
+        # 2. SCENE INSTRUCTIONS — per-turn directions from the instruction box
+        # ──────────────────────────────────────────────────────
+        panels.append(
+            Container(
+                content=Text("▸ SCENE INSTRUCTIONS", size=10, weight=FontWeight.BOLD,
+                             color=Colors.GREY_500),
+                padding=padding.only(left=8, top=10, bottom=2),
+            )
+        )
+        _section("_directions", "Instructions (this turn)", Colors.TEAL_300, "🎬", True)
+        
+        # ──────────────────────────────────────────────────────
+        # 3. MEMORIES — semantic retrieval results
+        # ──────────────────────────────────────────────────────
+        panels.append(
+            Container(
+                content=Text("▸ MEMORIES", size=10, weight=FontWeight.BOLD,
+                             color=Colors.GREY_500),
+                padding=padding.only(left=8, top=10, bottom=2),
+            )
+        )
+        
+        mem_list = dbg.get("_memories") or []
+        retrieval = dbg.get("_retrieval")
+        if mem_list:
+            if retrieval:
+                lines = [
+                    f"Query: \"{retrieval.query[:80]}{'...' if len(retrieval.query) > 80 else ''}\"",
+                    f"Pool: {retrieval.total_available} total → {len(retrieval.selected)} selected, {len(retrieval.rejected)} rejected",
+                    f"Token budget: ~{retrieval.budget_tokens_used}/{retrieval.budget_tokens_max}",
+                    "",
+                    "── SELECTED ──",
+                ]
+                for c in retrieval.selected:
+                    pin_tag = " 📌" if c.pinned else ""
+                    src_tag = f" [{c.source}]" if c.source else ""
+                    lines.append(f"  {c.score:+.3f}  {c.text}{src_tag}{pin_tag}")
+                
+                if retrieval.rejected:
+                    lines.append("")
+                    lines.append("── REJECTED ──")
+                    for c in retrieval.rejected[:10]:
+                        src_tag = f" [{c.source}]" if c.source else ""
+                        lines.append(f"  {c.score:+.3f}  {c.text}{src_tag}")
+                    if len(retrieval.rejected) > 10:
+                        lines.append(f"  ... and {len(retrieval.rejected) - 10} more")
+                
+                mem_display = "\n".join(lines)
+                section_title = f"Memories ({len(retrieval.selected)}/{retrieval.total_available} selected)"
+            else:
+                mem_display = f"{len(mem_list)} memories injected (retrieval disabled):\n" + "\n".join(f"  • {m}" for m in mem_list)
+                section_title = f"Memories ({len(mem_list)}) — all injected"
+            
+            mem_spans = self._build_memory_spans(mem_display)
+            panels.append(self._build_debug_section(section_title, mem_display, Colors.YELLOW_300, "🧠", False, custom_spans=mem_spans))
+        else:
+            panels.append(self._build_debug_section_empty("Memories", "🧠"))
+        
+        # ──────────────────────────────────────────────────────
+        # 4. CONVERSATION HISTORY — prior turns sent to the model
+        # ──────────────────────────────────────────────────────
+        history_turns = dbg.get("history_turns", [])
+        if history_turns:
+            history_lines = []
+            turn_num = 0
+            i = 0
+            while i < len(history_turns):
+                turn = history_turns[i]
+                if turn.get("role") == "user":
+                    turn_num += 1
+                    history_lines.append(f"── Turn {turn_num} ──")
+                    history_lines.append(f"  User: {turn.get('content', '')}")
+                    if (i + 1) < len(history_turns) and history_turns[i + 1].get("role") == "assistant":
+                        content = history_turns[i + 1].get("content", "")
+                        if len(content) > 300:
+                            content = content[:300] + "..."
+                        history_lines.append(f"  Assistant: {content}")
+                        i += 1
+                    history_lines.append("")
+                else:
+                    role = turn.get("role", "unknown").capitalize()
+                    content = turn.get("content", "")
+                    if len(content) > 300:
+                        content = content[:300] + "..."
+                    history_lines.append(f"  {role}: {content}")
+                    history_lines.append("")
+                i += 1
+            
+            hist_display = "\n".join(history_lines).rstrip()
+            
+            panels.append(
+                Container(
+                    content=Text(f"▸ CONVERSATION HISTORY ({turn_num} turns)", size=10, weight=FontWeight.BOLD,
+                                 color=Colors.GREY_500),
+                    padding=padding.only(left=8, top=10, bottom=2),
+                )
+            )
+            hist_spans = self._build_history_spans(hist_display)
+            panels.append(self._build_debug_section(
+                f"Prior Chat Messages ({turn_num} turns)",
+                hist_display,
+                Colors.BLUE_200, "💬", False,
+                custom_spans=hist_spans,
+            ))
+        else:
+            panels.append(
+                Container(
+                    content=Text("▸ CONVERSATION HISTORY", size=10, weight=FontWeight.BOLD,
+                                 color=Colors.GREY_500),
+                    padding=padding.only(left=8, top=10, bottom=2),
+                )
+            )
+            panels.append(self._build_debug_section_empty("Prior Chat Messages (0 turns)", "💬"))
+        
+        # ──────────────────────────────────────────────────────
+        # 5. ASSEMBLED & SENT — the final system prompt + user message
+        # ──────────────────────────────────────────────────────
+        # Stats row
+        history_len = dbg.get("history_length", 0)
+        token_in = dbg.get("input_tokens", "?")
+        token_out = dbg.get("output_tokens", "?")
+        if retrieval:
+            mem_label = f"🧠 Memories: {len(retrieval.selected)}/{retrieval.total_available} (~{retrieval.budget_tokens_used}t)"
+            mem_color = Colors.YELLOW_300 if retrieval.selected else Colors.GREY_600
+        else:
+            mem_count = len(mem_list)
+            mem_label = f"🧠 Memories: {mem_count}"
+            mem_color = Colors.YELLOW_300 if mem_count else Colors.GREY_600
+        stats_row = Container(
+            content=Row([
+                Text(f"📊 History: {history_len} turns", size=11, color=Colors.GREY_400),
+                Text("│", size=11, color=Colors.GREY_700),
+                Text(mem_label, size=11, color=mem_color),
+                Text("│", size=11, color=Colors.GREY_700),
+                Text(f"🔢 Tokens: {token_in} in → {token_out} out", size=11, color=Colors.GREY_400),
+            ], spacing=10, wrap=True),
+            padding=padding.symmetric(horizontal=12, vertical=6),
+            bgcolor=Colors.with_opacity(0.1, Colors.WHITE),
+            border_radius=4,
+        )
+        
+        panels.append(
+            Container(
+                content=Text("▸ ASSEMBLED & SENT", size=10, weight=FontWeight.BOLD,
+                             color=Colors.GREY_500),
+                padding=padding.only(left=8, top=10, bottom=2),
+            )
+        )
+        _section("system_prompt", "Assembled System Prompt", Colors.CYAN_100, "📋", False)
+        _section("user_message", "User Message", Colors.LIGHT_BLUE_300, "💬", False)
+        panels.append(stats_row)
+        
+        # ──────────────────────────────────────────────────────
+        # 6. GENERATION PIPELINE — full prompt, response, cleanup
+        # ──────────────────────────────────────────────────────
+        full_prompt = dbg.get("full_prompt", "")
+        
+        # Build stop-phrases display (always present)
+        all_stops = dbg.get("stop_phrases", [])
+        if all_stops:
+            stops_lines = []
+            # Separate auto-generated name stops from config stops
+            for s in all_stops:
+                stops_lines.append(f"  {repr(s)}")
+            stops_display = "\n".join(stops_lines)
+        else:
+            stops_display = "(none)"
+        
+        panels.append(
+            Container(
+                content=Text("▸ GENERATION PIPELINE", size=10, weight=FontWeight.BOLD,
+                             color=Colors.GREY_500),
+                padding=padding.only(left=8, top=10, bottom=2),
+            )
+        )
+        # Rich color-coded full prompt
+        if full_prompt:
+            panels.append(self._build_rich_prompt_section(full_prompt))
+        else:
+            panels.append(self._build_debug_section_empty("Full Formatted Prompt", "📜"))
+        
+        _section(None, "Raw Response (pre-cleanup)", Colors.GREEN_300, "🟢", False,
+                 value_override=dbg.get("raw_response", ""))
+        stop_spans = self._build_stop_phrase_spans(stops_display) if stops_display != "(none)" else None
+        _section(None, "Stop Phrases Applied", Colors.ORANGE_300, "🛑", False,
+                 value_override=stops_display, custom_spans=stop_spans)
+        _section(None, "Cleaned Response", Colors.LIGHT_GREEN_300, "✅", True,
+                 value_override=dbg.get("cleaned_response", ""))
+        
+        if dbg.get("error"):
+            panels.append(self._build_debug_section("Error", dbg["error"], Colors.RED_300, "❌", True))
+        
+        self.debug_panel_list.controls = panels
     def _build_message_spans(self, content: str) -> list:
         """
         Build a list of ft.TextSpan objects for rich-text message display.
@@ -3620,40 +4450,81 @@ class ChatTab:
         self.page.update()
         
         def do_generate():
+            from core.prompt_builder import PromptBuilder
+            
             # Build system prompt from character or manual input
             if self.selected_character:
-                system = self.selected_character.get('system_prompt', '')
+                base_system = self.selected_character.get('system_prompt', '')
                 temp = self.selected_character.get('temperature', 0.7)
             else:
-                system = self.system_prompt.value or None
+                base_system = self.system_prompt.value or None
                 temp = self.temp_slider.value
             
-            # Append persona background if selected
-            if self.selected_persona and self.selected_persona.get('background'):
-                persona_context = f"\n\n[User is roleplaying as: {self.selected_persona['name']}]\n{self.selected_persona['background']}"
-                if system:
-                    system = system + persona_context
-                else:
-                    system = persona_context
+            # Prepare PromptBuilder with character overrides
+            builder = PromptBuilder()
+            builder.load_character_overrides(self.selected_character)
             
-            # Inject conversation memories into system prompt
+            # Gather persona info
+            persona_name = None
+            persona_bg = None
+            if self.selected_persona and self.selected_persona.get('background'):
+                persona_name = self.selected_persona['name']
+                persona_bg = self.selected_persona['background']
+            
+            # Gather memories via semantic retrieval
+            memory_list = None
+            retrieval_result = None
             if self.current_conversation_id:
-                memories = self.db.get_memories(self.current_conversation_id)
-                if memories:
-                    mem_lines = "\n".join(f"- {m['content']}" for m in memories)
-                    memory_block = f"\n\n[Key memories from this conversation - use these to maintain continuity:]\n{mem_lines}"
-                    if system:
-                        system = system + memory_block
+                all_memories = self.db.get_memories(self.current_conversation_id)
+                if all_memories:
+                    from core.semantic_index import retrieve_memories
+                    from core.config import get_setting
+                    retrieval_enabled = get_setting("memory_retrieval_enabled", True)
+                    if retrieval_enabled:
+                        retrieval_result = retrieve_memories(
+                            query_text=message,
+                            memories=all_memories,
+                            top_k=get_setting("memory_top_k", 10),
+                            min_score=get_setting("memory_min_score", 0.25),
+                            max_token_budget=get_setting("memory_token_budget", 400),
+                        )
+                        memory_list = retrieval_result.selected_texts
                     else:
-                        system = memory_block
+                        memory_list = [m['content'] for m in all_memories]
+            
+            # Assemble system prompt (persona, memories, directions all handled)
+            system = builder.build_system_prompt(
+                base_system_prompt=base_system,
+                persona_name=persona_name,
+                persona_background=persona_bg,
+                directions=directions,
+                memories=memory_list,
+            )
+            
+            # Get stop phrases from builder
+            char_name = self.selected_character.get('name') if self.selected_character else None
+            p_name = self.selected_persona.get('name') if self.selected_persona else None
+            extra_stops = builder.get_stop_phrases(character_name=char_name, persona_name=p_name)
             
             success, response = generate_chat_response(
                 user_message=message,
                 system_prompt=system,
                 max_new_tokens=int(self.max_tokens_slider.value),
                 temperature=temp,
-                directions=directions,
+                directions="",  # directions already injected via builder
+                extra_stop_phrases=extra_stops,
             )
+            
+            # Capture prompt component details for debug console
+            # (must be AFTER generate_chat_response, which clears _last_debug_info)
+            import core.chat_gen as _dbg_mod
+            _dbg_mod._last_debug_info["_persona_name"] = persona_name or ""
+            _dbg_mod._last_debug_info["_persona_bg"] = persona_bg or ""
+            _dbg_mod._last_debug_info["_memories"] = memory_list or []
+            _dbg_mod._last_debug_info["_retrieval"] = retrieval_result
+            _dbg_mod._last_debug_info["_directions"] = directions or ""
+            _dbg_mod._last_debug_info["_base_system"] = base_system or ""
+            _dbg_mod._last_debug_info["_char_instructions"] = builder._effective("character_instructions_template") or ""
             
             # generate_chat_response added user+assistant to _conversation_history
             # Pop the assistant - it stays uncommitted until user sends next message
@@ -3686,6 +4557,9 @@ class ChatTab:
             self.regen_responses = [response]
             self.regen_index = 0
             self.response_committed = False
+            
+            # Populate debug console with prompt info
+            self._populate_debug_console()
             
             # Build carousel bubble (not a plain bubble)
             carousel_bubble = self._build_ai_carousel_bubble()
@@ -4129,31 +5003,81 @@ class ChatTab:
         
         def _do_regenerate():
             import core.chat_gen as _chat_mod
+            from core.prompt_builder import PromptBuilder
             
             # Pop user from history (generate_chat_response will re-add it)
             if _chat_mod._conversation_history and _chat_mod._conversation_history[-1].get("role") == "user":
                 _chat_mod._conversation_history.pop()
             
             if self.selected_character:
-                system = self.selected_character.get('system_prompt', '')
+                base_system = self.selected_character.get('system_prompt', '')
                 temp = self.selected_character.get('temperature', 0.7)
             else:
-                system = self.system_prompt.value or None
+                base_system = self.system_prompt.value or None
                 temp = self.temp_slider.value
             
+            # Prepare PromptBuilder with character overrides
+            builder = PromptBuilder()
+            builder.load_character_overrides(self.selected_character)
+            
+            # Gather persona info
+            persona_name = None
+            persona_bg = None
             if self.selected_persona and self.selected_persona.get('background'):
-                persona_context = f"\n\n[User is roleplaying as: {self.selected_persona['name']}]\n{self.selected_persona['background']}"
-                if system:
-                    system = system + persona_context
-                else:
-                    system = persona_context
+                persona_name = self.selected_persona['name']
+                persona_bg = self.selected_persona['background']
+            
+            # Gather memories via semantic retrieval
+            memory_list = None
+            retrieval_result = None
+            if self.current_conversation_id:
+                all_memories = self.db.get_memories(self.current_conversation_id)
+                if all_memories:
+                    from core.semantic_index import retrieve_memories
+                    from core.config import get_setting
+                    retrieval_enabled = get_setting("memory_retrieval_enabled", True)
+                    if retrieval_enabled:
+                        retrieval_result = retrieve_memories(
+                            query_text=self.last_user_message,
+                            memories=all_memories,
+                            top_k=get_setting("memory_top_k", 10),
+                            min_score=get_setting("memory_min_score", 0.25),
+                            max_token_budget=get_setting("memory_token_budget", 400),
+                        )
+                        memory_list = retrieval_result.selected_texts
+                    else:
+                        memory_list = [m['content'] for m in all_memories]
+            
+            # Assemble system prompt
+            system = builder.build_system_prompt(
+                base_system_prompt=base_system,
+                persona_name=persona_name,
+                persona_background=persona_bg,
+                memories=memory_list,
+            )
+            
+            # Get stop phrases from builder
+            char_name = self.selected_character.get('name') if self.selected_character else None
+            p_name = self.selected_persona.get('name') if self.selected_persona else None
+            extra_stops = builder.get_stop_phrases(character_name=char_name, persona_name=p_name)
             
             success, response = generate_chat_response(
                 user_message=self.last_user_message,
                 system_prompt=system,
                 max_new_tokens=int(self.max_tokens_slider.value),
                 temperature=temp,
+                extra_stop_phrases=extra_stops,
             )
+            
+            # Capture prompt component details for debug console
+            # (must be AFTER generate_chat_response, which clears _last_debug_info)
+            _chat_mod._last_debug_info["_persona_name"] = persona_name or ""
+            _chat_mod._last_debug_info["_persona_bg"] = persona_bg or ""
+            _chat_mod._last_debug_info["_memories"] = memory_list or []
+            _chat_mod._last_debug_info["_retrieval"] = retrieval_result
+            _chat_mod._last_debug_info["_directions"] = ""
+            _chat_mod._last_debug_info["_base_system"] = base_system or ""
+            _chat_mod._last_debug_info["_char_instructions"] = builder._effective("character_instructions_template") or ""
             
             # Pop assistant from history (keep user)
             if _chat_mod._conversation_history and _chat_mod._conversation_history[-1].get("role") == "assistant":
@@ -4162,6 +5086,9 @@ class ChatTab:
             # Add to carousel and show latest
             self.regen_responses.append(response)
             self.regen_index = len(self.regen_responses) - 1
+            
+            # Populate debug console with prompt info
+            self._populate_debug_console()
             
             # Update carousel display
             self._update_regen_display()
@@ -4862,6 +5789,12 @@ class ChatTab:
         self.char_topp_slider.value = char.get('top_p', 0.95) if char else 0.95
         self.char_topk_slider.value = char.get('top_k', 50) if char else 50
         
+        # Populate prompt override fields
+        overrides = (char.get('prompt_overrides') or {}) if char else {}
+        self.char_override_mode.value = overrides.get('override_mode', 'replace')
+        self.char_override_char_instructions.value = overrides.get('character_instructions_template', '')
+        self.char_override_memory.value = overrides.get('memory_template', '')
+        
         self.char_delete_btn.visible = char is not None
         self.char_status.value = ""
         
@@ -4887,6 +5820,16 @@ class ChatTab:
             'top_p': self.char_topp_slider.value,
             'top_k': int(self.char_topk_slider.value),
         }
+        
+        # Build prompt overrides dict (only include non-empty values)
+        overrides = {}
+        if self.char_override_char_instructions.value and self.char_override_char_instructions.value.strip():
+            overrides['character_instructions_template'] = self.char_override_char_instructions.value.strip()
+        if self.char_override_memory.value and self.char_override_memory.value.strip():
+            overrides['memory_template'] = self.char_override_memory.value.strip()
+        if overrides:
+            overrides['override_mode'] = self.char_override_mode.value or 'replace'
+        data['prompt_overrides'] = overrides if overrides else None
         
         try:
             if self.editing_character_id:
@@ -5130,6 +6073,7 @@ class ChatTab:
             "top_p": char.get('top_p', 0.95),
             "top_k": char.get('top_k', 50),
             "avatar": char.get('avatar', '🤖'),
+            "prompt_overrides": char.get('prompt_overrides'),
         }
         
         self._pending_export_data = export_data
@@ -5170,11 +6114,74 @@ class ChatTab:
             allowed_extensions=["json"],
         )
     
+    # =========== PROMPT TEMPLATES MANAGEMENT ===========
+    
+    def _load_prompt_templates_ui(self):
+        """Populate the prompt templates tab fields from config."""
+        from core.prompt_builder import load_prompt_templates, _BUILTIN_DEFAULTS
+        templates = load_prompt_templates()
+        self.pt_char_instructions_input.value = templates.get("character_instructions_template", "")
+        self.pt_persona_input.value = templates.get("persona_context_template", "")
+        self.pt_directions_input.value = templates.get("directions_template", "")
+        self.pt_memory_input.value = templates.get("memory_template", "")
+        
+        # Stop phrases: convert list to newline-separated text
+        stop_list = templates.get("stop_phrases", _BUILTIN_DEFAULTS["stop_phrases"])
+        self.pt_stop_phrases_input.value = "\n".join(stop_list) if isinstance(stop_list, list) else str(stop_list)
+        
+        self.pt_char_name_stop.value = templates.get("use_character_name_as_stop", True)
+        self.pt_persona_name_stop.value = templates.get("use_persona_name_as_stop", True)
+    
+    def _save_prompt_templates(self, e):
+        """Save prompt templates to config YAML."""
+        from core.prompt_builder import save_prompt_templates
+        
+        # Parse stop phrases from newline-separated text
+        raw_stops = self.pt_stop_phrases_input.value or ""
+        stop_list = [line for line in raw_stops.split("\n") if line.strip()]
+        
+        templates = {
+            "character_instructions_template": self.pt_char_instructions_input.value or "",
+            "persona_context_template": self.pt_persona_input.value or "",
+            "directions_template": self.pt_directions_input.value or "",
+            "memory_template": self.pt_memory_input.value or "",
+            "stop_phrases": stop_list,
+            "use_character_name_as_stop": self.pt_char_name_stop.value,
+            "use_persona_name_as_stop": self.pt_persona_name_stop.value,
+        }
+        
+        if save_prompt_templates(templates):
+            self.pt_status.value = "✅ Templates saved!"
+            self.pt_status.color = Colors.GREEN_400
+        else:
+            self.pt_status.value = "❌ Failed to save"
+            self.pt_status.color = Colors.RED_400
+        self.page.update()
+    
+    def _reset_prompt_templates(self, e):
+        """Reset prompt templates to built-in defaults."""
+        from core.prompt_builder import _BUILTIN_DEFAULTS, save_prompt_templates
+        
+        if save_prompt_templates(dict(_BUILTIN_DEFAULTS)):
+            self._load_prompt_templates_ui()
+            self.pt_status.value = "✅ Reset to defaults!"
+            self.pt_status.color = Colors.GREEN_400
+        else:
+            self.pt_status.value = "❌ Reset failed"
+            self.pt_status.color = Colors.RED_400
+        self.page.update()
+    
     def _on_chat_tab_change(self, e):
-        """Handle sub-tab changes - refresh History when selected."""
+        """Handle sub-tab changes - refresh data when switching tabs."""
         tab_index = e.control.selected_index if hasattr(e.control, 'selected_index') else None
         if tab_index == 1:  # History tab
             self._refresh_history_list()
+        elif tab_index == 4:  # Prompt Templates tab
+            self._load_prompt_templates_ui()
+            try:
+                self.page.update()
+            except:
+                pass
     
     def build(self) -> Container:
         """Build the chat tab with sub-tabs."""
@@ -5210,6 +6217,31 @@ class ChatTab:
             self.char_topk_value_text,
             Container(height=8),
             self.char_avatar_input,
+            Container(height=10),
+            # Prompt template overrides (collapsible)
+            ft.ExpansionPanelList(
+                elevation=1,
+                controls=[
+                    ft.ExpansionPanel(
+                        header=ft.ListTile(title=Text("📝 Prompt Template Overrides", size=13)),
+                        content=Container(
+                            content=Column([
+                                Text(
+                                    "Override the global prompt templates for this character only. "
+                                    "Leave fields blank to use the global defaults from the Prompt Templates tab.",
+                                    size=11, color=Colors.GREY_500,
+                                ),
+                                Container(height=6),
+                                self.char_override_mode,
+                                Container(height=6),
+                                self.char_override_char_instructions,
+                                self.char_override_memory,
+                            ], spacing=4),
+                            padding=padding.only(left=12, right=12, bottom=12),
+                        ),
+                    ),
+                ],
+            ),
             Container(height=10),
             Row([self.char_save_btn, self.char_delete_btn], spacing=10),
             self.char_status,
@@ -5259,42 +6291,58 @@ class ChatTab:
                 padding=padding.all(15),
                 alignment=alignment.top_left,
             ),
-            # Main chat area
+            # Main chat area — inner tabs for Chat vs Debug
             Container(
-                content=Column([
-                    self.no_model_banner,
-                    Row([
-                        Text("💬 Conversation", size=18, weight=FontWeight.BOLD),
-                        Row([
-                            self.memory_btn,
-                            ElevatedButton(
-                                "➕ New Chat",
-                                on_click=self._new_chat,
-                                height=30,
-                                style=ButtonStyle(
-                                    padding=padding.symmetric(horizontal=8, vertical=2),
-                                    text_style=ft.TextStyle(size=11),
-                                ),
+                content=Tabs(
+                    tabs=[
+                        Tab(
+                            text="💬 Chat",
+                            content=Container(
+                                content=Column([
+                                    self.no_model_banner,
+                                    Row([
+                                        Text("💬 Conversation", size=18, weight=FontWeight.BOLD),
+                                        Row([
+                                            self.memory_btn,
+                                            ElevatedButton(
+                                                "➕ New Chat",
+                                                on_click=self._new_chat,
+                                                height=30,
+                                                style=ButtonStyle(
+                                                    padding=padding.symmetric(horizontal=8, vertical=2),
+                                                    text_style=ft.TextStyle(size=11),
+                                                ),
+                                            ),
+                                            self.clear_btn,
+                                        ], spacing=4),
+                                    ], alignment=MainAxisAlignment.SPACE_BETWEEN),
+                                    self.progress,
+                                    self.chat_messages,
+                                    # Suggest response button
+                                    self.suggest_prompt_btn,
+                                    # Suggested response display
+                                    self.suggested_prompt_container,
+                                    # Typing indicator above message input
+                                    self.typing_indicator,
+                                    # Directions input (hidden by default, shown when toggled)
+                                    self.directions_input,
+                                    Row([
+                                        self.message_input,
+                                        self.directions_toggle,
+                                        self.send_btn,
+                                    ], spacing=6),
+                                ], expand=True),
+                                expand=True,
+                                padding=padding.only(top=5),
                             ),
-                            self.clear_btn,
-                        ], spacing=4),
-                    ], alignment=MainAxisAlignment.SPACE_BETWEEN),
-                    self.progress,
-                    self.chat_messages,
-                    # Suggest response button
-                    self.suggest_prompt_btn,
-                    # Suggested response display
-                    self.suggested_prompt_container,
-                    # Typing indicator above message input
-                    self.typing_indicator,
-                    # Directions input (hidden by default, shown when toggled)
-                    self.directions_input,
-                    Row([
-                        self.message_input,
-                        self.directions_toggle,
-                        self.send_btn,
-                    ], spacing=6),
-                ], expand=True),
+                        ),
+                        Tab(
+                            text="🔍 Debug",
+                            content=self.debug_console_content,
+                        ),
+                    ],
+                    expand=True,
+                ),
                 expand=True,
                 padding=padding.all(15),
             ),
@@ -5345,29 +6393,67 @@ class ChatTab:
         # Add file picker to page overlay so it can show dialogs
         self.page.overlay.append(self.export_file_picker)
         
+        # Prompt templates tab content
+        self._load_prompt_templates_ui()
+        prompt_templates_content = Container(
+            content=Column([
+                Text("📝 Chat Prompt Templates", size=18, weight=FontWeight.BOLD),
+                Text(
+                    "Configure the prompt sections that wrap around every chat message. "
+                    "These apply to all conversations. Characters can override individual templates.",
+                    size=12, color=Colors.GREY_500,
+                ),
+                Container(height=10),
+                self.pt_char_instructions_input,
+                Container(height=6),
+                self.pt_persona_input,
+                Container(height=6),
+                self.pt_directions_input,
+                Container(height=6),
+                self.pt_memory_input,
+                Container(height=10),
+                Divider(),
+                Container(height=6),
+                self.pt_stop_phrases_input,
+                self.pt_char_name_stop,
+                self.pt_persona_name_stop,
+                Container(height=10),
+                Row([self.pt_save_btn, self.pt_reset_btn], spacing=10),
+                self.pt_status,
+            ], expand=True, scroll=ScrollMode.AUTO, spacing=4),
+            expand=True,
+            padding=padding.all(15),
+        )
+        
+        self._chat_sub_tabs = Tabs(
+            tabs=[
+                Tab(
+                    text="💬 Conversation",
+                    content=conversation_content,
+                ),
+                Tab(
+                    text="📜 History",
+                    content=history_content,
+                ),
+                Tab(
+                    text="👤 Characters",
+                    content=characters_content,
+                ),
+                Tab(
+                    text="🎭 Personas",
+                    content=personas_content,
+                ),
+                Tab(
+                    text="📝 Prompts",
+                    content=prompt_templates_content,
+                ),
+            ],
+            expand=True,
+            on_change=self._on_chat_tab_change,
+        )
+
         return Container(
-            content=Tabs(
-                tabs=[
-                    Tab(
-                        text="💬 Conversation",
-                        content=conversation_content,
-                    ),
-                    Tab(
-                        text="📜 History",
-                        content=history_content,
-                    ),
-                    Tab(
-                        text="👤 Characters",
-                        content=characters_content,
-                    ),
-                    Tab(
-                        text="🎭 Personas",
-                        content=personas_content,
-                    ),
-                ],
-                expand=True,
-                on_change=self._on_chat_tab_change,
-            ),
+            content=self._chat_sub_tabs,
             expand=True,
         )
 
