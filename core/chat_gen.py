@@ -84,6 +84,61 @@ def is_chat_model_downloaded(repo_id: str) -> bool:
     return False
 
 
+def _is_chat_model_fully_downloaded(repo_id: str) -> bool:
+    """Check if a chat model is fully downloaded.
+    
+    Checks:
+    1. Cache folder exists with refs/ and snapshots/
+    2. No .incomplete files in blobs/ (HF writes these during active downloads)
+    3. Has substantial content (>100MB)
+    """
+    cache_name = "models--" + repo_id.replace("/", "--")
+    cache_path = CACHE_DIR / cache_name
+    
+    if not cache_path.exists():
+        return False
+    
+    # Check for .incomplete files in blobs/ - these indicate an in-progress or interrupted download
+    blobs_path = cache_path / "blobs"
+    if blobs_path.exists():
+        incomplete_files = list(blobs_path.glob("*.incomplete"))
+        if incomplete_files:
+            return False  # Still has incomplete downloads
+    
+    # Verify refs/ and snapshots/ exist
+    refs_path = cache_path / "refs"
+    if not refs_path.exists():
+        return False
+    
+    ref_files = list(refs_path.iterdir()) if refs_path.is_dir() else []
+    if not ref_files:
+        return False
+    
+    try:
+        commit_hash = ref_files[0].read_text().strip()
+        snapshot_path = cache_path / "snapshots" / commit_hash
+        if not snapshot_path.exists():
+            return False
+        snapshot_files = list(snapshot_path.rglob('*'))
+        if len(snapshot_files) < 2:
+            return False
+    except Exception:
+        return False
+    
+    min_size = 100 * 1024 * 1024
+    total_size = 0
+    for root, _, files in os.walk(cache_path):
+        for fname in files:
+            try:
+                total_size += os.path.getsize(os.path.join(root, fname))
+                if total_size >= min_size:
+                    return True
+            except:
+                pass
+    
+    return False
+
+
 def get_current_chat_model() -> Tuple[Optional[str], bool]:
     """Get the currently loaded chat model key and loaded status."""
     return _current_chat_model_key, _current_chat_model is not None
@@ -559,6 +614,175 @@ def generate_chat_response(
         return False, f"Error: {error_msg}"
 
 
+def extract_memories(
+    user_message: str,
+    ai_response: str,
+    existing_memories: Optional[List[str]] = None,
+    system_prompt: Optional[str] = None,
+) -> List[str]:
+    """
+    Ask the loaded model to extract narrative memories from the latest exchange.
+    
+    Focuses on events, promises, emotional moments, and relationship developments
+    that happen DURING conversation — NOT static character traits or descriptions
+    already present in the system prompt.
+    
+    Returns a list of short memory strings (may be empty if nothing notable).
+    """
+    global _current_chat_model, _current_tokenizer
+    
+    if _current_chat_model is None or _current_tokenizer is None:
+        return []
+    
+    existing_str = ""
+    if existing_memories:
+        existing_str = "\n".join(f"- {m}" for m in existing_memories)
+        existing_str = f"\nAlready recorded memories (do NOT repeat these):\n{existing_str}\n"
+    
+    system_note = ""
+    if system_prompt:
+        # Truncate to avoid blowing up the extraction prompt
+        sp_trimmed = system_prompt[:600] + ("..." if len(system_prompt) > 600 else "")
+        system_note = f"\nThe following character/setting info is ALREADY in the system prompt (do NOT record any of this):\n{sp_trimmed}\n"
+    
+    extraction_prompt = f"""You are a memory extraction assistant. Read the conversation exchange below and identify ONLY narrative events worth remembering for future conversations.
+
+RECORD things like:
+- Promises or commitments made (e.g., "User promised to visit tomorrow")
+- Emotional moments (e.g., "Character was sad when User mentioned leaving")
+- Actions that happened (e.g., "They shared a meal together")
+- New information User revealed about themselves (e.g., "User mentioned they have a sister")
+- Relationship changes (e.g., "User and Character had their first argument")
+- Plans or decisions made (e.g., "They agreed to meet at the park")
+
+DO NOT record:
+- Character personality traits, appearance, or backstory (already in system prompt)
+- General facts about the setting or world
+- Things that are just conversational filler or greetings
+- Anything already in the recorded memories list
+
+If nothing notable happened in this exchange, output ONLY "NONE".
+Otherwise output one memory per line, prefixed with "- ". Keep each memory brief (one sentence).
+{system_note}{existing_str}
+User: {user_message}
+Assistant: {ai_response}
+
+Notable events from this exchange:"""
+    
+    try:
+        inputs = _current_tokenizer.encode(
+            extraction_prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=1536,
+        ).to(_current_chat_model.device)
+        
+        with torch.no_grad():
+            outputs = _current_chat_model.generate(
+                inputs,
+                max_new_tokens=150,
+                temperature=0.2,
+                top_p=0.85,
+                do_sample=True,
+                pad_token_id=_current_tokenizer.pad_token_id,
+                eos_token_id=_current_tokenizer.eos_token_id,
+            )
+        
+        result = _current_tokenizer.decode(
+            outputs[0][inputs.shape[1]:],
+            skip_special_tokens=True,
+        ).strip()
+        
+        # Clean up stop tokens
+        stop_phrases = ["\nUser:", "\nAssistant:", "\n\n\n", "<|im_end|>", "</s>", "[INST]"]
+        for stop in stop_phrases:
+            if stop in result:
+                result = result.split(stop)[0].strip()
+        
+        if "NONE" in result.upper() and len(result) < 20:
+            return []
+        
+        # Parse bullet points
+        memories = []
+        for line in result.split("\n"):
+            line = line.strip()
+            if line.startswith("- "):
+                fact = line[2:].strip()
+                if fact and len(fact) > 5 and len(fact) < 300:
+                    memories.append(fact)
+        
+        # Post-filter: reject memories that are just restating system prompt info
+        if system_prompt and memories:
+            memories = _filter_redundant_memories(memories, system_prompt, existing_memories)
+        
+        logger.info(f"Extracted {len(memories)} memories from exchange")
+        return memories
+        
+    except Exception as e:
+        logger.warning(f"Memory extraction failed (non-critical): {e}")
+        return []
+
+
+def _filter_redundant_memories(
+    memories: List[str],
+    system_prompt: str,
+    existing_memories: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    Filter out extracted memories that are redundant with the system prompt
+    or already-existing memories. Uses simple substring/keyword overlap.
+    """
+    sp_lower = system_prompt.lower()
+    existing_lower = set()
+    if existing_memories:
+        existing_lower = {m.lower().strip() for m in existing_memories}
+    
+    filtered = []
+    for mem in memories:
+        mem_lower = mem.lower().strip()
+        
+        # Skip if it's a near-duplicate of an existing memory
+        if any(_text_similarity(mem_lower, ex) > 0.65 for ex in existing_lower):
+            logger.debug(f"Filtered duplicate memory: {mem}")
+            continue
+        
+        # Skip if the core content is already in the system prompt
+        # Extract meaningful words (skip short/common words)
+        words = [w for w in mem_lower.split() if len(w) > 3]
+        if len(words) > 2:
+            # If >60% of the meaningful words are in the system prompt, skip
+            overlap = sum(1 for w in words if w in sp_lower)
+            overlap_ratio = overlap / len(words)
+            if overlap_ratio > 0.6:
+                logger.debug(f"Filtered system-prompt-redundant memory ({overlap_ratio:.0%}): {mem}")
+                continue
+        
+        # Skip very generic/vague memories
+        generic_phrases = [
+            "is a character", "is described as", "has a personality",
+            "the setting is", "takes place in", "is known for",
+            "character traits", "appearance includes",
+        ]
+        if any(gp in mem_lower for gp in generic_phrases):
+            logger.debug(f"Filtered generic memory: {mem}")
+            continue
+        
+        filtered.append(mem)
+    
+    return filtered
+
+
+def _text_similarity(a: str, b: str) -> float:
+    """Simple word-overlap Jaccard similarity between two strings."""
+    words_a = set(a.split())
+    words_b = set(b.split())
+    if not words_a or not words_b:
+        return 0.0
+    intersection = words_a & words_b
+    union = words_a | words_b
+    return len(intersection) / len(union)
+
+
 def download_chat_model(
     repo_id: str,
     progress_callback: Optional[Callable[[float, str], None]] = None
@@ -573,22 +797,92 @@ def download_chat_model(
     Returns:
         Tuple of (success: bool, message: str)
     """
-    from huggingface_hub import snapshot_download
+    from huggingface_hub import snapshot_download, HfApi
+    import threading
     
     def report_progress(pct: float, msg: str):
         if progress_callback:
             progress_callback(pct, msg)
         logger.info(f"[{pct*100:.0f}%] {msg}")
     
-    if is_chat_model_downloaded(repo_id):
+    if _is_chat_model_fully_downloaded(repo_id):
         return True, f"{repo_id} is already downloaded"
     
-    report_progress(0.05, f"Starting download: {repo_id}")
+    report_progress(0.02, f"Starting download: {repo_id}")
+    
+    stop_monitor = threading.Event()
     
     try:
         os.environ["HF_HUB_DISABLE_XET"] = "1"
         
-        report_progress(0.1, "Connecting to HuggingFace...")
+        report_progress(0.05, "Fetching model info from HuggingFace...")
+        
+        # Get total size for progress tracking - try multiple methods
+        cache_name = "models--" + repo_id.replace("/", "--")
+        cache_path = CACHE_DIR / cache_name
+        total_size = 0
+        
+        try:
+            api = HfApi()
+            # Method 1: model_info with files_metadata
+            info = api.model_info(repo_id, files_metadata=True)
+            siblings = info.siblings or []
+            total_size = sum(s.size or 0 for s in siblings)
+            
+            # Method 2: if sizes were all 0, try list_repo_tree
+            if total_size == 0 and siblings:
+                try:
+                    tree = list(api.list_repo_tree(repo_id, recursive=True))
+                    total_size = sum(getattr(item, 'size', 0) or 0 for item in tree)
+                except Exception:
+                    pass
+            
+            file_count = len(siblings)
+            if total_size > 0:
+                report_progress(0.08, f"Found {file_count} files ({total_size / (1024**3):.1f} GB total)")
+            else:
+                report_progress(0.08, f"Found {file_count} files (calculating size...)")
+        except Exception as e:
+            logger.warning(f"Could not get model info: {e}")
+            file_count = 0
+        
+        # Track progress via a monitoring thread - ALWAYS start it
+        last_reported_size = [0]  # Use list for mutability in closure
+        
+        def monitor_progress():
+            """Periodically check downloaded size and report progress."""
+            while not stop_monitor.is_set():
+                try:
+                    if cache_path.exists():
+                        # Only count blobs/ directory to avoid double-counting symlinked snapshots
+                        blobs_path = cache_path / "blobs"
+                        if blobs_path.exists():
+                            downloaded = sum(
+                                f.stat().st_size for f in blobs_path.iterdir() if f.is_file()
+                            )
+                        else:
+                            downloaded = sum(
+                                f.stat().st_size for f in cache_path.rglob('*') if f.is_file()
+                            )
+                        
+                        # Only report if size actually changed
+                        if downloaded != last_reported_size[0]:
+                            last_reported_size[0] = downloaded
+                            size_gb = downloaded / (1024**3)
+                            
+                            if total_size > 0:
+                                pct = min(downloaded / total_size, 0.98)
+                                total_gb = total_size / (1024**3)
+                                report_progress(pct, f"Downloading: {size_gb:.2f} / {total_gb:.2f} GB")
+                            else:
+                                # Unknown total - show size downloaded with indeterminate progress
+                                report_progress(min(0.5, size_gb / 20.0), f"Downloading: {size_gb:.2f} GB...")
+                except Exception:
+                    pass
+                stop_monitor.wait(3.0)  # Check every 3 seconds
+        
+        monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
+        monitor_thread.start()
         
         path = snapshot_download(
             repo_id,
@@ -597,10 +891,13 @@ def download_chat_model(
             resume_download=True,
         )
         
+        stop_monitor.set()
+        
         report_progress(1.0, f"Download complete: {repo_id}")
         return True, f"Successfully downloaded {repo_id}"
         
     except Exception as e:
+        stop_monitor.set()
         error_msg = str(e)
         logger.error(f"Download error: {error_msg}")
         return False, f"Download failed: {error_msg}"

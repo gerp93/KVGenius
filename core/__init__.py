@@ -26,6 +26,7 @@ from .config import (
 from .image_gen import (
     get_available_image_models,
     is_model_downloaded,
+    _is_model_fully_downloaded,
     load_image_model,
     unload_image_model,
     generate_image,
@@ -40,6 +41,7 @@ from .image_gen import (
 from .chat_gen import (
     get_available_chat_models,
     is_chat_model_downloaded,
+    _is_chat_model_fully_downloaded,
     get_current_chat_model,
     load_chat_model,
     unload_chat_model,
@@ -73,6 +75,7 @@ __all__ = [
     # Image Generation
     "get_available_image_models",
     "is_model_downloaded",
+    "_is_model_fully_downloaded",
     "load_image_model",
     "unload_image_model",
     "generate_image",
@@ -85,6 +88,7 @@ __all__ = [
     # Chat Generation
     "get_available_chat_models",
     "is_chat_model_downloaded",
+    "_is_chat_model_fully_downloaded",
     "get_current_chat_model",
     "load_chat_model",
     "unload_chat_model",

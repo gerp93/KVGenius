@@ -16,6 +16,7 @@ import os
 import sys
 import logging
 import threading
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable, List, Set
 
@@ -46,6 +47,7 @@ except ImportError:
 from core import (
     get_available_image_models,
     is_model_downloaded,
+    _is_model_fully_downloaded,
     load_image_model,
     unload_image_model,
     generate_image,
@@ -60,6 +62,7 @@ from core import (
     # Chat
     get_available_chat_models,
     is_chat_model_downloaded,
+    _is_chat_model_fully_downloaded,
     get_current_chat_model,
     load_chat_model,
     unload_chat_model,
@@ -1906,10 +1909,18 @@ class ModelManagerTab:
     def __init__(self, page: Page):
         self.page = page
         self._downloading: Dict[str, bool] = {}  # Track downloads in progress
+        self._download_progress: Dict[str, float] = {}  # repo_id -> progress (0.0-1.0)
+        self._download_status: Dict[str, str] = {}  # repo_id -> status message
+        self._download_queue: List[Dict] = []  # Queue of pending/active downloads
+        # Store references to progress UI controls for lightweight updates
+        self._progress_controls: Dict[str, Dict] = {}  # repo_id -> {bar, text, pct_text, dl_bar, dl_text, dl_status}
+        self.model_cache = Path(__file__).parent / "data" / "model_cache"
         self._build_ui()
     
     def _build_ui(self):
-        self.model_list = ListView(spacing=10, padding=20, expand=True)
+        self.image_model_list = ListView(spacing=10, padding=20, expand=True)
+        self.chat_model_list = ListView(spacing=10, padding=20, expand=True)
+        self.downloads_list = ListView(spacing=10, padding=20, expand=True)
         self.refresh_btn = IconButton(
             icon=Icons.REFRESH,
             tooltip="Refresh model list",
@@ -1918,8 +1929,10 @@ class ModelManagerTab:
         self.status_text = Text("", size=11, color=Colors.GREY_400)
     
     def _refresh(self):
-        """Refresh the model list."""
+        """Refresh the model list. Also clears completed/failed downloads from the queue."""
+        self._download_queue = [item for item in self._download_queue if item["status"] == "downloading"]
         self._load_models()
+        self._refresh_downloads_tab()
         if self.page:
             self.page.update()
     
@@ -1929,12 +1942,29 @@ class ModelManagerTab:
             return  # Already downloading
         
         self._downloading[repo_id] = True
+        self._download_progress[repo_id] = 0.0
+        self._download_status[repo_id] = "Starting..."
+        
+        # Add to download queue
+        queue_item = {
+            "name": model_name,
+            "repo_id": repo_id,
+            "model_type": model_type,
+            "status": "downloading",
+        }
+        self._download_queue.append(queue_item)
+        self._load_models()
+        self._refresh_downloads_tab()
         self.status_text.value = f"Downloading {model_name}..."
         self.page.update()
         
         def do_download():
             def progress_callback(pct: float, msg: str):
+                self._download_progress[repo_id] = pct
+                self._download_status[repo_id] = msg
                 self.status_text.value = f"[{pct*100:.0f}%] {msg}"
+                # Lightweight update: just update existing controls directly
+                self._update_progress_ui(repo_id, pct, msg)
                 try:
                     self.page.update()
                 except:
@@ -1947,14 +1977,24 @@ class ModelManagerTab:
                 success, message = download_chat_model(repo_id, progress_callback)
             
             self._downloading[repo_id] = False
+            self._download_progress.pop(repo_id, None)
+            self._download_status.pop(repo_id, None)
+            self._progress_controls.pop(repo_id, None)
+            
+            # Update queue item status
+            for item in self._download_queue:
+                if item["repo_id"] == repo_id:
+                    item["status"] = "completed" if success else "failed"
+                    break
             
             if success:
                 self.status_text.value = f"✅ {model_name} downloaded!"
             else:
                 self.status_text.value = f"❌ {message}"
             
-            # Refresh the list
+            # Refresh everything
             self._load_models()
+            self._refresh_downloads_tab()
             try:
                 self.page.update()
             except:
@@ -1962,16 +2002,376 @@ class ModelManagerTab:
         
         threading.Thread(target=do_download, daemon=True).start()
     
-    def _load_models(self):
-        self.model_list.controls.clear()
+    def _open_folder(self, folder_path: str):
+        """Open a folder in the system file explorer."""
+        import subprocess
+        try:
+            p = Path(folder_path)
+            # If it's a file, open its parent folder
+            if p.is_file():
+                subprocess.run(["explorer", "/select,", str(p)])
+            elif p.is_dir():
+                subprocess.run(["explorer", str(p)])
+            else:
+                # Path doesn't exist, open parent
+                parent = p.parent
+                if parent.exists():
+                    subprocess.run(["explorer", str(parent)])
+        except Exception as e:
+            logger.error(f"Error opening folder: {e}")
+    
+    def _refresh_downloads_tab(self):
+        """Refresh the downloads tab with current queue status."""
+        self.downloads_list.controls.clear()
         
-        # Add section header for Image Models
-        self.model_list.controls.append(
-            Container(
-                content=Text("🎨 Image Generation Models", size=14, weight=FontWeight.BOLD),
-                padding=padding.only(bottom=5, top=10),
+        if not self._download_queue:
+            self.downloads_list.controls.append(
+                Container(
+                    content=Text(
+                        "No downloads yet. Go to Image Models or Chat Models tab to download models.",
+                        size=12, color=Colors.GREY_500, text_align=ft.TextAlign.CENTER,
+                    ),
+                    padding=padding.all(40),
+                    alignment=alignment.center,
+                )
             )
+            return
+        
+        # Show downloads in reverse order (newest first)
+        for item in reversed(self._download_queue):
+            repo_id = item["repo_id"]
+            name = item["name"]
+            status = item["status"]
+            progress = self._download_progress.get(repo_id, 0.0)
+            status_msg = self._download_status.get(repo_id, "")
+            
+            if status == "downloading":
+                icon = Icons.DOWNLOADING
+                icon_color = Colors.BLUE_400
+                status_label = f"Downloading... {progress*100:.0f}%"
+                bar_color = Colors.BLUE_400
+            elif status == "completed":
+                icon = Icons.CHECK_CIRCLE
+                icon_color = Colors.GREEN_400
+                status_label = "Completed"
+                bar_color = Colors.GREEN_400
+                progress = 1.0
+            else:
+                icon = Icons.ERROR
+                icon_color = Colors.RED_400
+                status_label = "Failed"
+                bar_color = Colors.RED_400
+            
+            dl_status_text = Text(status_msg if status == "downloading" else status_label,
+                                  size=11, color=Colors.GREY_400)
+            dl_label_text = Text(status_label, size=11, color=icon_color)
+            dl_bar = ProgressBar(
+                value=progress,
+                color=bar_color,
+                bgcolor=Colors.GREY_800,
+                height=6,
+                border_radius=border_radius.all(3),
+            )
+            
+            card = Card(
+                content=Container(
+                    content=Column([
+                        Row([
+                            ft.Icon(icon, color=icon_color, size=24),
+                            Column([
+                                Text(name, weight=FontWeight.BOLD, size=13),
+                                dl_status_text,
+                            ], expand=True, spacing=2),
+                            dl_label_text,
+                        ], spacing=10),
+                        dl_bar,
+                    ], spacing=8),
+                    padding=padding.all(12),
+                ),
+            )
+            self.downloads_list.controls.append(card)
+            
+            # Store download tab control references for lightweight updates
+            if status == "downloading":
+                ctrl = self._progress_controls.get(repo_id, {})
+                ctrl["dl_bar"] = dl_bar
+                ctrl["dl_text"] = dl_label_text
+                ctrl["dl_status"] = dl_status_text
+                self._progress_controls[repo_id] = ctrl
+    
+    def _update_progress_ui(self, repo_id: str, pct: float, msg: str):
+        """Lightweight progress update - directly update existing controls without rebuilding."""
+        ctrls = self._progress_controls.get(repo_id)
+        if not ctrls:
+            return
+        
+        pct_str = f"{pct*100:.0f}%"
+        
+        # Update model card controls
+        if "bar" in ctrls:
+            ctrls["bar"].value = pct
+        if "text" in ctrls:
+            ctrls["text"].value = f"{pct_str} - {msg}"
+        if "pct_text" in ctrls:
+            ctrls["pct_text"].value = f"Downloading... {pct_str}"
+        
+        # Update downloads tab controls
+        if "dl_bar" in ctrls:
+            ctrls["dl_bar"].value = pct
+        if "dl_text" in ctrls:
+            ctrls["dl_text"].value = f"Downloading... {pct_str}"
+        if "dl_status" in ctrls:
+            ctrls["dl_status"].value = msg
+    
+    def _get_folder_size_gb(self, folder_path: Path) -> float:
+        """Calculate total size of a folder in GB."""
+        total_size = 0
+        try:
+            if folder_path.exists():
+                for path in folder_path.rglob('*'):
+                    if path.is_file():
+                        total_size += path.stat().st_size
+        except Exception as e:
+            logger.warning(f"Error calculating folder size: {e}")
+        return total_size / (1024 ** 3)  # Convert to GB
+    
+    def _confirm_delete_files(self, model_name: str, repo_id: str):
+        """Show confirmation dialog for deleting downloaded model files."""
+        # Calculate size for either local file or HF model
+        repo_path = Path(repo_id)
+        
+        if repo_path.is_file() or (repo_path.parent.name == "checkpoints" and repo_id.endswith((".safetensors", ".ckpt"))):
+            # Local checkpoint - get file size directly
+            size_gb = repo_path.stat().st_size / (1024**3) if repo_path.exists() else 0
+        else:
+            # HuggingFace model - calculate folder size
+            safe_name = "models--" + repo_id.replace("/", "--")
+            model_path = self.model_cache / safe_name
+            size_gb = self._get_folder_size_gb(model_path)
+        
+        def delete_files(e):
+            self._delete_model_files(model_name, repo_id)
+            dialog.open = False
+            self.page.update()
+        
+        def cancel(e):
+            dialog.open = False
+            self.page.update()
+        
+        dialog = AlertDialog(
+            title=Text(f"Delete {model_name}?"),
+            content=Container(
+                content=Column([
+                    Text(
+                        f"This will delete the downloaded files and free up {size_gb:.2f} GB of storage.",
+                        size=12,
+                    ),
+                    Text(
+                        "⚠️  You can download it again anytime.",
+                        size=11,
+                        color=Colors.BLUE_400,
+                    ),
+                ], spacing=8),
+                padding=padding.all(10),
+            ),
+            actions=[
+                TextButton("Cancel", on_click=cancel),
+                ElevatedButton(
+                    "Delete Files",
+                    on_click=delete_files,
+                    style=ButtonStyle(color=Colors.RED_400),
+                ),
+            ],
         )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
+    def _delete_model_files(self, model_name: str, repo_id: str):
+        """Delete the downloaded model files (allows re-download)."""
+        try:
+            # Check if it's a local checkpoint file (path) or HF model (repo_id)
+            repo_path = Path(repo_id)
+            
+            if repo_path.is_file() or (repo_path.parent.name == "checkpoints" and repo_id.endswith((".safetensors", ".ckpt"))):
+                # Local checkpoint - delete the actual file
+                size_gb = repo_path.stat().st_size / (1024**3) if repo_path.exists() else 0
+                if repo_path.exists():
+                    repo_path.unlink()
+                    self.status_text.value = f"🗑️  Deleted {model_name} ({size_gb:.2f} GB freed)"
+                    logger.info(f"Deleted local checkpoint: {model_name}")
+            else:
+                # HuggingFace model - delete from model cache
+                safe_name = "models--" + repo_id.replace("/", "--")
+                model_path = self.model_cache / safe_name
+                
+                if model_path.exists():
+                    size_gb = self._get_folder_size_gb(model_path)
+                    shutil.rmtree(model_path)
+                    self.status_text.value = f"🗑️  Deleted {model_name} ({size_gb:.2f} GB freed)"
+                    logger.info(f"Deleted model files: {model_name}")
+            
+            self._load_models()
+            self.page.update()
+        except Exception as e:
+            logger.error(f"Error deleting model files: {e}")
+            self.status_text.value = f"❌ Error deleting: {e}"
+            self.page.update()
+    
+    def _confirm_delete_local_model(self, model_name: str, file_path: str):
+        """Show confirmation dialog for deleting a local model file and removing from config."""
+        try:
+            repo_path = Path(file_path)
+            size_gb = repo_path.stat().st_size / (1024**3) if repo_path.exists() else 0
+        except:
+            size_gb = 0
+        
+        def delete_local(e):
+            self._delete_local_model(model_name, file_path)
+            dialog.open = False
+            self.page.update()
+        
+        def cancel(e):
+            dialog.open = False
+            self.page.update()
+        
+        dialog = AlertDialog(
+            title=Text("Delete Local Model?"),
+            content=Container(
+                content=Column([
+                    Text(
+                        f"This will permanently delete '{model_name}' from your computer.",
+                        size=12,
+                    ),
+                    Text(
+                        f"Storage freed: {size_gb:.2f} GB",
+                        size=11,
+                        color=Colors.YELLOW_400,
+                        weight=FontWeight.BOLD,
+                    ),
+                    Text(
+                        "⚠️  This cannot be undone. It will be removed from the list.",
+                        size=11,
+                        color=Colors.RED_400,
+                    ),
+                ], spacing=8),
+                padding=padding.all(10),
+            ),
+            actions=[
+                TextButton("Cancel", on_click=cancel),
+                ElevatedButton(
+                    "Delete Permanently",
+                    on_click=delete_local,
+                    style=ButtonStyle(color=Colors.RED_700),
+                ),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
+    def _delete_local_model(self, model_name: str, file_path: str):
+        """Delete local model file from disk and remove from config."""
+        try:
+            repo_path = Path(file_path)
+            size_gb = 0
+            
+            # Delete the actual file
+            if repo_path.exists():
+                size_gb = repo_path.stat().st_size / (1024**3)
+                repo_path.unlink()
+                logger.info(f"Deleted local model file: {model_name}")
+            
+            # Remove from config file
+            self._remove_model_from_config(model_name)
+            
+            self.status_text.value = f"🗑️  Deleted {model_name} ({size_gb:.2f} GB freed)"
+            self._load_models()
+            self.page.update()
+        except Exception as e:
+            logger.error(f"Error deleting local model: {e}")
+            self.status_text.value = f"❌ Error deleting: {e}"
+            self.page.update()
+    
+    def _remove_model_from_config(self, model_name: str):
+        """Remove a model from the image_model_presets.yaml config file."""
+        try:
+            config_path = Path(__file__).parent / "config" / "image_model_presets.yaml"
+            if not config_path.exists():
+                logger.warning(f"Config file not found: {config_path}")
+                return
+            
+            import yaml
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+            
+            # Look for model in both 'huggingface' and 'local' sections
+            for section in ['huggingface', 'local']:
+                if section in config.get('models', {}):
+                    if model_name in config['models'][section]:
+                        del config['models'][section][model_name]
+                        logger.info(f"Removed {model_name} from {section} section in config")
+                        break
+            
+            # Write updated config back
+            with open(config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(config, f, default_flow_style=False)
+            logger.info(f"Updated config file: removed {model_name}")
+        except Exception as e:
+            logger.warning(f"Could not update config file: {e}")
+            # Don't fail the deletion if config update fails
+    
+    def _confirm_remove_model(self, model_name: str):
+        """Show confirmation dialog for permanently removing a model from the list."""
+        def remove_model(e):
+            self._remove_model_permanently(model_name)
+            dialog.open = False
+            self.page.update()
+        
+        def cancel(e):
+            dialog.open = False
+            self.page.update()
+        
+        dialog = AlertDialog(
+            title=Text("Remove Model Permanently?"),
+            content=Container(
+                content=Column([
+                    Text(
+                        f"Remove '{model_name}' from the available models list?",
+                        size=12,
+                    ),
+                    Text(
+                        "⚠️  This cannot be undone. The model will no longer appear in the list.",
+                        size=11,
+                        color=Colors.RED_400,
+                        weight=FontWeight.BOLD,
+                    ),
+                ], spacing=8),
+                padding=padding.all(10),
+            ),
+            actions=[
+                TextButton("Cancel", on_click=cancel),
+                ElevatedButton(
+                    "Remove Permanently",
+                    on_click=remove_model,
+                    style=ButtonStyle(color=Colors.RED_700),
+                ),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
+    def _remove_model_permanently(self, model_name: str):
+        """Remove a model permanently from the list (not yet implemented - would need model config updates)."""
+        # TODO: Implement by removing from config files or marking as hidden
+        logger.warning(f"Model removal not yet fully implemented: {model_name}")
+        self.status_text.value = f"Permanent removal not yet implemented for {model_name}"
+        self.page.update()
+    
+    def _load_models(self):
+        self.image_model_list.controls.clear()
+        self.chat_model_list.controls.clear()
         
         # Image Models
         image_models = get_available_image_models()
@@ -1979,36 +2379,36 @@ class ModelManagerTab:
             is_hf = info.get("source") == "huggingface"
             repo_id = info.get("id", "")
             downloaded = is_model_downloaded(repo_id) if is_hf else True
+            fully_downloaded = _is_model_fully_downloaded(repo_id) if is_hf else True
+            is_partial = downloaded and not fully_downloaded and is_hf
             is_loaded = (app_state.loaded_model == name and app_state.loaded_model_type == "image")
             is_downloading = repo_id in self._downloading and self._downloading[repo_id]
             
-            self._add_model_card(name, info, "image", is_loaded, downloaded, is_downloading, is_hf, repo_id)
-        
-        # Add section header for Chat Models
-        self.model_list.controls.append(
-            Container(
-                content=Text("💬 Chat / LLM Models", size=14, weight=FontWeight.BOLD),
-                padding=padding.only(bottom=5, top=20),
-            )
-        )
+            self._add_model_card(self.image_model_list, name, info, "image", is_loaded, downloaded, is_downloading, is_hf, repo_id, is_partial)
         
         # Chat Models
         chat_models = get_available_chat_models()
         for name, info in chat_models.items():
             repo_id = info.get("id", "")
             downloaded = is_chat_model_downloaded(repo_id)
+            fully_downloaded = _is_chat_model_fully_downloaded(repo_id)
+            is_partial = downloaded and not fully_downloaded
             is_loaded = (app_state.loaded_model == name and app_state.loaded_model_type == "chat")
             is_downloading = repo_id in self._downloading and self._downloading[repo_id]
             
-            self._add_model_card(name, info, "chat", is_loaded, downloaded, is_downloading, True, repo_id)
+            self._add_model_card(self.chat_model_list, name, info, "chat", is_loaded, downloaded, is_downloading, True, repo_id, is_partial)
     
-    def _add_model_card(self, name: str, info: Dict, model_type: str, is_loaded: bool, 
-                        downloaded: bool, is_downloading: bool, is_hf: bool, repo_id: str):
+    def _add_model_card(self, target_list: ListView, name: str, info: Dict, model_type: str, is_loaded: bool, 
+                        downloaded: bool, is_downloading: bool, is_hf: bool, repo_id: str, is_partial: bool = False):
         """Add a model card to the list."""
         if is_loaded:
             status_icon = Icons.CHECK_CIRCLE
             status_color = Colors.GREEN_400
             status_text = "Loaded"
+        elif is_partial and not is_downloading:
+            status_icon = Icons.WARNING_AMBER
+            status_color = Colors.ORANGE_400
+            status_text = "Partial Download"
         elif downloaded:
             status_icon = Icons.DOWNLOAD_DONE
             status_color = Colors.YELLOW_400
@@ -2024,64 +2424,210 @@ class ModelManagerTab:
         
         # Action buttons based on state
         action_buttons = []
+        is_local = info.get("source") == "local"
         
-        if is_hf and not downloaded and not is_downloading:
+        if is_downloading:
+            progress = self._download_progress.get(repo_id, 0.0)
+            pct_text_ctrl = Text(f"Downloading... {progress*100:.0f}%", size=11)
+            action_buttons.append(
+                Column([
+                    Row([
+                        ft.ProgressRing(width=16, height=16, stroke_width=2),
+                        pct_text_ctrl,
+                    ], spacing=5),
+                ], spacing=3)
+            )
+        elif is_local:
+            # Local checkpoint - allow delete (deletes from disk AND config)
             action_buttons.append(
                 ElevatedButton(
-                    "Download",
-                    icon=Icons.DOWNLOAD,
-                    on_click=lambda e, n=name, r=repo_id, t=model_type: self._download_model(n, r, t),
+                    "Delete Model",
+                    icon=Icons.DELETE_OUTLINE,
+                    on_click=lambda e, n=name, r=repo_id: self._confirm_delete_local_model(n, r),
+                    style=ButtonStyle(color=Colors.RED_700),
                 )
             )
-        elif is_downloading:
-            action_buttons.append(
-                Row([
-                    ft.ProgressRing(width=16, height=16, stroke_width=2),
-                    Text("Downloading...", size=11),
-                ], spacing=5)
-            )
+        elif is_hf:
+            # HuggingFace models
+            if is_partial and not is_downloading:
+                # Partially downloaded - show Resume and Delete buttons
+                action_buttons.append(
+                    ElevatedButton(
+                        "Resume Download",
+                        icon=Icons.PLAY_ARROW,
+                        on_click=lambda e, n=name, r=repo_id, t=model_type: self._download_model(n, r, t),
+                        style=ButtonStyle(color=Colors.ORANGE_400),
+                    )
+                )
+                action_buttons.append(
+                    ElevatedButton(
+                        "Delete Files",
+                        icon=Icons.DELETE_OUTLINE,
+                        on_click=lambda e, n=name, r=repo_id: self._confirm_delete_files(n, r),
+                        style=ButtonStyle(color=Colors.RED_700),
+                    )
+                )
+            elif not downloaded:
+                # Not downloaded - show Download and Remove buttons
+                action_buttons.append(
+                    ElevatedButton(
+                        "Download",
+                        icon=Icons.DOWNLOAD,
+                        on_click=lambda e, n=name, r=repo_id, t=model_type: self._download_model(n, r, t),
+                    )
+                )
+                action_buttons.append(
+                    ElevatedButton(
+                        "Remove Model",
+                        icon=Icons.DELETE_FOREVER,
+                        on_click=lambda e, n=name: self._confirm_remove_model(n),
+                        style=ButtonStyle(color=Colors.RED_700),
+                    )
+                )
+            else:
+                # Downloaded - show Delete Files and Remove Model
+                action_buttons.append(
+                    ElevatedButton(
+                        "Delete Files",
+                        icon=Icons.DELETE_OUTLINE,
+                        on_click=lambda e, n=name, r=repo_id: self._confirm_delete_files(n, r),
+                        style=ButtonStyle(color=Colors.ORANGE_400),
+                    )
+                )
+                action_buttons.append(
+                    ElevatedButton(
+                        "Remove Model",
+                        icon=Icons.DELETE_FOREVER,
+                        on_click=lambda e, n=name: self._confirm_remove_model(n),
+                        style=ButtonStyle(color=Colors.RED_700),
+                    )
+                )
         
         # Type badge color
         type_text = info.get("type", "sd").upper() if model_type == "image" else "LLM"
         type_color = Colors.BLUE_900 if model_type == "image" else Colors.ORANGE_900
         
+        # Build info column contents
+        info_column_items = [
+            Text(name, weight=FontWeight.BOLD),
+            Text(info.get("description", ""), size=11, color=Colors.GREY_400),
+        ]
+        
+        # For local models, show file path and open folder button
+        if is_local:
+            file_path = repo_id  # For local models, repo_id is the file path
+            path_display = str(file_path) if len(str(file_path)) < 60 else f"...{str(file_path)[-57:]}"
+            info_column_items.append(
+                Row([
+                    ft.Icon(Icons.FOLDER_OPEN, size=14, color=Colors.GREY_500),
+                    Text(path_display, size=10, color=Colors.GREY_500),
+                    IconButton(
+                        icon=Icons.OPEN_IN_NEW,
+                        icon_size=14,
+                        tooltip="Open file location",
+                        on_click=lambda e, fp=file_path: self._open_folder(fp),
+                    ),
+                ], spacing=4, vertical_alignment=CrossAxisAlignment.CENTER),
+            )
+        
+        # Badge row
+        badge_items = [
+            Container(
+                content=Text(type_text, size=10),
+                bgcolor=type_color,
+                padding=padding.all(5),
+                border_radius=border_radius.all(5),
+            ),
+        ]
+        if is_local:
+            badge_items.append(
+                Container(
+                    content=Text("LOCAL", size=10),
+                    bgcolor=Colors.TEAL_900,
+                    padding=padding.all(5),
+                    border_radius=border_radius.all(5),
+                ),
+            )
+        badge_items.extend([
+            Container(
+                content=Text(info.get("vram", ""), size=10),
+                bgcolor=Colors.PURPLE_900,
+                padding=padding.all(5),
+                border_radius=border_radius.all(5),
+            ),
+            Container(
+                content=Text(status_text, size=10),
+                bgcolor=Colors.with_opacity(0.3, status_color),
+                padding=padding.all(5),
+                border_radius=border_radius.all(5),
+            ),
+        ])
+        info_column_items.append(Row(badge_items, spacing=5))
+        
+        # Build card content rows
+        card_content_items = [
+            Row([
+                ft.Icon(status_icon, color=status_color, size=28),
+                Column(info_column_items, expand=True, spacing=3),
+                Column(action_buttons, spacing=5) if action_buttons else Container(),
+            ], spacing=15),
+        ]
+        
+        # Add progress bar if downloading
+        if is_downloading:
+            progress = self._download_progress.get(repo_id, 0.0)
+            progress_msg = self._download_status.get(repo_id, "Starting...")
+            bar_ctrl = ProgressBar(
+                value=progress,
+                color=Colors.BLUE_400,
+                bgcolor=Colors.GREY_800,
+                height=6,
+                border_radius=border_radius.all(3),
+            )
+            text_ctrl = Text(f"{progress*100:.0f}% - {progress_msg}", size=10, color=Colors.BLUE_300)
+            card_content_items.append(
+                Column([bar_ctrl, text_ctrl], spacing=4),
+            )
+            # Store references for lightweight progress updates (merge, don't replace)
+            ctrl = self._progress_controls.get(repo_id, {})
+            ctrl["bar"] = bar_ctrl
+            ctrl["text"] = text_ctrl
+            ctrl["pct_text"] = pct_text_ctrl
+            self._progress_controls[repo_id] = ctrl
+        
         card = Card(
             content=Container(
-                content=Row([
-                    ft.Icon(status_icon, color=status_color, size=28),
-                    Column([
-                        Text(name, weight=FontWeight.BOLD),
-                        Text(info.get("description", ""), size=11, color=Colors.GREY_400),
-                        Row([
-                            Container(
-                                content=Text(type_text, size=10),
-                                bgcolor=type_color,
-                                padding=padding.all(5),
-                                border_radius=border_radius.all(5),
-                            ),
-                            Container(
-                                content=Text(info.get("vram", ""), size=10),
-                                bgcolor=Colors.PURPLE_900,
-                                padding=padding.all(5),
-                                border_radius=border_radius.all(5),
-                            ),
-                            Container(
-                                content=Text(status_text, size=10),
-                                bgcolor=Colors.with_opacity(0.3, status_color),
-                                padding=padding.all(5),
-                                border_radius=border_radius.all(5),
-                            ),
-                        ], spacing=5),
-                    ], expand=True, spacing=3),
-                    Column(action_buttons, spacing=5) if action_buttons else Container(),
-                ], spacing=15),
+                content=Column(card_content_items, spacing=8),
                 padding=padding.all(12),
             ),
         )
-        self.model_list.controls.append(card)
+        target_list.controls.append(card)
     
     def build(self) -> Container:
         self._load_models()
+        self._refresh_downloads_tab()
+        
+        # Create tabs for image models, chat models, and downloads
+        tabs = Tabs(
+            selected_index=0,
+            animation_duration=300,
+            tabs=[
+                Tab(
+                    text="🎨 Image Models",
+                    content=self.image_model_list,
+                ),
+                Tab(
+                    text="💬 Chat / LLM Models",
+                    content=self.chat_model_list,
+                ),
+                Tab(
+                    text="📥 Downloads",
+                    content=self.downloads_list,
+                ),
+            ],
+            expand=True,
+        )
+        
         return Container(
             content=Column([
                 Row([
@@ -2089,11 +2635,11 @@ class ModelManagerTab:
                     self.refresh_btn,
                 ], alignment=MainAxisAlignment.SPACE_BETWEEN),
                 Row([
-                    Text("🟢 Loaded | 🟡 Downloaded | ⚪ Not Downloaded", size=11, color=Colors.GREY_500),
+                    Text("🟢 Loaded | 🟡 Downloaded | 🟠 Partial | ⚪ Not Downloaded", size=11, color=Colors.GREY_500),
                     self.status_text,
                 ], alignment=MainAxisAlignment.SPACE_BETWEEN),
                 Container(height=10),
-                self.model_list,
+                tabs,
             ]),
             padding=padding.all(15),
             expand=True,
@@ -2674,6 +3220,17 @@ class ChatTab:
             on_click=self._delete_current_conversation,
         )
         
+        # Memory button (shows count badge when memories exist)
+        self.memory_btn = ElevatedButton(
+            "🧠 Memories",
+            on_click=self._show_memories_dialog,
+            height=30,
+            style=ButtonStyle(
+                padding=padding.symmetric(horizontal=8, vertical=2),
+                text_style=ft.TextStyle(size=11),
+            ),
+        )
+        
         # Typing indicator (positioned above message input)
         self.typing_indicator = Row([
             ft.ProgressRing(width=16, height=16, stroke_width=2, color=Colors.GREEN_400),
@@ -2736,7 +3293,6 @@ class ChatTab:
         self.history_search = TextField(
             label="🔍 Search conversations...",
             on_change=self._refresh_history_list,
-            expand=True,
         )
         self.history_delete_all_btn = ElevatedButton(
             "🗑️ Delete All",
@@ -3012,6 +3568,17 @@ class ChatTab:
                 else:
                     system = persona_context
             
+            # Inject conversation memories into system prompt
+            if self.current_conversation_id:
+                memories = self.db.get_memories(self.current_conversation_id)
+                if memories:
+                    mem_lines = "\n".join(f"- {m['content']}" for m in memories)
+                    memory_block = f"\n\n[Key memories from this conversation - use these to maintain continuity:]\n{mem_lines}"
+                    if system:
+                        system = system + memory_block
+                    else:
+                        system = memory_block
+            
             success, response = generate_chat_response(
                 user_message=message,
                 system_prompt=system,
@@ -3024,6 +3591,27 @@ class ChatTab:
             import core.chat_gen as _chat_mod
             if _chat_mod._conversation_history and _chat_mod._conversation_history[-1].get("role") == "assistant":
                 _chat_mod._conversation_history.pop()
+            
+            # Auto-extract memories from the exchange (runs in background, non-blocking)
+            if success and self.current_conversation_id:
+                try:
+                    from core.chat_gen import extract_memories
+                    existing_mems = [m['content'] for m in self.db.get_memories(self.current_conversation_id)]
+                    # Pass the base system prompt (before memories were injected) so extraction
+                    # knows what character/setting info is already provided and won't duplicate it
+                    base_system = None
+                    if self.selected_character:
+                        base_system = self.selected_character.get('system_prompt', '')
+                    elif self.system_prompt.value:
+                        base_system = self.system_prompt.value
+                    new_memories = extract_memories(message, response, existing_mems, system_prompt=base_system)
+                    for mem in new_memories:
+                        self.db.add_memory(self.current_conversation_id, mem, source="auto")
+                    if new_memories:
+                        logger.info(f"Auto-saved {len(new_memories)} memories")
+                        self._update_memory_button()
+                except Exception as ex:
+                    logger.warning(f"Memory extraction skipped: {ex}")
             
             # Initialize regen carousel with this response (uncommitted)
             self.regen_responses = [response]
@@ -3070,6 +3658,7 @@ class ChatTab:
         self.suggestion_counter_text = None
         self.suggestion_prev_btn = None
         self.suggestion_next_btn = None
+        self._update_memory_button()
         self._update_dropdown_lock()
         self.page.update()
     
@@ -3077,6 +3666,207 @@ class ChatTab:
         """Start a new chat - commits pending response if any, then clears."""
         self._commit_pending_response()
         self._clear_conversation()
+    
+    # =========== MEMORY MANAGEMENT ===========
+    
+    def _show_memories_dialog(self, e=None):
+        """Show a dialog listing all memories for the current conversation, with add/edit/delete."""
+        if not self.current_conversation_id:
+            self.page.snack_bar = SnackBar(
+                content=Text("💡 Start a conversation first to see memories."),
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+        
+        memories = self.db.get_memories(self.current_conversation_id)
+        
+        memory_list = ListView(spacing=6, expand=True, padding=padding.all(4))
+        new_memory_field = TextField(
+            label="Add a new memory...",
+            hint_text="e.g., User's name is Alex",
+            multiline=True,
+            min_lines=1,
+            max_lines=3,
+            expand=True,
+        )
+        
+        def refresh_memory_list():
+            """Rebuild the memory list from DB."""
+            nonlocal memories
+            memories = self.db.get_memories(self.current_conversation_id)
+            memory_list.controls.clear()
+            
+            if not memories:
+                memory_list.controls.append(
+                    Container(
+                        content=Text(
+                            "No memories yet. Memories are auto-generated as you chat,\nor you can add them manually below.",
+                            size=12, color=Colors.GREY_500, text_align=ft.TextAlign.CENTER,
+                        ),
+                        padding=padding.all(20),
+                        alignment=alignment.center,
+                    )
+                )
+            else:
+                for mem in memories:
+                    source_icon = "🤖" if mem['source'] == 'auto' else "✏️"
+                    
+                    memory_list.controls.append(
+                        Container(
+                            content=Row([
+                                Text(source_icon, size=14),
+                                Text(mem['content'], size=12, expand=True),
+                                IconButton(
+                                    icon=Icons.EDIT, icon_size=16, tooltip="Edit",
+                                    on_click=lambda e, m=mem: _edit_memory(m),
+                                ),
+                                IconButton(
+                                    icon=Icons.DELETE, icon_size=16, tooltip="Delete",
+                                    icon_color=Colors.RED_400,
+                                    on_click=lambda e, m=mem: _delete_memory(m['id']),
+                                ),
+                            ], spacing=6, vertical_alignment=CrossAxisAlignment.CENTER),
+                            bgcolor=Colors.GREY_900,
+                            padding=padding.symmetric(horizontal=10, vertical=6),
+                            border_radius=border_radius.all(6),
+                        )
+                    )
+            
+            # Update memory button text with count
+            count = len(memories)
+            self.memory_btn.text = f"🧠 Memories ({count})" if count > 0 else "🧠 Memories"
+            self.page.update()
+        
+        def _add_memory(e):
+            text = new_memory_field.value.strip()
+            if not text:
+                return
+            self.db.add_memory(self.current_conversation_id, text, source="manual")
+            new_memory_field.value = ""
+            refresh_memory_list()
+        
+        def _delete_memory(memory_id):
+            self.db.delete_memory(memory_id)
+            refresh_memory_list()
+        
+        def _edit_memory(mem):
+            """Show inline edit for a memory."""
+            edit_field = TextField(value=mem['content'], multiline=True, min_lines=1, max_lines=3, expand=True)
+            
+            def save_edit(e):
+                new_text = edit_field.value.strip()
+                if new_text:
+                    self.db.update_memory(mem['id'], new_text)
+                refresh_memory_list()
+            
+            def cancel_edit(e):
+                refresh_memory_list()
+            
+            # Replace the memory item in the list with edit controls
+            for i, ctrl in enumerate(memory_list.controls):
+                if hasattr(ctrl, 'data') and ctrl.data == mem['id']:
+                    memory_list.controls[i] = Container(
+                        content=Row([
+                            edit_field,
+                            IconButton(icon=Icons.CHECK, icon_size=16, tooltip="Save", on_click=save_edit),
+                            IconButton(icon=Icons.CLOSE, icon_size=16, tooltip="Cancel", on_click=cancel_edit),
+                        ], spacing=4),
+                        bgcolor=Colors.GREY_800,
+                        padding=padding.symmetric(horizontal=10, vertical=6),
+                        border_radius=border_radius.all(6),
+                    )
+                    self.page.update()
+                    return
+            
+            # Fallback: rebuild with edit mode for the target memory
+            memory_list.controls.clear()
+            for m in memories:
+                if m['id'] == mem['id']:
+                    memory_list.controls.append(
+                        Container(
+                            content=Row([
+                                edit_field,
+                                IconButton(icon=Icons.CHECK, icon_size=16, tooltip="Save", on_click=save_edit),
+                                IconButton(icon=Icons.CLOSE, icon_size=16, tooltip="Cancel", on_click=cancel_edit),
+                            ], spacing=4),
+                            bgcolor=Colors.GREY_800,
+                            padding=padding.symmetric(horizontal=10, vertical=6),
+                            border_radius=border_radius.all(6),
+                        )
+                    )
+                else:
+                    source_icon = "🤖" if m['source'] == 'auto' else "✏️"
+                    memory_list.controls.append(
+                        Container(
+                            content=Row([
+                                Text(source_icon, size=14),
+                                Text(m['content'], size=12, expand=True),
+                                IconButton(icon=Icons.EDIT, icon_size=16, tooltip="Edit", on_click=lambda e, mi=m: _edit_memory(mi)),
+                                IconButton(icon=Icons.DELETE, icon_size=16, tooltip="Delete", icon_color=Colors.RED_400, on_click=lambda e, mid=m['id']: _delete_memory(mid)),
+                            ], spacing=6, vertical_alignment=CrossAxisAlignment.CENTER),
+                            bgcolor=Colors.GREY_900,
+                            padding=padding.symmetric(horizontal=10, vertical=6),
+                            border_radius=border_radius.all(6),
+                        )
+                    )
+            self.page.update()
+        
+        def _delete_all_memories(e):
+            self.db.delete_all_memories(self.current_conversation_id)
+            refresh_memory_list()
+        
+        def close_dialog(e):
+            dialog.open = False
+            if dialog in self.page.overlay:
+                self.page.overlay.remove(dialog)
+            # Update the memory button count
+            count = len(self.db.get_memories(self.current_conversation_id)) if self.current_conversation_id else 0
+            self.memory_btn.text = f"🧠 Memories ({count})" if count > 0 else "🧠 Memories"
+            self.page.update()
+        
+        # Build initial list
+        refresh_memory_list()
+        
+        dialog = AlertDialog(
+            title=Text("🧠 Conversation Memories"),
+            content=Container(
+                content=Column([
+                    Text("Memories help the AI remember key facts across long conversations.\n🤖 = auto-generated  ✏️ = manually added", size=11, color=Colors.GREY_500),
+                    Container(height=6),
+                    Container(
+                        content=memory_list,
+                        height=300,
+                        width=500,
+                    ),
+                    Container(height=8),
+                    Row([
+                        new_memory_field,
+                        IconButton(icon=Icons.ADD_CIRCLE, icon_size=24, tooltip="Add memory", on_click=_add_memory),
+                    ], spacing=6),
+                    Row([
+                        ElevatedButton("🗑️ Clear All", on_click=_delete_all_memories, color=Colors.RED_400,
+                            height=28, style=ButtonStyle(padding=padding.symmetric(horizontal=8, vertical=2), text_style=ft.TextStyle(size=10))),
+                    ], alignment=MainAxisAlignment.END),
+                ], spacing=4),
+                width=520,
+            ),
+            actions=[
+                TextButton("Close", on_click=close_dialog),
+            ],
+        )
+        
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
+    def _update_memory_button(self):
+        """Update the memory button text with current count."""
+        if self.current_conversation_id:
+            count = len(self.db.get_memories(self.current_conversation_id))
+            self.memory_btn.text = f"🧠 Memories ({count})" if count > 0 else "🧠 Memories"
+        else:
+            self.memory_btn.text = "🧠 Memories"
     
     def _delete_current_conversation(self, e=None):
         """Delete the current conversation from DB and clear UI."""
@@ -3682,6 +4472,9 @@ class ChatTab:
         
         # Show suggest button since we have history
         self.suggest_prompt_btn.visible = True
+        
+        # Update memory button count for loaded conversation
+        self._update_memory_button()
         
         # Lock dropdowns since we have messages
         self._update_dropdown_lock()
@@ -4391,6 +5184,7 @@ class ChatTab:
                     Row([
                         Text("💬 Conversation", size=18, weight=FontWeight.BOLD),
                         Row([
+                            self.memory_btn,
                             ElevatedButton(
                                 "➕ New Chat",
                                 on_click=self._new_chat,
