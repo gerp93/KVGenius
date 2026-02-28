@@ -3111,6 +3111,7 @@ class ChatTab:
         self.regen_counter_text = None  # "1/3" counter text widget
         self.regen_prev_btn = None  # Prev button
         self.regen_next_btn = None  # Next button
+        self.directions_visible = False  # Whether directions input is expanded
         self._build_ui()
     
     def _update_slider_label(self, label_control: Text, format_str: str, value):
@@ -3186,7 +3187,7 @@ class ChatTab:
         
         # Message input with Enter to send (shift_enter makes Enter submit)
         self.message_input = TextField(
-            label="Type your message... (Enter to send, Shift+Enter for newline)",
+            label="Type your message... (use *actions* for narration, Enter to send, Shift+Enter for newline)",
             multiline=True,
             min_lines=2,
             max_lines=4,
@@ -3194,6 +3195,25 @@ class ChatTab:
             shift_enter=True,
             on_submit=self._send_message,
             on_change=self._on_message_input_change,
+        )
+        
+        # Directions input (hidden by default)
+        self.directions_input = TextField(
+            label="Optional: Give directions on how character should respond (not sent as dialog)",
+            hint_text="e.g. 'respond with confusion and fear' or 'stand up and look around'",
+            multiline=True,
+            min_lines=2,
+            max_lines=3,
+            expand=True,
+            visible=False,
+        )
+        
+        # Toggle button to expand/collapse directions input
+        self.directions_toggle = IconButton(
+            icon=Icons.EXPAND_MORE,
+            tooltip="Show directions (optional instructions for character)",
+            on_click=lambda e: self._toggle_directions(),
+            icon_size=20,
         )
         
         self.send_btn = ElevatedButton(
@@ -3461,6 +3481,44 @@ class ChatTab:
             except:
                 pass
     
+    def _toggle_directions(self):
+        """Toggle visibility of the directions input area."""
+        self.directions_visible = not self.directions_visible
+        self.directions_input.visible = self.directions_visible
+        self.directions_toggle.icon = (
+            Icons.EXPAND_LESS if self.directions_visible else Icons.EXPAND_MORE
+        )
+        self.directions_toggle.tooltip = (
+            "Hide directions" if self.directions_visible
+            else "Show directions (optional instructions for character)"
+        )
+        self.page.update()
+    
+    def _build_message_spans(self, content: str) -> list:
+        """
+        Build a list of ft.TextSpan objects for rich-text message display.
+        Action segments (*...*) are shown in italic muted color; dialog is normal.
+        Returns (has_actions, spans).
+        """
+        from core.chat_gen import parse_message_with_actions
+        parsed = parse_message_with_actions(content)
+        if not parsed["has_actions"]:
+            return False, [ft.TextSpan(text=content)]
+        
+        spans = []
+        for i, seg in enumerate(parsed["segments"]):
+            if seg["type"] == "action":
+                spans.append(ft.TextSpan(
+                    text=f"*{seg['text']}*",
+                    style=ft.TextStyle(italic=True, color=Colors.GREY_400),
+                ))
+            else:
+                spans.append(ft.TextSpan(text=seg["text"]))
+            # Add a space between segments (not after the last one)
+            if i < len(parsed["segments"]) - 1:
+                spans.append(ft.TextSpan(text=" "))
+        return True, spans
+
     def _add_message(self, role: str, content: str):
         """Add a message bubble to the chat."""
         is_user = role == "user"
@@ -3479,6 +3537,13 @@ class ChatTab:
             bubble_bg = Colors.with_opacity(0.15, Colors.ON_SURFACE)
             name_color = Colors.SECONDARY
         
+        # Build message widget with action formatting
+        has_actions, spans = self._build_message_spans(content)
+        if has_actions:
+            message_widget = ft.Text(spans=spans, selectable=True)
+        else:
+            message_widget = Text(content, selectable=True)
+        
         bubble = Container(
             content=Column([
                 Text(
@@ -3487,7 +3552,7 @@ class ChatTab:
                     weight=FontWeight.BOLD,
                     color=name_color,
                 ),
-                Text(content, selectable=True),
+                message_widget,
             ], spacing=3),
             bgcolor=bubble_bg,
             padding=padding.all(12),
@@ -3508,6 +3573,9 @@ class ChatTab:
         message = self.message_input.value.strip()
         if not message:
             return
+        
+        # Capture directions before clearing (directions are NOT stored in history)
+        directions = self.directions_input.value.strip() if self.directions_input.value else ""
         
         # Check if a chat model is loaded
         if app_state.loaded_model_type != "chat":
@@ -3584,6 +3652,7 @@ class ChatTab:
                 system_prompt=system,
                 max_new_tokens=int(self.max_tokens_slider.value),
                 temperature=temp,
+                directions=directions,
             )
             
             # generate_chat_response added user+assistant to _conversation_history
@@ -3901,7 +3970,12 @@ class ChatTab:
         total = len(self.regen_responses)
         show_nav = total > 1
         
-        self.regen_text_ctrl = Text(current_response, selectable=True)
+        # Build with action formatting
+        has_actions, spans = self._build_message_spans(current_response)
+        if has_actions:
+            self.regen_text_ctrl = ft.Text(spans=spans, selectable=True)
+        else:
+            self.regen_text_ctrl = Text(current_response, selectable=True)
         self.regen_counter_text = Text(
             f"{self.regen_index + 1}/{total}",
             size=11, color=Colors.GREY_400,
@@ -3954,7 +4028,15 @@ class ChatTab:
         """Update the carousel display with current regen index."""
         if not self.regen_responses or self.regen_text_ctrl is None:
             return
-        self.regen_text_ctrl.value = self.regen_responses[self.regen_index]
+        current_response = self.regen_responses[self.regen_index]
+        # Update text with action formatting
+        has_actions, spans = self._build_message_spans(current_response)
+        if has_actions:
+            self.regen_text_ctrl.value = ""
+            self.regen_text_ctrl.spans = spans
+        else:
+            self.regen_text_ctrl.value = current_response
+            self.regen_text_ctrl.spans = []
         total = len(self.regen_responses)
         show_nav = total > 1
         self.regen_counter_text.value = f"{self.regen_index + 1}/{total}"
@@ -5205,10 +5287,13 @@ class ChatTab:
                     self.suggested_prompt_container,
                     # Typing indicator above message input
                     self.typing_indicator,
+                    # Directions input (hidden by default, shown when toggled)
+                    self.directions_input,
                     Row([
                         self.message_input,
+                        self.directions_toggle,
                         self.send_btn,
-                    ], spacing=10),
+                    ], spacing=6),
                 ], expand=True),
                 expand=True,
                 padding=padding.all(15),
