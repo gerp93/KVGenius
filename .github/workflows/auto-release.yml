@@ -1,0 +1,42 @@
+# Fires a release on every push to main — see gerp93/KVG_Standards'
+# templates/auto-release.yml for the full rationale. Coexists with
+# cut-release.yml (manual, explicit version); this is the default,
+# always-on path.
+
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump semantic version and create tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch
+          release_branches: main
+
+  release:
+    needs: version
+    if: ${{ needs.version.outputs.new_tag != '' }}
+    uses: gerp93/KVG_Standards/.github/workflows/release-flet.yml@main
+    with:
+      version: ${{ needs.version.outputs.new_tag }}
+      app_name: KVGenius
+      entry_point: desktop_app.py
+    permissions:
+      contents: write
