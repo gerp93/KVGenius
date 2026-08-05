@@ -1,0 +1,62 @@
+# Entry point for cutting a KVGenius release. Adapted from the template at
+# gerp93/KVG_Standards/templates/cut-release.yml — see that repo for why
+# this stays local (workflow_dispatch must live in the calling repo) while
+# the actual build/publish logic is centralized.
+
+name: Cut Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. "1.2.3" or "v1.2.3"'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate and normalize version
+        id: version
+        run: |
+          set -e
+          RAW="${{ inputs.version }}"
+          VERSION="v${RAW#v}"
+          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version: '$RAW' — expected X.Y.Z or vX.Y.Z (e.g. 1.2.3)." >&2
+            exit 1
+          fi
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists." >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          VERSION="${{ steps.version.outputs.version }}"
+          git tag -a "$VERSION" -m "$VERSION"
+          git push origin "$VERSION"
+
+  release:
+    needs: tag
+    uses: gerp93/KVG_Standards/.github/workflows/release-flet.yml@main
+    with:
+      version: ${{ needs.tag.outputs.version }}
+      app_name: KVGenius
+      entry_point: desktop_app.py
+    permissions:
+      contents: write
