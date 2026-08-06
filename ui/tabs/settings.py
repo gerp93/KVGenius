@@ -5,6 +5,7 @@ from typing import Optional
 from pathlib import Path
 import os
 import logging
+import threading
 
 import flet as ft
 from flet import (
@@ -12,6 +13,8 @@ from flet import (
     IconButton, Colors, Icons, ScrollMode, FontWeight, padding,
     Slider, Dropdown, dropdown, SnackBar, AlertDialog, TextButton,
 )
+
+from updater import CURRENT_VERSION, check_for_update, check_and_apply_update
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +127,14 @@ class SettingsTab:
             on_click=self._confirm_clear_cache,
             color=Colors.RED_400,
         )
+
+        # Update check
+        self.version_text = Text(f"Version {CURRENT_VERSION}", size=12, color=Colors.GREY_400)
+        self.check_updates_btn = ElevatedButton(
+            "Check for Updates",
+            icon=Icons.SYSTEM_UPDATE,
+            on_click=self._check_for_updates,
+        )
         
         # Open folder buttons
         self.open_cache_btn = IconButton(
@@ -194,6 +205,67 @@ class SettingsTab:
         dialog.open = True
         self.page.update()
     
+    def _check_for_updates(self, e):
+        """Check GitHub Releases for a newer build (kvg_updater bundle mode)."""
+        self.check_updates_btn.disabled = True
+        self.page.update()
+        threading.Thread(target=self._check_for_updates_worker, args=(True,), daemon=True).start()
+
+    def check_for_updates_silently(self):
+        """Startup check: prompts only if an update is actually available."""
+        threading.Thread(target=self._check_for_updates_worker, args=(False,), daemon=True).start()
+
+    def _check_for_updates_worker(self, manual: bool):
+        try:
+            update = check_for_update()
+        except Exception as e:
+            update = None
+            logger.error(f"Update check failed: {e}")
+
+        self.check_updates_btn.disabled = False
+        if update:
+            self._prompt_update(update)
+        elif manual:
+            self.page.snack_bar = SnackBar(content=Text(f"You're running the latest version ({CURRENT_VERSION})."))
+            self.page.snack_bar.open = True
+            self.page.update()
+        else:
+            self.page.update()
+
+    def _prompt_update(self, update: dict):
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+
+        def do_update(e):
+            dialog.open = False
+            self.page.update()
+            threading.Thread(target=self._download_and_apply_update, args=(update,), daemon=True).start()
+
+        dialog = AlertDialog(
+            title=Text("Update Available"),
+            content=Text(
+                f"Version {update['version']} is available (you have {CURRENT_VERSION}).\n\n"
+                "Download and install it now? KVGenius will restart automatically."
+            ),
+            actions=[
+                TextButton("Cancel", on_click=close_dialog),
+                TextButton("Update Now", on_click=do_update),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def _download_and_apply_update(self, update: dict):
+        try:
+            check_and_apply_update(update)  # never returns on success
+        except Exception as e:
+            logger.error(f"Update failed: {e}")
+            self.page.snack_bar = SnackBar(content=Text(f"Update failed: {e}"), bgcolor=Colors.RED_700)
+            self.page.snack_bar.open = True
+            self.page.update()
+
     def _clear_cache(self):
         """Clear the model cache directory."""
         import shutil
@@ -283,6 +355,17 @@ class SettingsTab:
                 Text(f"Model cache size: {cache_size}", size=12, color=Colors.GREY_400),
                 Container(height=10),
                 self.clear_cache_btn,
+
+                Container(height=30),
+                ft.Divider(),
+                Container(height=20),
+
+                # Updates
+                Text("🔄 Updates", size=16, weight=FontWeight.BOLD),
+                Container(height=10),
+                self.version_text,
+                Container(height=10),
+                self.check_updates_btn,
             ], scroll=ScrollMode.AUTO),
             padding=padding.all(20),
             expand=True,
