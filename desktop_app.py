@@ -35,13 +35,9 @@ from flet import (
     ControlState, ButtonStyle, Divider,
 )
 
-# Import KVG Themes
-try:
-    from flet_kvg_themes import get_theme, get_theme_list, theme_exists
-    THEMES_AVAILABLE = True
-except ImportError:
-    THEMES_AVAILABLE = False
-    print("Warning: flet_kvg_themes not installed - using default theme")
+# Import VisualAssault themes (theming.py wraps visual_assault_flet)
+from theming import get_theme, get_theme_list, get_theme_background, theme_exists
+THEMES_AVAILABLE = True
 
 # Import core engine
 from core import (
@@ -6739,13 +6735,14 @@ def main(page: Page):
     page.window.width = 1600
     page.window.height = 1000
     
-    # Apply theme from KVG Themes if available
+    # Apply theme from VisualAssault if available
     if THEMES_AVAILABLE:
         theme = get_theme(app_state.current_theme)
         if theme:
             page.theme = theme
+            page.bgcolor = get_theme_background(app_state.current_theme)
             logger.info(f"Applied theme: {app_state.current_theme}")
-    
+
     # Theme change handler
     def on_theme_change(e):
         if THEMES_AVAILABLE and e.control.value:
@@ -6753,6 +6750,7 @@ def main(page: Page):
             theme = get_theme(theme_id)
             if theme:
                 page.theme = theme
+                page.bgcolor = get_theme_background(theme_id)
                 app_state.current_theme = theme_id
                 # Save to settings file for persistence
                 set_setting("theme", theme_id)
@@ -6805,7 +6803,8 @@ def main(page: Page):
     
     # Settings tab
     settings_tab = SettingsTab(page)
-    
+    threading.Timer(1.5, settings_tab.check_for_updates_silently).start()
+
     # Create header
     header = HeaderBar(page, on_model_loaded=on_model_loaded, theme_dropdown=theme_dropdown)
     

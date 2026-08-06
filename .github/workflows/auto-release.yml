@@ -38,5 +38,6 @@ jobs:
       version: ${{ needs.version.outputs.new_tag }}
       app_name: KVGenius
       entry_point: desktop_app.py
+      version_file: _version.py
     permissions:
       contents: write

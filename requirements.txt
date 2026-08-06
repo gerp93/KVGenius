@@ -26,6 +26,10 @@ pyyaml>=6.0
 requests>=2.28.0
 beautifulsoup4>=4.12.0
 
+# Theming and self-update (see gerp93/KVG_Standards)
+visual-assault-flet @ git+https://github.com/gerp93/VisualAssault.git@v0.2.0#subdirectory=packages/flet
+kvg-updater @ git+https://github.com/gerp93/KVG_Standards.git@main#subdirectory=packages/python/kvg_updater
+
 # Development tools
 pytest>=7.3.0
 black>=23.3.0
