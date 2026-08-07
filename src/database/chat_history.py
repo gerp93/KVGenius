@@ -14,8 +14,19 @@ logger = logging.getLogger(__name__)
 class ChatHistoryDB:
     """Manages chat history in SQLite database."""
     
-    def __init__(self, db_path: str = "./chat_history.db"):
-        """Initialize database connection."""
+    def __init__(self, db_path: Optional[str] = None):
+        """Initialize database connection.
+
+        db_path: explicit override. If omitted, uses the app's configured
+        database location (core.get_effective_db_path()) — user-relocatable
+        via Settings > Database Location, see gerp93/KVG_Standards'
+        db-location-versioning.md. Don't hardcode a fixed path here; that
+        leaves the user with no way to move the file (e.g. into a
+        cloud-synced folder for backup).
+        """
+        if db_path is None:
+            from core import get_effective_db_path
+            db_path = str(get_effective_db_path())
         self.db_path = db_path
         self._init_database()
     

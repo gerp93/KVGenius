@@ -2,6 +2,11 @@
 
 A comprehensive AI creative studio combining chat, image generation, and LoRA training. Built for NVIDIA RTX 5070 Ti with custom PyTorch sm_120 (Blackwell) support.
 
+This repo follows the shared conventions in
+[gerp93/KVG_Standards](https://github.com/gerp93/KVG_Standards) — theming,
+release/CI, self-update, licensing, and database location all come from
+there rather than being reinvented locally.
+
 ## Features
 
 - 🤖 **Multi-Model Chat** - Switch between multiple LLMs (Mistral, DeepSeek, Dolphin, etc.)
@@ -212,7 +217,7 @@ Safety checker is disabled by default. If still getting black images, try differ
 
 ## License
 
-Open source for educational purposes.
+[AGPL-3.0](LICENSE) — see [gerp93/KVG_Standards' licensing.md](https://github.com/gerp93/KVG_Standards/blob/main/licensing.md) for the org-wide default this repo follows.
 
 ## Acknowledgments
 
