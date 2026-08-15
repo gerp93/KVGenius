@@ -74,6 +74,12 @@ from src.database import ChatHistoryDB
 # Import CardGeneratorTab from ui.tabs
 from ui.tabs.card_generator import CardGeneratorTab
 
+# Self-update (kvg_updater bundle mode, see gerp93/KVG_Standards)
+from updater import CURRENT_VERSION, check_for_update, check_and_apply_update
+
+# Database location (kvg_dblocation, see gerp93/KVG_Standards' db-location-versioning.md)
+from core import db_location as chat_db_location
+
 
 def get_gpu_info():
     """Get GPU name and compute capability for display."""
@@ -87,6 +93,15 @@ def get_gpu_info():
             return "CPU (No GPU detected)"
     except:
         return "GPU detection unavailable"
+
+
+def _restart_app():
+    """Re-exec the current process. Used after a database location change
+    (an already-open sqlite3 connection can't be pointed at a new file) —
+    see gerp93/KVG_Standards' db-location-versioning.md. Also works for a
+    PyInstaller/Flet-built executable, where sys.executable is the built
+    binary itself rather than a `python` interpreter."""
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 # Set up logging with flush
 logging.basicConfig(
@@ -3091,7 +3106,7 @@ class ChatTab:
     
     def __init__(self, page: Page):
         self.page = page
-        self.db = ChatHistoryDB(db_path="./data/chat_history.db")
+        self.db = ChatHistoryDB()  # uses core.get_effective_db_path(); see Settings > Database Location
         self.selected_character = None  # Current selected character dict
         self.selected_persona = None  # Current selected persona dict
         self.editing_character_id = None  # ID of character being edited (None = new)
@@ -6578,7 +6593,44 @@ class SettingsTab:
             tooltip="Open folder",
             on_click=lambda e: self._open_folder(CHECKPOINTS_DIR),
         )
-    
+
+        # Database location (kvg_dblocation, see gerp93/KVG_Standards'
+        # db-location-versioning.md) — lets the user relocate chat_history.db
+        # instead of it being stuck at a hardcoded path.
+        self.db_path_field = TextField(
+            label="Chat History Database",
+            value=str(chat_db_location.get_effective_db_path()),
+            read_only=True,
+            expand=True,
+        )
+        self.db_choose_existing_btn = ElevatedButton(
+            "Choose Existing File",
+            icon=Icons.FOLDER_OPEN,
+            on_click=self._choose_existing_db,
+        )
+        self.db_choose_new_btn = ElevatedButton(
+            "Choose New Location",
+            icon=Icons.DRIVE_FILE_MOVE,
+            on_click=self._choose_new_db_location,
+        )
+        self.db_reset_btn = ElevatedButton(
+            "Reset to Default",
+            icon=Icons.RESTORE,
+            on_click=self._reset_db_location,
+        )
+        self.db_existing_file_picker = ft.FilePicker(on_result=self._on_db_existing_file_picked)
+        self.db_new_location_picker = ft.FilePicker(on_result=self._on_db_new_location_picked)
+        self.page.overlay.append(self.db_existing_file_picker)
+        self.page.overlay.append(self.db_new_location_picker)
+
+        # Updates (kvg_updater bundle mode, see gerp93/KVG_Standards)
+        self.version_text = Text(f"Version {CURRENT_VERSION}", size=12, color=Colors.GREY_400)
+        self.check_updates_btn = ElevatedButton(
+            "Check for Updates",
+            icon=Icons.SYSTEM_UPDATE,
+            on_click=self._check_for_updates,
+        )
+
     def _open_folder(self, path: Path):
         """Open a folder in the file explorer."""
         import subprocess
@@ -6602,7 +6654,151 @@ class SettingsTab:
         self.page.snack_bar = SnackBar(content=Text("Settings saved!"))
         self.page.snack_bar.open = True
         self.page.update()
-    
+
+    # ---------------------------------------------------------------
+    # Database location (kvg_dblocation) — see gerp93/KVG_Standards'
+    # db-location-versioning.md. Relocating always requires a restart:
+    # an already-open sqlite3 connection can't be pointed at a new path.
+    # ---------------------------------------------------------------
+
+    def _choose_existing_db(self, e):
+        """User adopts an existing .db file as-is."""
+        self.db_existing_file_picker.pick_files(
+            dialog_title="Choose Existing Database File",
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["db"],
+            allow_multiple=False,
+        )
+
+    def _on_db_existing_file_picked(self, e: ft.FilePickerResultEvent):
+        if not e.files:
+            return
+        self._relocate_db(Path(e.files[0].path))
+
+    def _choose_new_db_location(self, e):
+        """User picks a not-yet-existing path; the current DB is copied there."""
+        self.db_new_location_picker.save_file(
+            dialog_title="Choose New Database Location",
+            file_name=chat_db_location.default_filename,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["db"],
+        )
+
+    def _on_db_new_location_picked(self, e: ft.FilePickerResultEvent):
+        if not e.path:
+            return
+        self._relocate_db(Path(e.path))
+
+    def _relocate_db(self, new_path: Path):
+        try:
+            chat_db_location.set_db_path(new_path)
+        except Exception as ex:
+            self.page.snack_bar = SnackBar(
+                content=Text(f"Failed to relocate database: {ex}"),
+                bgcolor=Colors.RED_700,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+        self.db_path_field.value = str(chat_db_location.get_effective_db_path())
+        self._prompt_restart_for_db_change()
+
+    def _reset_db_location(self, e):
+        chat_db_location.reset_to_default_db_path()
+        self.db_path_field.value = str(chat_db_location.get_effective_db_path())
+        self._prompt_restart_for_db_change()
+
+    def _prompt_restart_for_db_change(self):
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+
+        def do_restart(e):
+            dialog.open = False
+            self.page.update()
+            _restart_app()
+
+        dialog = AlertDialog(
+            title=Text("Restart Required"),
+            content=Text(
+                "The chat history database location changed. KVGenius needs "
+                "to restart for this to take effect — an already-open "
+                "database connection can't be pointed at a new file."
+            ),
+            actions=[
+                TextButton("Restart Later", on_click=close_dialog),
+                TextButton("Restart Now", on_click=do_restart),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    # ---------------------------------------------------------------
+    # Updates (kvg_updater bundle mode) — see gerp93/KVG_Standards'
+    # update-check-versioning.md.
+    # ---------------------------------------------------------------
+
+    def _check_for_updates(self, e):
+        self.check_updates_btn.disabled = True
+        self.page.update()
+        threading.Thread(target=self._check_for_updates_worker, args=(True,), daemon=True).start()
+
+    def check_for_updates_silently(self):
+        """Startup check: prompts only if an update is actually available."""
+        threading.Thread(target=self._check_for_updates_worker, args=(False,), daemon=True).start()
+
+    def _check_for_updates_worker(self, manual: bool):
+        try:
+            update = check_for_update()
+        except Exception as ex:
+            update = None
+            logger.error(f"Update check failed: {ex}")
+
+        self.check_updates_btn.disabled = False
+        if update:
+            self._prompt_update(update)
+        elif manual:
+            self.page.snack_bar = SnackBar(content=Text(f"You're running the latest version ({CURRENT_VERSION})."))
+            self.page.snack_bar.open = True
+            self.page.update()
+        else:
+            self.page.update()
+
+    def _prompt_update(self, update: dict):
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+
+        def do_update(e):
+            dialog.open = False
+            self.page.update()
+            threading.Thread(target=self._download_and_apply_update, args=(update,), daemon=True).start()
+
+        dialog = AlertDialog(
+            title=Text("Update Available"),
+            content=Text(
+                f"Version {update['version']} is available (you have {CURRENT_VERSION}).\n\n"
+                "Download and install it now? KVGenius will restart automatically."
+            ),
+            actions=[
+                TextButton("Cancel", on_click=close_dialog),
+                TextButton("Update Now", on_click=do_update),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def _download_and_apply_update(self, update: dict):
+        try:
+            check_and_apply_update(update)  # never returns on success
+        except Exception as ex:
+            logger.error(f"Update failed: {ex}")
+            self.page.snack_bar = SnackBar(content=Text(f"Update failed: {ex}"), bgcolor=Colors.RED_700)
+            self.page.snack_bar.open = True
+            self.page.update()
+
     def _confirm_clear_cache(self, e):
         """Show confirmation dialog before clearing cache."""
         def close_dialog(e):
@@ -6718,6 +6914,35 @@ class SettingsTab:
                 Text(f"Model cache size: {cache_size}", size=12, color=Colors.GREY_400),
                 Container(height=10),
                 self.clear_cache_btn,
+
+                Container(height=30),
+                ft.Divider(),
+                Container(height=20),
+
+                # Database location
+                Text("🗃️ Database Location", size=16, weight=FontWeight.BOLD),
+                Container(height=10),
+                Text(
+                    "Chat history is stored in a local SQLite file. Relocate it "
+                    "(e.g. into a cloud-synced folder) if you'd like — the app "
+                    "restarts afterward.",
+                    size=11, color=Colors.GREY_400,
+                ),
+                Container(height=10),
+                self.db_path_field,
+                Container(height=10),
+                Row([self.db_choose_existing_btn, self.db_choose_new_btn, self.db_reset_btn], spacing=10, wrap=True),
+
+                Container(height=30),
+                ft.Divider(),
+                Container(height=20),
+
+                # Updates
+                Text("🔄 Updates", size=16, weight=FontWeight.BOLD),
+                Container(height=10),
+                self.version_text,
+                Container(height=10),
+                self.check_updates_btn,
             ], scroll=ScrollMode.AUTO),
             padding=padding.all(20),
             expand=True,

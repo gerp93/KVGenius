@@ -36,7 +36,7 @@ class ChatTab:
         """Initialize the database connection."""
         try:
             from src.database.chat_history import ChatHistoryDB
-            self.db = ChatHistoryDB(db_path="./data/chat_history.db")
+            self.db = ChatHistoryDB()  # uses core.get_effective_db_path(); see Settings > Database Location
         except ImportError:
             logger.warning("ChatHistoryDB not available, using mock")
             self.db = MockChatDB()

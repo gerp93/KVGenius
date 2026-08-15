@@ -68,6 +68,11 @@ from .semantic_index import (
     ScoredChunk,
 )
 
+from .db_location import (
+    db_location,
+    get_effective_db_path,
+)
+
 __all__ = [
     # Config
     "PROJECT_ROOT",
@@ -126,4 +131,7 @@ __all__ = [
     "retrieve_memories",
     "RetrievalResult",
     "ScoredChunk",
+    # DB location
+    "db_location",
+    "get_effective_db_path",
 ]
