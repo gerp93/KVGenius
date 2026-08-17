@@ -1,6 +1,6 @@
 # KVGenius - AI Studio 🎨🤖
 
-A comprehensive AI creative studio combining chat, image generation, and LoRA training. Built for NVIDIA RTX 5070 Ti with custom PyTorch sm_120 (Blackwell) support.
+A comprehensive AI creative studio combining chat, image generation, and LoRA training. Chat runs against a local **Ollama** server; image generation runs against a local **ComfyUI** server — KVGenius is a Flet desktop client for both, not an in-process model runner.
 
 This repo follows the shared conventions in
 [gerp93/KVG_Standards](https://github.com/gerp93/KVG_Standards) — theming,
@@ -9,36 +9,40 @@ there rather than being reinvented locally.
 
 ## Features
 
-- 🤖 **Multi-Model Chat** - Switch between multiple LLMs (Mistral, DeepSeek, Dolphin, etc.)
-- 🎨 **Image Generation** - Stable Diffusion with multiple models (Dreamshaper, SDXL Turbo, Realistic Vision)
-- 🎯 **LoRA Training** - Train custom LoRAs for specific subjects/styles
-- ✨ **Prompt Enhancement** - AI-powered prompt improvement (Flan-T5 on CPU)
+- 🤖 **Multi-Model Chat** - Switch between any model pulled into Ollama (Mistral, DeepSeek, Dolphin, etc.)
+- 🎨 **Image Generation** - Any checkpoint ComfyUI can see, with LoRA support
+- 🎯 **Image LoRA Training** - Train custom image LoRAs for specific subjects/styles
 - 💾 **Prompt Library** - Save and reuse your best prompts
 - 📝 **Chat History** - SQLite-backed conversation persistence
 - 🎭 **AI Characters & Personas** - Create custom chat personalities
+- 🃏 **Card Generator** - Generate CAH-style party game cards from a topic or an article
 
 ## Project Structure
 
 ```
 KVGenius/
 ├── data/                    # User data (gitignored)
-│   ├── model_cache/         # Downloaded models
-│   ├── lora_models/         # Trained LoRAs
+│   ├── checkpoints/         # Downloaded image checkpoints
+│   ├── lora_models/         # Image LoRA files
 │   ├── training_datasets/   # Training images
 │   ├── generated_images/    # Output images
 │   └── chat_history.db      # Chat database
 │
+├── core/                    # UI-agnostic backend
+│   ├── chat_gen.py          # Ollama client wrapper
+│   ├── image_gen.py         # ComfyUI client wrapper
+│   ├── ollama_client.py     # Thin Ollama REST client
+│   ├── comfyui_client.py    # Thin ComfyUI REST client
+│   └── ...                  # config, prompt_builder, semantic_index, db_location
+│
 ├── src/
-│   ├── chat/                # Chat logic
-│   ├── database/            # SQLite management
-│   ├── image/               # Image generation module
-│   │   ├── generator.py     # SD pipeline wrapper
-│   │   ├── enhancer.py      # Prompt enhancement
-│   │   └── presets.py       # Model presets
-│   ├── models/              # Model loading
-│   ├── training/            # LoRA training
-│   │   └── lora_trainer.py  # Full training pipeline
-│   └── utils/               # Utilities
+│   ├── database/             # SQLite management
+│   ├── training/
+│   │   └── lora_trainer.py  # Image LoRA training pipeline (local torch/diffusers)
+│   └── cards/                # Card generator logic
+│
+├── ui/tabs/card_generator.py  # The one ui/tabs/* module wired into desktop_app.py
+│                                 (most other tab UIs are implemented inline in desktop_app.py)
 │
 ├── scripts/                 # Utility scripts
 │   ├── download_model.py
@@ -48,26 +52,26 @@ KVGenius/
 │   └── build_pytorch_sm120.bat
 │
 ├── config/
-│   ├── config.yaml          # Main configuration
-│   └── image_model_presets.yaml  # Image model settings
+│   ├── settings.yaml               # ollama_host / comfyui_host and other settings
+│   ├── chat_model_presets.yaml     # Ollama model tags
+│   ├── image_model_presets.yaml    # ComfyUI checkpoint filenames
+│   └── comfyui_workflows/          # ComfyUI workflow JSON templates
 │
-├── desktop_app.py           # Main Flet desktop application
-├── cli_app.py               # CLI interface
-├── fix_dll_paths.py         # CUDA DLL path fix (required)
+├── desktop_app.py           # Main Flet desktop application (only supported entry point)
+├── fix_dll_paths.py         # CUDA DLL path fix (needed only for LoRA training / semantic search)
 └── requirements.txt
 ```
 
 ## Requirements
 
-### Hardware
-- **GPU:** NVIDIA RTX 5070 Ti (16 GB VRAM) or similar
-- **CUDA:** 13.0+ for Blackwell/sm_120 support
-- **RAM:** 32 GB recommended
-
 ### Software
 - Python 3.10+
-- Miniconda/Anaconda
-- Custom PyTorch 2.10+ with sm_120 support (see setup)
+- [Ollama](https://ollama.com/) running locally, with your chat models pulled (`ollama pull mistral:7b`, etc.)
+- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running locally, with your checkpoints in its checkpoints folder
+- Miniconda/Anaconda (recommended)
+
+### Optional (only for local image-LoRA training / semantic memory search)
+- NVIDIA GPU + PyTorch with matching CUDA/sm support — `src/training/lora_trainer.py` and `core/semantic_index.py` still run local `torch`/`diffusers`/`peft` for these two features. Chat and image generation themselves don't need a local GPU stack at all.
 
 ## Installation
 
@@ -83,27 +87,28 @@ conda create -n kvgen python=3.10
 conda activate kvgen
 ```
 
-### 3. Install PyTorch with sm_120 support
-For RTX 5070 Ti / Blackwell GPUs, you need custom-built PyTorch:
-```powershell
-# See scripts/build_pytorch_sm120.bat for source build instructions
-# Or install pre-built wheels if available
-```
-
-### 4. Install dependencies
+### 3. Install dependencies
 ```powershell
 pip install -r requirements.txt
 ```
 
-### 5. Configure (optional)
+### 4. Configure
 ```powershell
-copy .env.example .env
-# Edit config/config.yaml as needed
+copy config\chat_model_presets.example.yaml config\chat_model_presets.yaml
+copy config\image_model_presets.example.yaml config\image_model_presets.yaml
+# Edit ollama_host / comfyui_host in config/settings.yaml if they're not on localhost defaults
+```
+
+### 5. Start Ollama and ComfyUI
+KVGenius does not launch these for you - start them yourself before using the Chat or Image Generation tabs:
+```powershell
+ollama serve
+# and, in another terminal, start ComfyUI per its own instructions
 ```
 
 ## Usage
 
-### Desktop Application (Recommended)
+### Desktop Application (only supported entry point)
 ```powershell
 # Activate environment
 conda activate kvgen
@@ -112,30 +117,23 @@ conda activate kvgen
 python desktop_app.py
 ```
 
-### CLI Interface
-```powershell
-conda activate kvgen
-python cli_app.py
-```
-
 ## Tabs Overview
 
 ### 💬 Chat Tab
-- Multi-model support with hot-swapping
+- Multi-model support with hot-swapping (any model pulled into Ollama)
 - AI Characters with custom system prompts
 - User Personas for roleplay
 - Conversation history with branching
 
 ### 🎨 Image Generation Tab
-- Multiple SD models with auto-presets
+- Any ComfyUI-visible checkpoint, with auto-presets
 - LoRA support with adjustable strength
-- Prompt enhancement (Quick templates or AI-powered)
 - Live CLIP token counter (77 token limit)
 - Gallery with metadata viewing
 
 ### 🎯 LoRA Training Tab
 - **Dataset sub-tab:** Upload and caption training images
-- **Train sub-tab:** Configure and run training
+- **Train sub-tab:** Configure and run image LoRA training
 - **My LoRAs sub-tab:** Manage trained LoRAs
 - Multiple crop modes (resize_pad, smart, center, top, stretch)
 - Resume training from existing LoRAs
@@ -143,6 +141,10 @@ python cli_app.py
 ### 📚 Prompt Library Tab
 - Save generation settings for reuse
 - Organize prompts by category
+
+### 🃏 Card Generator Tab
+- Generate CAH-style black/white cards from a topic, or extract them from an article
+- Card library with search, filtering, favorites, and export
 
 ## Utility Scripts
 
@@ -158,62 +160,43 @@ python scripts/download_civitai_lora.py <url>
 
 # Convert training images to PNG
 python scripts/convert_images_to_png.py [folder]
-
-# Inspect model architecture
-python scripts/inspect_model.py
 ```
 
 ## Configuration
 
-### config/config.yaml
+### config/settings.yaml
 ```yaml
-model:
-  cache_dir: "./data/model_cache"
-  device: "auto"
-
-generation:
-  max_length: 150
-  temperature: 0.7
-  top_p: 0.95
+ollama_host: "http://localhost:11434"
+comfyui_host: "http://localhost:8188"
 ```
 
+### config/chat_model_presets.yaml
+Ollama model tags (must already be `ollama pull`-ed) plus display metadata.
+
 ### config/image_model_presets.yaml
-Per-model defaults for steps, guidance, resolution, etc.
+Per-model ComfyUI checkpoint filenames and defaults for steps, guidance, resolution, etc.
+
+### config/comfyui_workflows/
+ComfyUI workflow JSON templates (one per model family: SD1.5, SDXL, Flux) that `core/comfyui_client.py` patches per request. See `config/comfyui_workflows/README.md`.
 
 ## Supported Models
 
-### Chat Models
-| Model | Size | Best For |
-|-------|------|----------|
-| Nous-Hermes-2-Mistral-7B | 7B | Roleplay, instructions |
-| Dolphin-2.6-Mistral-7B | 7B | Uncensored chat |
-| DeepSeek Coder 6.7B | 6.7B | Code generation |
-| Kunoichi-DPO-v2-7B | 7B | Creative writing |
-| DialoGPT Medium | 355M | Fast, lightweight |
-
-### Image Models
-| Model | VRAM | Speed |
-|-------|------|-------|
-| Dreamshaper 8 | ~4 GB | Medium |
-| Realistic Vision V5 | ~4 GB | Medium |
-| SDXL Turbo | ~7 GB | Fast (1-8 steps) |
-| Absolute Reality | ~4 GB | Medium |
+Example presets ship in `config/chat_model_presets.example.yaml` and
+`config/image_model_presets.example.yaml` — copy them to the non-`.example`
+filename and add/replace entries with whatever you've pulled into Ollama or
+placed in ComfyUI's checkpoints folder. Nothing is hardcoded beyond those
+config files.
 
 ## Troubleshooting
 
-### "WinError 126" DLL errors
-Ensure `fix_dll_paths.py` is imported before torch in all scripts.
+### "Ollama not reachable" / "ComfyUI not reachable"
+Start the relevant service before generating, and confirm `ollama_host`/`comfyui_host` in `config/settings.yaml` match where it's actually listening.
 
-### CUDA/sm_120 not supported
-You need custom-built PyTorch. See `scripts/build_pytorch_sm120.bat`.
+### "WinError 126" DLL errors (LoRA training only)
+Ensure `fix_dll_paths.py` is imported before torch in any script that touches it.
 
-### Out of VRAM
-- Unload unused models (auto-unload is enabled)
-- Use smaller models
-- Reduce image resolution
-
-### Black images from SD
-Safety checker is disabled by default. If still getting black images, try different seeds or reduce guidance scale.
+### CUDA/sm_120 not supported (LoRA training only)
+You need a PyTorch build matching your GPU's compute capability. See `scripts/build_pytorch_sm120.bat`.
 
 ## License
 
@@ -221,11 +204,11 @@ Safety checker is disabled by default. If still getting black images, try differ
 
 ## Acknowledgments
 
-- [Hugging Face Transformers](https://huggingface.co/)
-- [Diffusers](https://github.com/huggingface/diffusers)
+- [Ollama](https://ollama.com/) for local chat model serving
+- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for local image generation
 - [Flet](https://flet.dev/) for desktop UI
-- [PEFT](https://github.com/huggingface/peft) for LoRA training
+- [PEFT](https://github.com/huggingface/peft) / [Diffusers](https://github.com/huggingface/diffusers) for image LoRA training
 
 ---
 
-**Built for RTX 5070 Ti with ❤️**
+**Built with ❤️**

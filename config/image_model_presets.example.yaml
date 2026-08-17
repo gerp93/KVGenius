@@ -2,12 +2,19 @@
 # Copy this file to image_model_presets.yaml and customize as needed
 # Each model has optimized default settings for best results
 # Note: All SD/SDXL models use CLIP with a 77 token limit (hardcoded in architecture)
+#
+# 'id' is the HuggingFace repo id, used only for the in-app download button
+# (downloads into data/checkpoints/). 'ckpt_filename' is the filename ComfyUI's
+# CheckpointLoaderSimple expects - the checkpoint must already exist in
+# ComfyUI's own checkpoints folder, or a folder ComfyUI is configured to see
+# via extra_model_paths.yaml (e.g. pointed at this repo's data/checkpoints).
+# Filenames below are illustrative - match whatever ComfyUI actually shows you.
 
 models:
   Dreamshaper 8:
     id: "Lykon/dreamshaper-8"
+    ckpt_filename: "dreamshaper_8.safetensors"
     description: "Artistic, great for portraits and fantasy"
-    vram: "~4 GB"
     default_steps: 25
     default_guidance: 7.5
     default_width: 512
@@ -19,8 +26,8 @@ models:
 
   AbsoluteReality:
     id: "Lykon/absolute-reality-1.6525"
+    ckpt_filename: "absolutereality_v1.safetensors"
     description: "Photorealistic images"
-    vram: "~4 GB"
     default_steps: 25
     default_guidance: 7.0
     default_width: 512
@@ -32,8 +39,8 @@ models:
 
   Realistic Vision V5:
     id: "SG161222/Realistic_Vision_V5.1_noVAE"
+    ckpt_filename: "realisticVisionV51_v51VAE.safetensors"
     description: "Highly realistic, great for people"
-    vram: "~4 GB"
     default_steps: 30
     default_guidance: 7.0
     default_width: 512
@@ -45,8 +52,8 @@ models:
 
   Stable Diffusion 1.5:
     id: "stable-diffusion-v1-5/stable-diffusion-v1-5"
+    ckpt_filename: "v1-5-pruned-emaonly.safetensors"
     description: "Classic SD 1.5, versatile base model"
-    vram: "~4 GB"
     default_steps: 25
     default_guidance: 7.5
     default_width: 512
@@ -58,8 +65,9 @@ models:
 
   SDXL Turbo:
     id: "stabilityai/sdxl-turbo"
+    ckpt_filename: "sd_xl_turbo_1.0_fp16.safetensors"
+    type: sdxl
     description: "Ultra-fast generation (1-8 steps)"
-    vram: "~7 GB"
     default_steps: 6
     default_guidance: 0.5
     default_width: 1024
@@ -71,8 +79,8 @@ models:
 
   epiCRealism:
     id: "emilianJR/epiCRealism"
+    ckpt_filename: "epicrealism_naturalSin.safetensors"
     description: "Extremely photorealistic, popular SD 1.5 model"
-    vram: "~4 GB"
     default_steps: 25
     default_guidance: 7.0
     default_width: 512
@@ -87,9 +95,10 @@ models:
 # ============================================
 # Example custom model:
 #   My Custom Model:
-#     id: "username/model-name-on-huggingface"
+#     id: "username/model-name-on-huggingface"   # for the download button, optional
+#     ckpt_filename: "my_model.safetensors"      # required - must match ComfyUI's checkpoint list
+#     type: sd                                   # sd | sdxl | sdxl-lightning | flux | sd3
 #     description: "Description here"
-#     vram: "~4 GB"
 #     default_steps: 25
 #     default_guidance: 7.0
 #     default_width: 512
@@ -103,12 +112,12 @@ models:
 prompt_templates:
   photorealistic:
     suffix: ", RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain"
-    
+
   artistic:
     suffix: ", masterpiece, best quality, highly detailed, sharp focus, dramatic lighting"
-    
+
   portrait:
     suffix: ", professional portrait, studio lighting, sharp focus, detailed skin texture, 85mm lens"
-    
+
   fantasy:
     suffix: ", fantasy art, highly detailed, dramatic lighting, epic composition, vibrant colors"

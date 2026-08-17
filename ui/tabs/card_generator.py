@@ -19,7 +19,7 @@ from flet import (
     SnackBar, ListView, Dropdown, dropdown, Slider,
     ProgressBar, ProgressRing, Divider, Checkbox, Tabs, Tab,
     padding, border_radius, alignment, GridView,
-    ControlState, ButtonStyle, MainAxisAlignment, CrossAxisAlignment,
+    ControlState, ButtonStyle, MainAxisAlignment,
     DataTable, DataColumn, DataRow, DataCell,
 )
 
@@ -136,22 +136,6 @@ class CardGeneratorTab:
             max_lines=4,
             visible=False,
         )
-        
-        # LoRA dropdown for card generation LoRAs
-        self.lora_dropdown = Dropdown(
-            label="🧬 Card LoRA",
-            width=250,
-            options=[dropdown.Option("none", "None (Base Model)")],
-            value="none",
-            hint_text="Select a trained card LoRA",
-        )
-        self.lora_refresh_btn = IconButton(
-            icon=Icons.REFRESH,
-            tooltip="Refresh LoRA list",
-            on_click=self._refresh_lora_list,
-        )
-        # Defer LoRA list loading to avoid initialization issues
-        # Will be loaded when build() is called or refresh is clicked
         
         # Quantity slider
         self.quantity_value = Text("10", size=12, weight=FontWeight.BOLD)
@@ -438,40 +422,6 @@ class CardGeneratorTab:
         self.custom_style_input.visible = (self.style_dropdown.value == "custom")
         self.page.update()
     
-    def _load_lora_list(self):
-        """Load available card LoRAs into dropdown."""
-        try:
-            from core.chat_gen import get_available_chat_loras
-            
-            loras = get_available_chat_loras("cardgen")
-            
-            options = [dropdown.Option("none", "None (Base Model)")]
-            for lora in loras:
-                name = lora["name"]
-                desc = lora.get("description", "")
-                label = f"🧬 {name}"
-                if desc:
-                    label += f" - {desc[:30]}..."
-                options.append(dropdown.Option(name, label))
-            
-            self.lora_dropdown.options = options
-            
-            # Reset selection if current is no longer valid
-            current = self.lora_dropdown.value
-            valid_keys = [opt.key for opt in options]
-            if current not in valid_keys:
-                self.lora_dropdown.value = "none"
-                
-        except Exception as ex:
-            logger.error(f"Failed to load LoRA list: {ex}")
-    
-    def _refresh_lora_list(self, e):
-        """Refresh the LoRA dropdown list."""
-        self._load_lora_list()
-        self.page.snack_bar = SnackBar(content=Text("🔄 LoRA list refreshed"))
-        self.page.snack_bar.open = True
-        self.page.update()
-    
     def _on_quantity_change(self, e):
         """Handle quantity slider change."""
         self.quantity_value.value = str(int(self.quantity_slider.value))
@@ -629,27 +579,9 @@ class CardGeneratorTab:
         self.page.update()
         
         def do_generate():
-            lora_loaded = False
-            selected_lora = self.lora_dropdown.value
-            
             try:
-                from core.chat_gen import generate_chat_response, load_chat_lora, unload_chat_lora, get_current_lora
-                
-                # Load LoRA if selected and not already loaded
-                if selected_lora and selected_lora != "none":
-                    current_lora = get_current_lora()
-                    if current_lora != selected_lora:
-                        def update_status_lora():
-                            self.status_text.value = f"🧬 Loading LoRA: {selected_lora}..."
-                            self.page.update()
-                        self.page.run_thread(update_status_lora)
-                        
-                        success, msg = load_chat_lora(selected_lora, "cardgen")
-                        if not success:
-                            raise Exception(f"Failed to load LoRA: {msg}")
-                        lora_loaded = True
-                        logger.info(f"Loaded LoRA for generation: {selected_lora}")
-                
+                from core.chat_gen import generate_chat_response
+
                 # Get parameters
                 card_type = self.card_type_dropdown.value
                 style = self.style_dropdown.value
@@ -667,8 +599,7 @@ class CardGeneratorTab:
                 user_prompt = get_generation_prompt(topic, type_enum, quantity, style_enum, custom_style)
                 
                 def update_status_gen():
-                    lora_info = f" (with {selected_lora})" if lora_loaded else ""
-                    self.status_text.value = f"🔄 Generating cards{lora_info}..."
+                    self.status_text.value = "🔄 Generating cards..."
                     self.page.update()
                 self.page.run_thread(update_status_gen)
                 
@@ -1587,13 +1518,7 @@ class CardGeneratorTab:
                 ], spacing=15, wrap=True),
                 
                 self.custom_style_input,
-                
-                # LoRA selection row
-                Row([
-                    self.lora_dropdown,
-                    self.lora_refresh_btn,
-                ], spacing=5, vertical_alignment=CrossAxisAlignment.CENTER),
-                
+
                 Row([
                     Text("📊 Quantity:", size=12),
                     self.quantity_value,
@@ -1611,7 +1536,6 @@ class CardGeneratorTab:
                         Text("💡 Tips:", size=12, weight=FontWeight.BOLD, color=Colors.BLUE_400),
                         Text("• Load a chat model first", size=11, color=Colors.GREY_400),
                         Text("• Be specific with your topic", size=11, color=Colors.GREY_400),
-                        Text("• Select a trained LoRA for style", size=11, color=Colors.GREY_400),
                         Text("• Classic style works best for humor", size=11, color=Colors.GREY_400),
                     ], spacing=3),
                     padding=padding.all(10),
@@ -1762,13 +1686,7 @@ class CardGeneratorTab:
         
         # Update model status
         self._check_model_loaded()
-        
-        # Load LoRA list (deferred from init to avoid issues)
-        try:
-            self._load_lora_list()
-        except Exception as ex:
-            logger.error(f"Failed to load LoRA list on build: {ex}")
-        
+
         # Create sub-tabs
         sub_tabs = Tabs(
             selected_index=0,
