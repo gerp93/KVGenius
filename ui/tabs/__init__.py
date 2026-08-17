@@ -8,8 +8,6 @@ from .settings import SettingsTab
 from .lora_manager import LoRAManagerTab
 from .dataset_manager import DatasetManagerTab
 from .lora_training import LoRATrainingTab
-from .text_lora_training import TextLoRATrainingTab
-from .card_lora_training import CardLoRATrainingTab
 from .model_hub import ModelHubTab
 from .card_generator import CardGeneratorTab
 
@@ -23,8 +21,6 @@ __all__ = [
     'LoRAManagerTab',
     'DatasetManagerTab',
     'LoRATrainingTab',
-    'TextLoRATrainingTab',
-    'CardLoRATrainingTab',
     'ModelHubTab',
     'CardGeneratorTab',
 ]

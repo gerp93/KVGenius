@@ -4,6 +4,12 @@ default_steps: 25
 default_width: 512
 theme: neon
 
+# --- Backend Services ---
+# KVGenius connects to these as an HTTP client - it does not launch them.
+# Start Ollama / ComfyUI yourself before using the Chat or Image Gen tabs.
+ollama_host: "http://localhost:11434"
+comfyui_host: "http://localhost:8188"
+
 # --- Memory Retrieval Settings ---
 # Controls how memories are selected for injection into the chat prompt.
 # Uses semantic similarity to pick the most relevant memories.
