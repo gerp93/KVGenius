@@ -17,8 +17,6 @@ from .model_manager import ModelManagerTab
 from .lora_manager import LoRAManagerTab
 from .dataset_manager import DatasetManagerTab
 from .lora_training import LoRATrainingTab
-from .text_lora_training import TextLoRATrainingTab
-from .card_lora_training import CardLoRATrainingTab
 
 
 class ModelHubTab:
@@ -29,20 +27,16 @@ class ModelHubTab:
     - LoRAs (browse/import/edit LoRA files)
     - Datasets (manage training datasets)
     - Training (configure and run image LoRA training)
-    - Text Training (train text/chat model LoRAs)
-    - Card Training (train card generation LoRAs)
     """
-    
+
     def __init__(self, page: Page):
         self.page = page
-        
+
         # Create sub-tab instances
         self.model_manager = ModelManagerTab(page)
         self.lora_manager = LoRAManagerTab(page)
         self.dataset_manager = DatasetManagerTab(page)
         self.lora_training = LoRATrainingTab(page)
-        self.text_lora_training = TextLoRATrainingTab(page)
-        self.card_lora_training = CardLoRATrainingTab(page)
     
     def build(self) -> Container:
         """Build the Model Hub tab with sub-tabs."""
@@ -71,16 +65,6 @@ class ModelHubTab:
                     text="🎓 Train Image",
                     icon=Icons.MODEL_TRAINING,
                     content=self.lora_training.build(),
-                ),
-                Tab(
-                    text="💬 Train Text",
-                    icon=Icons.CHAT,
-                    content=self.text_lora_training.build(),
-                ),
-                Tab(
-                    text="🃏 Train Cards",
-                    icon=Icons.STYLE,
-                    content=self.card_lora_training.build(),
                 ),
             ],
             expand=True,

@@ -6,12 +6,6 @@ tokenizers>=0.13.0
 # Optional: For faster inference
 accelerate>=0.20.0
 
-# Web interface (optional - requires Rust compiler for pydantic-core)
-# gradio>=3.35.0
-# If you want to use the web interface, install gradio separately:
-# pip install gradio
-flask>=2.3.0
-
 # Image Generation
 diffusers>=0.21.0
 safetensors>=0.3.0
@@ -21,7 +15,6 @@ peft>=0.5.0
 bitsandbytes>=0.41.0  # For 8-bit Adam optimizer (optional, Windows may need special install)
 
 # Utilities
-python-dotenv>=1.0.0
 pyyaml>=6.0
 requests>=2.28.0
 beautifulsoup4>=4.12.0

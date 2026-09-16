@@ -1,10 +1,11 @@
 """
 Core image generation engine for KVGenius.
-UI-agnostic - can be used by Gradio, Flet, or CLI.
+UI-agnostic - talks to a local ComfyUI server, does not load diffusion
+pipelines in-process.
 """
 import os
-import sys
 import time
+import random
 import logging
 import base64
 from io import BytesIO
@@ -12,17 +13,13 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Callable, Tuple, List
 from dataclasses import dataclass
 
-# Ensure fix_dll_paths is imported before torch
-sys.path.insert(0, str(Path(__file__).parent.parent))
-import fix_dll_paths
-
-import torch
 from PIL import Image
 
+from . import comfyui_client
 from .config import (
-    CACHE_DIR, 
+    CACHE_DIR,
     GENERATED_IMAGES_DIR,
-    HUGGINGFACE_MODELS, 
+    HUGGINGFACE_MODELS,
     LOCAL_CHECKPOINTS,
     CHECKPOINTS_DIR,
     LORA_DIR,
@@ -31,10 +28,9 @@ from .config import (
 logger = logging.getLogger(__name__)
 
 # Global state
-_current_model: Optional[Any] = None
+_current_model: Optional[Dict[str, Any]] = None  # {"family", "ckpt_name", "model_type"}
 _current_model_key: Optional[str] = None
-_loaded_models: Dict[str, Any] = {}
-_current_lora: Optional[str] = None  # Track loaded LoRA
+_current_lora: Optional[str] = None  # Track selected LoRA (informational; applied per-request)
 
 
 @dataclass
@@ -47,18 +43,33 @@ class GenerationResult:
     base64_data: Optional[str] = None
 
 
+def _family_for_type(model_type: str) -> str:
+    """Map a preset's model type to a ComfyUI workflow template family."""
+    if model_type in ("sdxl", "sdxl-lightning", "sd3"):
+        return "sdxl"
+    if model_type == "flux":
+        return "flux"
+    return "sd15"
+
+
 def get_available_image_models() -> Dict[str, Dict[str, Any]]:
-    """Get all available image models (HuggingFace + Local)."""
+    """Get all available image models (HuggingFace + Local).
+
+    'ckpt_filename' is the filename ComfyUI's CheckpointLoaderSimple expects
+    (the checkpoint must already exist in ComfyUI's own checkpoints folder,
+    or a folder ComfyUI is configured to see via extra_model_paths.yaml).
+    'id' is kept as the HuggingFace repo id for the download/is-downloaded flow.
+    """
     models = {}
-    
+
     # Add HuggingFace models
     for name, preset in HUGGINGFACE_MODELS.items():
         models[name] = {
             "id": preset.get("id", ""),
+            "ckpt_filename": preset.get("ckpt_filename", ""),
             "type": preset.get("type", "sd"),
             "source": "huggingface",
             "description": preset.get("description", ""),
-            "vram": preset.get("vram", "~6 GB"),
             "default_steps": preset.get("default_steps", 25),
             "default_guidance": preset.get("default_guidance", 7.0),
             "default_width": preset.get("default_width", 512),
@@ -67,7 +78,7 @@ def get_available_image_models() -> Dict[str, Dict[str, Any]]:
             "guidance_range": preset.get("guidance_range", [1.0, 20.0]),
             "default_negative": preset.get("default_negative", ""),
         }
-    
+
     # Add local checkpoints
     if CHECKPOINTS_DIR.exists():
         for f in CHECKPOINTS_DIR.iterdir():
@@ -76,17 +87,17 @@ def get_available_image_models() -> Dict[str, Dict[str, Any]]:
                 is_sdxl = size_gb > 4.0 or "xl" in f.stem.lower()
                 models[f.stem] = {
                     "id": str(f),
+                    "ckpt_filename": f.name,
                     "type": "sdxl" if is_sdxl else "sd",
                     "source": "local",
                     "description": f"Local checkpoint ({size_gb:.1f} GB)",
-                    "vram": f"~{4 if not is_sdxl else 8} GB",
                     "default_steps": 25,
                     "default_guidance": 7.0,
                     "default_width": 1024 if is_sdxl else 512,
                     "default_height": 1024 if is_sdxl else 512,
                     "is_local": True,
                 }
-    
+
     return models
 
 
@@ -94,14 +105,14 @@ def is_model_downloaded(repo_id: str) -> bool:
     """Check if a HuggingFace model is downloaded."""
     cache_name = "models--" + repo_id.replace("/", "--")
     cache_path = CACHE_DIR / cache_name
-    
+
     if not cache_path.exists():
         return False
-    
+
     # Check for substantial files (>100MB)
     min_size = 100 * 1024 * 1024
     total_size = 0
-    
+
     for root, _, files in os.walk(cache_path):
         for fname in files:
             try:
@@ -110,13 +121,13 @@ def is_model_downloaded(repo_id: str) -> bool:
                     return True
             except:
                 pass
-    
+
     return False
 
 
 def _is_model_fully_downloaded(repo_id: str) -> bool:
     """Check if a HuggingFace model is fully downloaded.
-    
+
     Checks:
     1. Cache folder exists with refs/ and snapshots/
     2. No .incomplete files in blobs/ (HF writes these during active downloads)
@@ -124,26 +135,26 @@ def _is_model_fully_downloaded(repo_id: str) -> bool:
     """
     cache_name = "models--" + repo_id.replace("/", "--")
     cache_path = CACHE_DIR / cache_name
-    
+
     if not cache_path.exists():
         return False
-    
+
     # Check for .incomplete files in blobs/ - these indicate an in-progress or interrupted download
     blobs_path = cache_path / "blobs"
     if blobs_path.exists():
         incomplete_files = list(blobs_path.glob("*.incomplete"))
         if incomplete_files:
             return False  # Still has incomplete downloads
-    
+
     # Verify refs/ and snapshots/ exist (created by snapshot_download)
     refs_path = cache_path / "refs"
     if not refs_path.exists():
         return False
-    
+
     ref_files = list(refs_path.iterdir()) if refs_path.is_dir() else []
     if not ref_files:
         return False
-    
+
     try:
         commit_hash = ref_files[0].read_text().strip()
         snapshot_path = cache_path / "snapshots" / commit_hash
@@ -154,7 +165,7 @@ def _is_model_fully_downloaded(repo_id: str) -> bool:
             return False
     except Exception:
         return False
-    
+
     # Check minimum size to confirm files aren't just stubs
     min_size = 100 * 1024 * 1024
     total_size = 0
@@ -166,12 +177,12 @@ def _is_model_fully_downloaded(repo_id: str) -> bool:
                     return True
             except:
                 pass
-    
+
     return False
 
 
 def get_current_model() -> Tuple[Optional[Any], Optional[str]]:
-    """Get the currently loaded model and its key."""
+    """Get the currently loaded model info and its key."""
     return _current_model, _current_model_key
 
 
@@ -185,7 +196,7 @@ def _infer_lora_model_type(base_model: str, name: str) -> str:
         elif "flux" in name_lower:
             return "flux"
         return "sd"  # Default to SD 1.5
-    
+
     base_lower = base_model.lower()
     if "sdxl" in base_lower or "xl-" in base_lower:
         return "sdxl"
@@ -198,25 +209,25 @@ def _infer_lora_model_type(base_model: str, name: str) -> str:
 
 def get_available_loras(model_type: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get list of available LoRA models from the lora_models directory.
-    
+
     Args:
         model_type: Optional filter - 'sd', 'sdxl', 'flux', or None for all
     """
     loras = []
-    
+
     if not LORA_DIR.exists():
         return loras
-    
+
     for item in LORA_DIR.iterdir():
         if item.is_dir():
             # Check for adapter files
             has_adapter = (item / "adapter_model.safetensors").exists() or \
                          (item / "adapter_model.bin").exists()
             has_config = (item / "adapter_config.json").exists()
-            
+
             # Check for loose safetensors
             safetensors = list(item.glob("*.safetensors"))
-            
+
             if has_adapter or has_config or safetensors:
                 # Try to read metadata
                 metadata_file = item / "lora_metadata.json"
@@ -227,15 +238,15 @@ def get_available_loras(model_type: Optional[str] = None) -> List[Dict[str, Any]
                         metadata = json.loads(metadata_file.read_text())
                     except:
                         pass
-                
+
                 # Get base_model and infer type
                 base_model = metadata.get("base_model", "")
                 lora_type = _infer_lora_model_type(base_model, item.name)
-                
+
                 # Apply filter if specified
                 if model_type and lora_type != model_type:
                     continue
-                
+
                 loras.append({
                     "name": item.name,
                     "path": str(item),
@@ -248,10 +259,10 @@ def get_available_loras(model_type: Optional[str] = None) -> List[Dict[str, Any]
         elif item.suffix == ".safetensors" and item.stem not in ["adapter_model"]:
             # Loose safetensors file - try to infer type from name
             lora_type = _infer_lora_model_type("", item.stem)
-            
+
             if model_type and lora_type != model_type:
                 continue
-            
+
             loras.append({
                 "name": item.stem,
                 "path": str(item),
@@ -261,44 +272,23 @@ def get_available_loras(model_type: Optional[str] = None) -> List[Dict[str, Any]
                 "base_model": "",
                 "model_type": lora_type,
             })
-    
+
     return loras
 
 
 def unload_lora():
-    """Unload any currently loaded LoRA."""
-    global _current_model, _current_lora
-    
-    if _current_model is not None and _current_lora is not None:
-        try:
-            if hasattr(_current_model, 'unfuse_lora'):
-                _current_model.unfuse_lora()
-            if hasattr(_current_model, 'unload_lora_weights'):
-                _current_model.unload_lora_weights()
-            logger.info(f"Unloaded LoRA: {_current_lora}")
-        except Exception as e:
-            logger.warning(f"Error unloading LoRA: {e}")
-    
+    """Clear the tracked LoRA selection (ComfyUI applies LoRA per-request, nothing to unload server-side)."""
+    global _current_lora
     _current_lora = None
 
 
 def unload_image_model():
-    """Unload current image model to free VRAM."""
-    global _current_model, _current_model_key, _loaded_models
-    
+    """Clear the tracked image model (ComfyUI manages its own VRAM/model lifecycle)."""
+    global _current_model, _current_model_key
     if _current_model is not None:
         logger.info(f"Unloading image model: {_current_model_key}")
-        del _current_model
-        _current_model = None
-        _current_model_key = None
-    
-    _loaded_models.clear()
-    
-    # Force garbage collection
-    import gc
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    _current_model = None
+    _current_model_key = None
 
 
 def load_image_model(
@@ -306,140 +296,60 @@ def load_image_model(
     progress_callback: Optional[Callable[[float, str], None]] = None
 ) -> Tuple[bool, str]:
     """
-    Load an image model.
-    
+    Point KVGenius at a checkpoint ComfyUI should use for generation.
+    Does not load weights itself - ComfyUI manages that server-side; this
+    validates the checkpoint is visible to ComfyUI.
+
     Args:
-        model_key: Name of the model to load
+        model_key: Name of the model preset to load
         progress_callback: Optional callback(progress: 0-1, message: str)
-    
+
     Returns:
         Tuple of (success: bool, message: str)
     """
-    global _current_model, _current_model_key, _loaded_models
-    
+    global _current_model, _current_model_key
+
     def report_progress(pct: float, msg: str):
         if progress_callback:
             progress_callback(pct, msg)
         logger.info(f"[{pct*100:.0f}%] {msg}")
-    
+
     models = get_available_image_models()
     if model_key not in models:
         return False, f"Unknown model: {model_key}"
-    
+
     model_info = models[model_key]
-    model_id = model_info["id"]
+    ckpt_name = model_info.get("ckpt_filename") or model_info.get("id", "")
     model_type = model_info.get("type", "sd")
-    is_local = model_info.get("is_local", False)
-    
-    # Check if already loaded
+
+    if not ckpt_name:
+        return False, f"{model_key} has no ComfyUI checkpoint filename configured"
+
     if _current_model_key == model_key and _current_model is not None:
         return True, f"{model_key} already loaded"
-    
-    # Unload previous model
-    if _current_model is not None:
-        report_progress(0.05, "Unloading previous model...")
-        unload_image_model()
-    
-    report_progress(0.1, f"Loading {model_key}...")
-    
-    # Auto-detect SDXL from model ID if type not explicitly set
-    if model_type == "sd" and ("sdxl" in model_id.lower() or "xl" in model_id.lower()):
-        model_type = "sdxl"
-        logger.info(f"Auto-detected SDXL pipeline for {model_key}")
-    
+
+    report_progress(0.2, f"Checking ComfyUI for {ckpt_name}...")
+
     try:
-        from diffusers import (
-            StableDiffusionPipeline,
-            StableDiffusionXLPipeline,
-            AutoPipelineForText2Image,
-        )
-        
-        # Determine pipeline class based on model type
-        if model_type == "flux":
-            from diffusers import FluxPipeline
-            report_progress(0.2, "Loading Flux pipeline...")
-            pipeline = FluxPipeline.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,
-                cache_dir=str(CACHE_DIR),
-            )
-        elif model_type == "sd3":
-            from diffusers import StableDiffusion3Pipeline
-            report_progress(0.2, "Loading SD3 pipeline...")
-            pipeline = StableDiffusion3Pipeline.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,
-                cache_dir=str(CACHE_DIR),
-            )
-        elif is_local:
-            report_progress(0.2, "Loading local checkpoint...")
-            # Determine if SDXL
-            is_sdxl = model_type == "sdxl"
-            if is_sdxl:
-                pipeline = StableDiffusionXLPipeline.from_single_file(
-                    model_id,
-                    torch_dtype=torch.float16,
-                )
-            else:
-                pipeline = StableDiffusionPipeline.from_single_file(
-                    model_id,
-                    torch_dtype=torch.float16,
-                )
-        elif model_type in ["sdxl", "sdxl-lightning"]:
-            report_progress(0.2, "Loading SDXL pipeline...")
-            pipeline = StableDiffusionXLPipeline.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,
-                cache_dir=str(CACHE_DIR),
-                use_safetensors=True,
-            )
-        else:
-            # Standard SD 1.5
-            report_progress(0.2, "Loading SD pipeline...")
-            try:
-                pipeline = StableDiffusionPipeline.from_pretrained(
-                    model_id,
-                    torch_dtype=torch.float16,
-                    cache_dir=str(CACHE_DIR),
-                    use_safetensors=True,
-                )
-            except Exception:
-                # Fallback to AutoPipeline
-                pipeline = AutoPipelineForText2Image.from_pretrained(
-                    model_id,
-                    torch_dtype=torch.float16,
-                    cache_dir=str(CACHE_DIR),
-                )
-        
-        report_progress(0.6, "Moving to GPU...")
-        pipeline = pipeline.to("cuda")
-        
-        report_progress(0.8, "Applying optimizations...")
-        # Memory optimizations
-        if hasattr(pipeline, 'enable_attention_slicing'):
-            pipeline.enable_attention_slicing()
-        if hasattr(pipeline, 'vae') and pipeline.vae is not None:
-            if hasattr(pipeline.vae, 'enable_slicing'):
-                pipeline.vae.enable_slicing()
-            if hasattr(pipeline.vae, 'enable_tiling'):
-                pipeline.vae.enable_tiling()
-        
-        # Disable safety checker if present
-        if hasattr(pipeline, 'safety_checker'):
-            pipeline.safety_checker = None
-        
-        _current_model = pipeline
-        _current_model_key = model_key
-        _loaded_models[model_key] = pipeline
-        
-        report_progress(1.0, f"{model_key} loaded successfully!")
-        logger.info(f"Model loaded: {model_key}")
-        
-        return True, f"{model_key} loaded successfully"
-        
-    except Exception as e:
-        logger.error(f"Error loading model {model_key}: {e}")
-        return False, f"Error loading {model_key}: {str(e)}"
+        available = comfyui_client.list_checkpoints()
+    except comfyui_client.ComfyUIUnavailableError as e:
+        return False, str(e)
+
+    if available and ckpt_name not in available:
+        preview = ", ".join(available[:5]) + ("..." if len(available) > 5 else "")
+        return False, f"'{ckpt_name}' not found in ComfyUI's checkpoints folder. Available: {preview}"
+
+    _current_model = {
+        "family": _family_for_type(model_type),
+        "ckpt_name": ckpt_name,
+        "model_type": model_type,
+    }
+    _current_model_key = model_key
+
+    report_progress(1.0, f"{model_key} ready!")
+    logger.info(f"Model ready: {model_key}")
+
+    return True, f"{model_key} ready"
 
 
 def generate_image(
@@ -457,8 +367,8 @@ def generate_image(
     save_to_disk: bool = True,
 ) -> Optional[GenerationResult]:
     """
-    Generate an image from a text prompt.
-    
+    Generate an image from a text prompt via ComfyUI.
+
     Args:
         prompt: The text prompt
         negative_prompt: Things to avoid in the image
@@ -469,190 +379,122 @@ def generate_image(
         seed: Random seed (-1 for random)
         lora_name: Name of LoRA to apply (None or "None" to skip)
         lora_strength: LoRA strength (0.0 to 1.5)
-        progress_callback: Optional callback(current_step, total_steps)
+        progress_callback: Optional callback(current_step, total_steps) - coarse, see comfyui_client.generate
         cancel_callback: Optional callback() -> bool, returns True to cancel
         save_to_disk: Whether to save the image to disk
-    
+
     Returns:
-        GenerationResult or None if generation fails or cancelled
+        GenerationResult or None if generation fails or is cancelled
     """
     global _current_model, _current_model_key, _current_lora
-    
+
     if _current_model is None:
         logger.error("No model loaded")
         return None
-    
+
     if not prompt.strip():
         logger.error("Empty prompt")
         return None
-    
-    # Get model info for type-specific handling
-    models = get_available_image_models()
-    model_info = models.get(_current_model_key, {})
-    model_type = model_info.get("type", "sd")
-    
-    # Set up seed
+
     if seed == -1:
-        seed = torch.randint(0, 2**32 - 1, (1,)).item()
-    
-    generator = torch.Generator(device="cuda").manual_seed(seed)
-    
-    # Progress callback wrapper with cancellation support
-    class GenerationCancelled(Exception):
-        pass
-    
-    def step_callback(pipe, step: int, timestep: int, callback_kwargs):
-        # Check for cancellation
-        if cancel_callback and cancel_callback():
-            raise GenerationCancelled("Generation cancelled by user")
-        if progress_callback:
-            progress_callback(step, steps)
-        return callback_kwargs
-    
+        seed = random.randint(0, 2**32 - 1)
+
+    # SDXL Lightning models need CFG=0 for best results, regardless of caller-passed guidance
+    cfg = 0.0 if _current_model.get("model_type") == "sdxl-lightning" else guidance_scale
+
+    lora_file = lora_name if (lora_name and lora_name != "None") else None
+    _current_lora = lora_file
+
     logger.info(f"Generating: '{prompt[:50]}...' with {_current_model_key}")
     start_time = time.time()
-    
-    # Handle LoRA loading/unloading
-    lora_loaded = False
-    if lora_name and lora_name != "None":
-        # Find the LoRA
-        lora_path = LORA_DIR / lora_name
-        if lora_path.exists():
-            try:
-                # Unload previous LoRA if different
-                if _current_lora and _current_lora != lora_name:
-                    unload_lora()
-                
-                if _current_lora != lora_name:
-                    logger.info(f"Loading LoRA: {lora_name} with strength {lora_strength}")
-                    _current_model.load_lora_weights(str(lora_path))
-                    _current_model.fuse_lora(lora_scale=lora_strength)
-                    _current_lora = lora_name
-                    lora_loaded = True
-                    logger.info(f"LoRA loaded: {lora_name}")
-                else:
-                    # Same LoRA, just update strength by re-fusing
-                    _current_model.fuse_lora(lora_scale=lora_strength)
-                    lora_loaded = True
-            except Exception as e:
-                logger.warning(f"Failed to load LoRA {lora_name}: {e}")
-        else:
-            logger.warning(f"LoRA not found: {lora_path}")
-    elif _current_lora:
-        # No LoRA requested but one is loaded - unload it
-        unload_lora()
-    
+
     try:
-        # Type-specific generation
-        if model_type == "flux":
-            result = _current_model(
-                prompt=prompt,
-                num_inference_steps=steps,
-                height=height,
-                width=width,
-                generator=generator,
-                callback_on_step_end=step_callback,
-            )
-        elif model_type == "sdxl-lightning":
-            # SDXL Lightning requires guidance_scale=0.0 for best results
-            gen_kwargs = {
-                "prompt": prompt,
-                "num_inference_steps": steps,
-                "guidance_scale": 0.0,  # Lightning models need CFG=0
-                "width": width,
-                "height": height,
-                "generator": generator,
-                "callback_on_step_end": step_callback,
-            }
-            if negative_prompt.strip():
-                gen_kwargs["negative_prompt"] = negative_prompt
-            
-            result = _current_model(**gen_kwargs)
-        else:
-            # SD / SDXL / SD3
-            gen_kwargs = {
-                "prompt": prompt,
-                "num_inference_steps": steps,
-                "guidance_scale": guidance_scale,
-                "width": width,
-                "height": height,
-                "generator": generator,
-                "callback_on_step_end": step_callback,
-            }
-            if negative_prompt.strip():
-                gen_kwargs["negative_prompt"] = negative_prompt
-            
-            result = _current_model(**gen_kwargs)
-        
-        generation_time = time.time() - start_time
-        image = result.images[0]
-        
-        # Save to disk
-        filepath = None
-        if save_to_disk:
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            filepath = str(GENERATED_IMAGES_DIR / f"img_{timestamp}_{seed}.png")
-            
-            # Add metadata
-            from PIL import PngImagePlugin
-            metadata = PngImagePlugin.PngInfo()
-            metadata.add_text("prompt", prompt)
-            metadata.add_text("negative_prompt", negative_prompt)
-            metadata.add_text("steps", str(steps))
-            metadata.add_text("guidance_scale", str(guidance_scale))
-            metadata.add_text("seed", str(seed))
-            metadata.add_text("model", _current_model_key or "unknown")
-            if lora_name and lora_name != "None":
-                metadata.add_text("lora", lora_name)
-                metadata.add_text("lora_strength", str(lora_strength))
-            
-            image.save(filepath, pnginfo=metadata)
-            logger.info(f"Saved: {filepath}")
-        
-        # Convert to base64 for UI display
-        buffered = BytesIO()
-        image.save(buffered, format="PNG")
-        base64_data = base64.b64encode(buffered.getvalue()).decode()
-        
-        return GenerationResult(
-            image=image,
+        image_bytes = comfyui_client.generate(
+            family=_current_model["family"],
+            ckpt_name=_current_model["ckpt_name"],
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            steps=steps,
+            cfg=cfg,
+            width=width,
+            height=height,
             seed=seed,
-            generation_time=generation_time,
-            filepath=filepath,
-            base64_data=base64_data,
+            lora_name=lora_file,
+            lora_strength=lora_strength,
+            progress_callback=progress_callback,
+            cancel_callback=cancel_callback,
         )
-    
-    except GenerationCancelled:
+    except comfyui_client.GenerationCancelled:
         logger.info("Generation cancelled by user")
         return None
-        
-    except Exception as e:
-        import traceback
-        logger.error(f"Generation error: {e}")
-        logger.error(traceback.format_exc())
+    except comfyui_client.ComfyUIUnavailableError as e:
+        logger.error(str(e))
         return None
+    except Exception as e:
+        logger.error(f"Generation error: {e}")
+        return None
+
+    generation_time = time.time() - start_time
+
+    image = Image.open(BytesIO(image_bytes))
+    image.load()
+
+    # Save to disk
+    filepath = None
+    if save_to_disk:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filepath = str(GENERATED_IMAGES_DIR / f"img_{timestamp}_{seed}.png")
+
+        # Add metadata
+        from PIL import PngImagePlugin
+        metadata = PngImagePlugin.PngInfo()
+        metadata.add_text("prompt", prompt)
+        metadata.add_text("negative_prompt", negative_prompt)
+        metadata.add_text("steps", str(steps))
+        metadata.add_text("guidance_scale", str(cfg))
+        metadata.add_text("seed", str(seed))
+        metadata.add_text("model", _current_model_key or "unknown")
+        if lora_file:
+            metadata.add_text("lora", lora_file)
+            metadata.add_text("lora_strength", str(lora_strength))
+
+        image.save(filepath, pnginfo=metadata)
+        logger.info(f"Saved: {filepath}")
+
+    # Convert to base64 for UI display
+    buffered = BytesIO()
+    image.save(buffered, format="PNG")
+    base64_data = base64.b64encode(buffered.getvalue()).decode()
+
+    return GenerationResult(
+        image=image,
+        seed=seed,
+        generation_time=generation_time,
+        filepath=filepath,
+        base64_data=base64_data,
+    )
 
 
 def get_generated_images(limit: int = 50) -> List[Dict[str, Any]]:
     """Get list of recently generated images."""
     images = []
-    
+
     if not GENERATED_IMAGES_DIR.exists():
         return images
-    
+
     # Get PNG files sorted by modification time (newest first)
     files = sorted(
         GENERATED_IMAGES_DIR.glob("*.png"),
         key=lambda f: f.stat().st_mtime,
         reverse=True
     )[:limit]
-    
+
     for f in files:
         try:
             # Read metadata from PNG
             img = Image.open(f)
             metadata = img.info
-            
+
             images.append({
                 "path": str(f),
                 "filename": f.name,
@@ -663,7 +505,7 @@ def get_generated_images(limit: int = 50) -> List[Dict[str, Any]]:
             })
         except Exception as e:
             logger.warning(f"Error reading {f}: {e}")
-    
+
     return images
 
 
@@ -672,49 +514,54 @@ def download_model(
     progress_callback: Optional[Callable[[float, str], None]] = None
 ) -> Tuple[bool, str]:
     """
-    Download a HuggingFace model.
-    
+    Download a HuggingFace checkpoint into KVGenius's local checkpoints folder.
+
+    Note: this only downloads the file locally - ComfyUI must also be able to
+    see it (either point ComfyUI's extra_model_paths.yaml at this repo's
+    data/checkpoints directory, or copy/symlink the file into ComfyUI's own
+    checkpoints folder) before it can be selected for generation.
+
     Args:
         repo_id: HuggingFace repository ID (e.g., "Lykon/dreamshaper-8")
         progress_callback: Optional callback(progress: 0-1, message: str)
-    
+
     Returns:
         Tuple of (success: bool, message: str)
     """
     from huggingface_hub import snapshot_download, HfApi
     import threading
-    
+
     def report_progress(pct: float, msg: str):
         if progress_callback:
             progress_callback(pct, msg)
         logger.info(f"[{pct*100:.0f}%] {msg}")
-    
+
     # Check if already fully downloaded
     if _is_model_fully_downloaded(repo_id):
         return True, f"{repo_id} is already downloaded"
-    
+
     report_progress(0.02, f"Starting download: {repo_id}")
-    
+
     stop_monitor = threading.Event()
-    
+
     try:
         # Disable xet storage for more reliable downloads
         os.environ["HF_HUB_DISABLE_XET"] = "1"
-        
+
         report_progress(0.05, "Fetching model info from HuggingFace...")
-        
+
         # Get total size for progress tracking - try multiple methods
         cache_name = "models--" + repo_id.replace("/", "--")
         cache_path = CACHE_DIR / cache_name
         total_size = 0
-        
+
         try:
             api = HfApi()
             # Method 1: model_info with files_metadata
             info = api.model_info(repo_id, files_metadata=True)
             siblings = info.siblings or []
             total_size = sum(s.size or 0 for s in siblings)
-            
+
             # Method 2: if sizes were all 0, try list_repo_tree
             if total_size == 0 and siblings:
                 try:
@@ -722,7 +569,7 @@ def download_model(
                     total_size = sum(getattr(item, 'size', 0) or 0 for item in tree)
                 except Exception:
                     pass
-            
+
             file_count = len(siblings)
             if total_size > 0:
                 report_progress(0.08, f"Found {file_count} files ({total_size / (1024**3):.1f} GB total)")
@@ -731,10 +578,10 @@ def download_model(
         except Exception as e:
             logger.warning(f"Could not get model info: {e}")
             file_count = 0
-        
+
         # Track progress via a monitoring thread - ALWAYS start it
         last_reported_size = [0]  # Use list for mutability in closure
-        
+
         def monitor_progress():
             """Periodically check downloaded size and report progress."""
             while not stop_monitor.is_set():
@@ -750,12 +597,12 @@ def download_model(
                             downloaded = sum(
                                 f.stat().st_size for f in cache_path.rglob('*') if f.is_file()
                             )
-                        
+
                         # Only report if size actually changed
                         if downloaded != last_reported_size[0]:
                             last_reported_size[0] = downloaded
                             size_gb = downloaded / (1024**3)
-                            
+
                             if total_size > 0:
                                 pct = min(downloaded / total_size, 0.98)
                                 total_gb = total_size / (1024**3)
@@ -766,23 +613,23 @@ def download_model(
                 except Exception:
                     pass
                 stop_monitor.wait(3.0)  # Check every 3 seconds
-        
+
         monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
         monitor_thread.start()
-        
+
         path = snapshot_download(
             repo_id,
             cache_dir=str(CACHE_DIR),
             max_workers=1,  # Single-threaded to avoid timeouts
             resume_download=True,
         )
-        
+
         stop_monitor.set()
-        
+
         report_progress(1.0, f"Download complete: {repo_id}")
         logger.info(f"Model downloaded to: {path}")
         return True, f"Successfully downloaded {repo_id}"
-        
+
     except Exception as e:
         stop_monitor.set()
         error_msg = str(e)
