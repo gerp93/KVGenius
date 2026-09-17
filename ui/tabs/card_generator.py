@@ -416,7 +416,23 @@ class CardGeneratorTab:
             color=Colors.WHITE,
             on_click=self._delete_last_n,
         )
-    
+
+        # ============ DEBUG TAB COMPONENTS ============
+
+        self.debug_empty_text = Text(
+            "No generation yet - generate some cards to see what was sent to the model.",
+            color=Colors.GREY_500, italic=True,
+        )
+        self.debug_prompt_text = Text("", size=12, selectable=True, font_family="monospace")
+        self.debug_response_text = Text("", size=12, selectable=True, font_family="monospace")
+        self.debug_meta_text = Text("", size=11, color=Colors.GREY_400)
+        self.debug_error_text = Text("", size=12, color=Colors.RED_400, selectable=True)
+        self.debug_copy_btn = IconButton(
+            icon=Icons.CONTENT_COPY,
+            tooltip="Copy debug info to clipboard",
+            on_click=self._copy_debug_to_clipboard,
+        )
+
     def _on_style_change(self, e):
         """Handle style dropdown change."""
         self.custom_style_input.visible = (self.style_dropdown.value == "custom")
@@ -545,7 +561,89 @@ class CardGeneratorTab:
         self.page.snack_bar = SnackBar(content=Text("📋 Copied to clipboard!"))
         self.page.snack_bar.open = True
         self.page.update()
-    
+
+    def _refresh_debug_view(self):
+        """Populate the Debug tab from the last generate_chat_response call."""
+        from core.chat_gen import _last_debug_info as dbg
+
+        if not dbg:
+            return
+
+        self.debug_empty_text.visible = False
+        self.debug_prompt_text.value = dbg.get("full_prompt", "")
+        self.debug_response_text.value = dbg.get("raw_response", "")
+
+        stop_phrases = dbg.get("stop_phrases", [])
+        self.debug_meta_text.value = (
+            f"Tokens: input={dbg.get('input_tokens', '?')}, output={dbg.get('output_tokens', '?')}"
+            f"  •  Stop phrases: {', '.join(repr(s) for s in stop_phrases) if stop_phrases else 'none'}"
+        )
+
+        if "error" in dbg:
+            self.debug_error_text.value = f"❌ {dbg['error']}"
+            self.debug_error_text.visible = True
+        else:
+            self.debug_error_text.value = ""
+            self.debug_error_text.visible = False
+
+        try:
+            self.page.update()
+        except:
+            pass
+
+    def _copy_debug_to_clipboard(self, e=None):
+        """Copy the last generation's debug info to clipboard as plain text."""
+        from core.chat_gen import _last_debug_info as dbg
+
+        if not dbg:
+            return
+
+        lines = [
+            "=== PROMPT SENT ===",
+            dbg.get("full_prompt", ""),
+            "",
+            "=== RAW RESPONSE ===",
+            dbg.get("raw_response", ""),
+            "",
+            f"Tokens: input={dbg.get('input_tokens', '?')}, output={dbg.get('output_tokens', '?')}",
+        ]
+        if "error" in dbg:
+            lines.append(f"Error: {dbg['error']}")
+
+        self._copy_to_clipboard("\n".join(lines))
+
+    def _build_debug_tab(self) -> Container:
+        """Build the Debug sub-tab content - shows what was sent to/received from the model."""
+        return Container(
+            content=Column([
+                Row([
+                    Text("🐛 Last Generation", size=16, weight=FontWeight.BOLD),
+                    Container(expand=True),
+                    self.debug_copy_btn,
+                ]),
+                self.debug_empty_text,
+                self.debug_error_text,
+                Divider(height=10, color=Colors.TRANSPARENT),
+                Text("Prompt sent to Ollama:", size=12, weight=FontWeight.BOLD, color=Colors.BLUE_400),
+                Container(
+                    content=Column([self.debug_prompt_text], scroll=ScrollMode.AUTO),
+                    bgcolor=Colors.GREY_900, padding=padding.all(10),
+                    border_radius=border_radius.all(8), height=200,
+                ),
+                Divider(height=10, color=Colors.TRANSPARENT),
+                Text("Raw response:", size=12, weight=FontWeight.BOLD, color=Colors.BLUE_400),
+                Container(
+                    content=Column([self.debug_response_text], scroll=ScrollMode.AUTO),
+                    bgcolor=Colors.GREY_900, padding=padding.all(10),
+                    border_radius=border_radius.all(8), height=200,
+                ),
+                Divider(height=10, color=Colors.TRANSPARENT),
+                self.debug_meta_text,
+            ], spacing=8, scroll=ScrollMode.AUTO),
+            padding=padding.all(15),
+            expand=True,
+        )
+
     def _generate_cards(self, e):
         """Generate cards using the loaded chat model."""
         if self.generating:
@@ -603,13 +701,11 @@ class CardGeneratorTab:
                     self.page.update()
                 self.page.run_thread(update_status_gen)
                 
-                # Generate using the chat model (no history to avoid context pollution)
                 success, response = generate_chat_response(
                     user_message=user_prompt,
                     system_prompt=system_prompt,
                     max_new_tokens=800,
                     temperature=0.8,
-                    use_history=False,
                 )
                 
                 if not success:
@@ -620,14 +716,15 @@ class CardGeneratorTab:
                 
                 # Update UI on main thread
                 def update_ui():
+                    self._refresh_debug_view()
                     self.cards_output.controls.clear()
                     self.generated_cards = cards.copy() if cards else []
                     self.selected_generated_cards.clear()
-                    
+
                     if cards:
                         for i, card in enumerate(cards):
                             self._add_card_to_output(card["text"], card["type"], self.cards_output, card_index=i)
-                        
+
                         # Save cards
                         if self.cah_generator:
                             self.cah_generator.add_cards([
@@ -641,33 +738,34 @@ class CardGeneratorTab:
                                 )
                                 for c in cards
                             ])
-                        
+
                         black_count = len([c for c in cards if c["type"] == "black"])
                         white_count = len([c for c in cards if c["type"] == "white"])
                         self.status_text.value = f"✅ Generated {len(cards)} cards! ({black_count} black, {white_count} white)"
                     else:
                         self.status_text.value = "⚠️ Could not parse cards from response. Try again."
-                    
+
                     self.generating = False
                     self.generate_btn.disabled = False
                     self.progress_bar.visible = False
                     self.page.update()
-                
+
                 self.page.run_thread(update_ui)
-                
+
             except Exception as ex:
                 logger.error(f"Error generating cards: {ex}")
                 error_msg = str(ex)
-                
+
                 def show_error():
+                    self._refresh_debug_view()
                     self.status_text.value = f"❌ Error: {error_msg}"
                     self.generating = False
                     self.generate_btn.disabled = False
                     self.progress_bar.visible = False
                     self.page.update()
-                
+
                 self.page.run_thread(show_error)
-        
+
         threading.Thread(target=do_generate, daemon=True).start()
     
     def _parse_card_response(self, response: str, topic: str, style: CardStyle, card_type: CardType) -> List[Dict]:
@@ -803,7 +901,6 @@ class CardGeneratorTab:
                     system_prompt=ARTICLE_EXTRACTION_PROMPT,
                     max_new_tokens=800,
                     temperature=0.7,
-                    use_history=False,
                 )
                 
                 if not success:
@@ -812,8 +909,9 @@ class CardGeneratorTab:
                 cards = self._parse_card_response(response, "Article extraction", CardStyle.ABSURD, type_enum)
                 
                 def update_ui():
+                    self._refresh_debug_view()
                     self.extracted_cards_output.controls.clear()
-                    
+
                     if cards:
                         for card in cards:
                             self._add_card_to_output(card["text"], card["type"], self.extracted_cards_output)
@@ -850,6 +948,7 @@ class CardGeneratorTab:
                 error_msg = str(ex)
                 
                 def show_error():
+                    self._refresh_debug_view()
                     self.article_status.value = f"❌ Error: {error_msg}"
                     self.generating = False
                     self.extract_btn.disabled = False
@@ -1706,6 +1805,11 @@ class CardGeneratorTab:
                     text="📚 My Cards",
                     icon=Icons.COLLECTIONS_BOOKMARK,
                     content=self._build_library_tab(),
+                ),
+                Tab(
+                    text="🐛 Debug",
+                    icon=Icons.BUG_REPORT,
+                    content=self._build_debug_tab(),
                 ),
             ],
             expand=True,

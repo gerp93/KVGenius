@@ -1,21 +1,20 @@
 # KVGenius - AI Studio 🎨🤖
 
-A comprehensive AI creative studio combining chat, image generation, and LoRA training. Chat runs against a local **Ollama** server; image generation runs against a local **ComfyUI** server — KVGenius is a Flet desktop client for both, not an in-process model runner.
+An AI creative studio for image generation and party-game card writing. Image generation runs against a local **ComfyUI** server; the Card Generator writes text via a local **Ollama** server — KVGenius is a Flet desktop client for both, not an in-process model runner.
+
+(Chat, with AI characters/personas and conversation memory, moved to a separate app - roleplaymate.)
 
 This repo follows the shared conventions in
 [gerp93/KVG_Standards](https://github.com/gerp93/KVG_Standards) — theming,
-release/CI, self-update, licensing, and database location all come from
-there rather than being reinvented locally.
+release/CI, self-update, and licensing all come from there rather than
+being reinvented locally.
 
 ## Features
 
-- 🤖 **Multi-Model Chat** - Switch between any model pulled into Ollama (Mistral, DeepSeek, Dolphin, etc.)
 - 🎨 **Image Generation** - Any checkpoint ComfyUI can see, with LoRA support
 - 🎯 **Image LoRA Training** - Train custom image LoRAs for specific subjects/styles
 - 💾 **Prompt Library** - Save and reuse your best prompts
-- 📝 **Chat History** - SQLite-backed conversation persistence
-- 🎭 **AI Characters & Personas** - Create custom chat personalities
-- 🃏 **Card Generator** - Generate CAH-style party game cards from a topic or an article
+- 🃏 **Card Generator** - Generate CAH-style party game cards from a topic or an article, via a local Ollama model
 
 ## Project Structure
 
@@ -25,18 +24,16 @@ KVGenius/
 │   ├── checkpoints/         # Downloaded image checkpoints
 │   ├── lora_models/         # Image LoRA files
 │   ├── training_datasets/   # Training images
-│   ├── generated_images/    # Output images
-│   └── chat_history.db      # Chat database
+│   └── generated_images/    # Output images
 │
 ├── core/                    # UI-agnostic backend
-│   ├── chat_gen.py          # Ollama client wrapper
+│   ├── chat_gen.py          # Ollama client wrapper (used only by Card Generator)
 │   ├── image_gen.py         # ComfyUI client wrapper
 │   ├── ollama_client.py     # Thin Ollama REST client
 │   ├── comfyui_client.py    # Thin ComfyUI REST client
-│   └── ...                  # config, prompt_builder, semantic_index, db_location
+│   └── ...                  # config, prompt_builder helpers, etc.
 │
 ├── src/
-│   ├── database/             # SQLite management
 │   ├── training/
 │   │   └── lora_trainer.py  # Image LoRA training pipeline (local torch/diffusers)
 │   └── cards/                # Card generator logic
@@ -53,12 +50,12 @@ KVGenius/
 │
 ├── config/
 │   ├── settings.yaml               # ollama_host / comfyui_host and other settings
-│   ├── chat_model_presets.yaml     # Ollama model tags
+│   ├── chat_model_presets.yaml     # Ollama model tags (for Card Generator)
 │   ├── image_model_presets.yaml    # ComfyUI checkpoint filenames
 │   └── comfyui_workflows/          # ComfyUI workflow JSON templates
 │
 ├── desktop_app.py           # Main Flet desktop application (only supported entry point)
-├── fix_dll_paths.py         # CUDA DLL path fix (needed only for LoRA training / semantic search)
+├── fix_dll_paths.py         # CUDA DLL path fix (needed only for local LoRA training)
 └── requirements.txt
 ```
 
@@ -66,12 +63,12 @@ KVGenius/
 
 ### Software
 - Python 3.10+
-- [Ollama](https://ollama.com/) running locally, with your chat models pulled (`ollama pull mistral:7b`, etc.)
+- [Ollama](https://ollama.com/) running locally, with a model pulled (`ollama pull mistral:7b`, etc.) — used by the Card Generator
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running locally, with your checkpoints in its checkpoints folder
 - Miniconda/Anaconda (recommended)
 
-### Optional (only for local image-LoRA training / semantic memory search)
-- NVIDIA GPU + PyTorch with matching CUDA/sm support — `src/training/lora_trainer.py` and `core/semantic_index.py` still run local `torch`/`diffusers`/`peft` for these two features. Chat and image generation themselves don't need a local GPU stack at all.
+### Optional (only for local image-LoRA training)
+- NVIDIA GPU + PyTorch/diffusers/peft with matching CUDA/sm support (not in `requirements.txt` by default - install separately if you want to train LoRAs locally via `src/training/lora_trainer.py`). Image generation and card writing don't need a local GPU stack at all.
 
 ## Installation
 
@@ -100,7 +97,7 @@ copy config\image_model_presets.example.yaml config\image_model_presets.yaml
 ```
 
 ### 5. Start Ollama and ComfyUI
-KVGenius does not launch these for you - start them yourself before using the Chat or Image Generation tabs:
+KVGenius does not launch these for you - start them yourself before using the Card Generator or Image Generation tabs:
 ```powershell
 ollama serve
 # and, in another terminal, start ComfyUI per its own instructions
@@ -118,12 +115,6 @@ python desktop_app.py
 ```
 
 ## Tabs Overview
-
-### 💬 Chat Tab
-- Multi-model support with hot-swapping (any model pulled into Ollama)
-- AI Characters with custom system prompts
-- User Personas for roleplay
-- Conversation history with branching
 
 ### 🎨 Image Generation Tab
 - Any ComfyUI-visible checkpoint, with auto-presets
@@ -143,8 +134,9 @@ python desktop_app.py
 - Organize prompts by category
 
 ### 🃏 Card Generator Tab
-- Generate CAH-style black/white cards from a topic, or extract them from an article
+- Generate CAH-style black/white cards from a topic, or extract them from an article, via a local Ollama model
 - Card library with search, filtering, favorites, and export
+- Debug tab showing exactly what was sent to/received from the model on the last generation
 
 ## Utility Scripts
 
@@ -171,7 +163,7 @@ comfyui_host: "http://localhost:8188"
 ```
 
 ### config/chat_model_presets.yaml
-Ollama model tags (must already be `ollama pull`-ed) plus display metadata.
+Ollama model tags (must already be `ollama pull`-ed) plus display metadata, used by the Card Generator.
 
 ### config/image_model_presets.yaml
 Per-model ComfyUI checkpoint filenames and defaults for steps, guidance, resolution, etc.
@@ -204,7 +196,7 @@ You need a PyTorch build matching your GPU's compute capability. See `scripts/bu
 
 ## Acknowledgments
 
-- [Ollama](https://ollama.com/) for local chat model serving
+- [Ollama](https://ollama.com/) for local text generation (Card Generator)
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for local image generation
 - [Flet](https://flet.dev/) for desktop UI
 - [PEFT](https://github.com/huggingface/peft) / [Diffusers](https://github.com/huggingface/diffusers) for image LoRA training
