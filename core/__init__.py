@@ -42,35 +42,11 @@ from .chat_gen import (
     get_available_chat_models,
     is_chat_model_downloaded,
     _is_chat_model_fully_downloaded,
-    get_current_chat_model,
     load_chat_model,
     unload_chat_model,
     generate_chat_response,
-    clear_conversation,
-    get_conversation_history,
     download_chat_model,
-    parse_message_with_actions,
-    build_message_with_directions,
     _last_debug_info,
-)
-
-from .prompt_builder import (
-    PromptBuilder,
-    load_prompt_templates,
-    save_prompt_templates,
-)
-
-from .semantic_index import (
-    SemanticRetriever,
-    get_retriever,
-    retrieve_memories,
-    RetrievalResult,
-    ScoredChunk,
-)
-
-from .db_location import (
-    db_location,
-    get_effective_db_path,
 )
 
 __all__ = [
@@ -107,31 +83,13 @@ __all__ = [
     "unload_lora",
     "download_model",
     "GenerationResult",
-    # Chat Generation
+    # Chat Generation (used only by the Card Generator)
     "get_available_chat_models",
     "is_chat_model_downloaded",
     "_is_chat_model_fully_downloaded",
-    "get_current_chat_model",
     "load_chat_model",
     "unload_chat_model",
     "generate_chat_response",
-    "clear_conversation",
-    "get_conversation_history",
     "download_chat_model",
-    "parse_message_with_actions",
-    "build_message_with_directions",
     "_last_debug_info",
-    # Prompt Builder
-    "PromptBuilder",
-    "load_prompt_templates",
-    "save_prompt_templates",
-    # Semantic Retrieval
-    "SemanticRetriever",
-    "get_retriever",
-    "retrieve_memories",
-    "RetrievalResult",
-    "ScoredChunk",
-    # DB location
-    "db_location",
-    "get_effective_db_path",
 ]
