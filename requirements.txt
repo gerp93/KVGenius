@@ -1,3 +1,13 @@
+# Desktop UI framework. Required here even though release-flet.yml's own
+# outer `pip install -r requirements.txt "flet[all]"` step also installs it -
+# that install is for the CI runner building the app, not what ships inside
+# it. `flet build`'s embedded-Python packaging step installs only from this
+# file (or [project.dependencies] in pyproject.toml, which this repo doesn't
+# set) into the bundle, so if flet isn't listed here, the packaged app itself
+# has no flet in it and crashes with "ModuleNotFoundError: No module named
+# 'flet'" the moment it starts (import flet as ft in desktop_app.py).
+flet[all]
+
 # Image Generation (checkpoint metadata; actual generation runs via ComfyUI)
 safetensors>=0.3.0
 
