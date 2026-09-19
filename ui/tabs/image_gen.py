@@ -13,6 +13,9 @@ from flet import (
     MainAxisAlignment, CrossAxisAlignment, ScrollMode, dropdown, SnackBar,
     FontWeight, padding, border_radius, ControlState, ButtonStyle,
 )
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+border_radius = border_radius.BorderRadius  # flet 0.86.5: BorderRadius classmethods replace old module functions
+
 
 from ui.state import app_state
 from core import (
@@ -126,7 +129,7 @@ class ImageGenTab:
                 dropdown.Option(self.LAYOUT_RIGHT),
                 dropdown.Option(self.LAYOUT_BOTTOM),
             ],
-            on_change=self._on_layout_change,
+            on_select=self._on_layout_change,
             width=180,
         )
         
@@ -169,7 +172,7 @@ class ImageGenTab:
             expand=True,
             options=[dropdown.Option(str(s), str(s)) for s in [512, 576, 640, 704, 768, 832, 896, 960, 1024]],
             value="512",
-            on_change=self._on_dimension_change,
+            on_select=self._on_dimension_change,
         )
         
         self.height_dropdown = Dropdown(
@@ -177,7 +180,7 @@ class ImageGenTab:
             expand=True,
             options=[dropdown.Option(str(s), str(s)) for s in [512, 576, 640, 704, 768, 832, 896, 960, 1024]],
             value="768",
-            on_change=self._on_dimension_change,
+            on_select=self._on_dimension_change,
         )
         
         self.seed_field = TextField(
@@ -260,7 +263,7 @@ class ImageGenTab:
             src="",
             width=512,
             height=512,
-            fit=ft.ImageFit.CONTAIN,
+            fit=ft.BoxFit.CONTAIN,
             visible=False,
         )
         self.result_info = Text("", size=11, color=Colors.GREY_400)
@@ -312,18 +315,16 @@ class ImageGenTab:
         prompt = self.prompt_field.value
         
         if not prompt or not prompt.strip():
-            self.page.snack_bar = SnackBar(content=Text("Please enter a prompt"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text("Please enter a prompt")))
             self.page.update()
             return
         
         current_model, current_key = get_current_model()
         if current_model is None:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("❌ No model loaded! Load a model first."),
                 bgcolor=Colors.RED_900,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
             return
         
@@ -391,11 +392,10 @@ class ImageGenTab:
                 self.progress_bar.value = 0
                 self.progress_text.value = ""
                 
-                self.page.snack_bar = SnackBar(
+                self.page.show_dialog(SnackBar(
                     content=Text(f"❌ Error: {str(ex)[:100]}"),
                     bgcolor=Colors.RED_900,
-                )
-                self.page.snack_bar.open = True
+                ))
                 self.page.update()
         
         threading.Thread(target=do_generate, daemon=True).start()
@@ -501,7 +501,7 @@ class ImageGenTab:
             bgcolor=Colors.with_opacity(0.15, Colors.ON_SURFACE),
             padding=padding.all(10),
             border_radius=border_radius.all(8),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment.CENTER,
         )
     
     def _build_side_layout(self) -> Row:
@@ -516,7 +516,7 @@ class ImageGenTab:
             Container(
                 content=self._build_image_output(max_height=600),
                 expand=True,
-                alignment=ft.alignment.center,
+                alignment=ft.Alignment.CENTER,
             ),
         ], expand=True, spacing=0, vertical_alignment=CrossAxisAlignment.STRETCH)
     
@@ -534,7 +534,7 @@ class ImageGenTab:
             Container(
                 content=self._build_image_output(max_width=800),
                 expand=True,
-                alignment=ft.alignment.center,
+                alignment=ft.Alignment.CENTER,
                 padding=padding.only(top=15),
             ),
         ], expand=True, spacing=0)

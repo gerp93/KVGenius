@@ -13,6 +13,8 @@ from flet import (
     IconButton, Colors, Icons, ScrollMode, FontWeight, padding,
     Slider, Dropdown, dropdown, SnackBar, AlertDialog, TextButton,
 )
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+
 
 from updater import CURRENT_VERSION, check_for_update, check_and_apply_update
 
@@ -178,8 +180,7 @@ class SettingsTab:
         self.set_setting("default_width", int(self.default_width.value))
         self.set_setting("default_height", int(self.default_height.value))
         
-        self.page.snack_bar = SnackBar(content=Text("Settings saved!"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text("Settings saved!")))
         self.page.update()
     
     def _confirm_clear_cache(self, e):
@@ -226,8 +227,7 @@ class SettingsTab:
         if update:
             self._prompt_update(update)
         elif manual:
-            self.page.snack_bar = SnackBar(content=Text(f"You're running the latest version ({CURRENT_VERSION})."))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"You're running the latest version ({CURRENT_VERSION}).")))
             self.page.update()
         else:
             self.page.update()
@@ -262,8 +262,7 @@ class SettingsTab:
             check_and_apply_update(update)  # never returns on success
         except Exception as e:
             logger.error(f"Update failed: {e}")
-            self.page.snack_bar = SnackBar(content=Text(f"Update failed: {e}"), bgcolor=Colors.RED_700)
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"Update failed: {e}"), bgcolor=Colors.RED_700))
             self.page.update()
 
     def _clear_cache(self):
@@ -278,14 +277,13 @@ class SettingsTab:
                     else:
                         item.unlink()
             
-            self.page.snack_bar = SnackBar(content=Text("Cache cleared!"))
+            self.page.show_dialog(SnackBar(content=Text("Cache cleared!")))
         except Exception as e:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text(f"Error: {e}"),
                 bgcolor=Colors.RED_700,
-            )
+            ))
         
-        self.page.snack_bar.open = True
         self.page.update()
     
     def _get_cache_size(self) -> str:

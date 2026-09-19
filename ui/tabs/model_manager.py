@@ -12,8 +12,11 @@ from flet import (
     Page, Text, Column, Row, Container, Card, ElevatedButton,
     IconButton, ListView, Colors, Icons, MainAxisAlignment, ScrollMode,
     FontWeight, padding, border_radius, SnackBar, ProgressBar, ProgressRing,
-    ControlState, ButtonStyle, Tabs, Tab,
+    ControlState, ButtonStyle, Tabs, Tab, TabBar, TabBarView,
 )
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+border_radius = border_radius.BorderRadius  # flet 0.86.5: BorderRadius classmethods replace old module functions
+
 
 from ui.state import app_state
 from core import (
@@ -100,12 +103,10 @@ class ModelManagerTab:
         if model_path.exists():
             try:
                 shutil.rmtree(model_path)
-                self.page.snack_bar = SnackBar(content=Text(f"🗑️ Deleted: {model_name}"))
-                self.page.snack_bar.open = True
+                self.page.show_dialog(SnackBar(content=Text(f"🗑️ Deleted: {model_name}")))
                 self._load_models()
             except Exception as e:
-                self.page.snack_bar = SnackBar(content=Text(f"❌ Error deleting: {e}"))
-                self.page.snack_bar.open = True
+                self.page.show_dialog(SnackBar(content=Text(f"❌ Error deleting: {e}")))
                 self.page.update()
     
     def _load_models(self):
@@ -234,19 +235,25 @@ class ModelManagerTab:
         
         # Create tabs for image and chat models
         tabs = Tabs(
+            length=2,
             selected_index=0,
             animation_duration=300,
-            tabs=[
-                Tab(
-                    text="🎨 Image Models",
-                    content=self.image_model_list,
-                ),
-                Tab(
-                    text="💬 Chat Models",
-                    content=self.chat_model_list,
-                ),
-            ],
             expand=True,
+            content=Column([
+                TabBar(
+                    tabs=[
+                        Tab(label="🎨 Image Models"),
+                        Tab(label="💬 Chat Models"),
+                    ],
+                ),
+                TabBarView(
+                    expand=True,
+                    controls=[
+                        self.image_model_list,
+                        self.chat_model_list,
+                    ],
+                ),
+            ], expand=True),
         )
         
         return Container(

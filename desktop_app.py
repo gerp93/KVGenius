@@ -26,7 +26,7 @@ import fix_dll_paths
 
 import flet as ft
 from flet import (
-    Page, Text, Column, Row, Container, Card, Tabs, Tab,
+    Page, Text, Column, Row, Container, Card, Tabs, Tab, TabBar, TabBarView,
     TextField, ElevatedButton, ProgressBar, Image, Dropdown,
     Slider, IconButton, ListView, Colors, Icons,
     MainAxisAlignment, CrossAxisAlignment, ScrollMode,
@@ -34,6 +34,12 @@ from flet import (
     padding, border_radius, border, GridView, Checkbox, Stack, alignment,
     ControlState, ButtonStyle, Divider,
 )
+alignment = alignment.Alignment  # flet 0.86.5: Alignment constants replace old module attrs
+
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+border_radius = border_radius.BorderRadius  # flet 0.86.5: BorderRadius classmethods replace old module functions
+border = border.Border  # flet 0.86.5: Border classmethods replace old module functions
+
 
 # Import VisualAssault themes (theming.py wraps visual_assault_flet)
 from theming import get_theme, get_theme_list, get_theme_background, theme_exists
@@ -287,7 +293,7 @@ class HeaderBar:
             width=450,
             options=options,
             value=first_value,
-            on_change=self._on_model_change,
+            on_select=self._on_model_change,
         )
         
         # GPU info text
@@ -627,7 +633,7 @@ class ImageGenTab:
                 dropdown.Option(self.LAYOUT_RIGHT),
                 dropdown.Option(self.LAYOUT_BOTTOM),
             ],
-            on_change=self._on_layout_change,
+            on_select=self._on_layout_change,
             width=180,
         )
         
@@ -681,7 +687,7 @@ class ImageGenTab:
                 dropdown.Option("1024", "1024"),
             ],
             value="512",
-            on_change=self._on_dimension_change,
+            on_select=self._on_dimension_change,
         )
         
         self.height_dropdown = Dropdown(
@@ -699,7 +705,7 @@ class ImageGenTab:
                 dropdown.Option("1024", "1024"),
             ],
             value="768",
-            on_change=self._on_dimension_change,
+            on_select=self._on_dimension_change,
         )
         self.seed_field = TextField(
             label="Seed (-1 = random)",
@@ -780,7 +786,7 @@ class ImageGenTab:
             src="",
             width=512,
             height=512,
-            fit=ft.ImageFit.CONTAIN,
+            fit=ft.BoxFit.CONTAIN,
             visible=False,
         )
         self.result_info = Text("", size=11, color=Colors.GREY_400)
@@ -837,8 +843,7 @@ class ImageGenTab:
         debug_print(f" Generate clicked! Prompt: '{prompt[:30] if prompt else 'EMPTY'}...'")
         
         if not prompt or not prompt.strip():
-            self.page.snack_bar = SnackBar(content=Text("Please enter a prompt"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text("Please enter a prompt")))
             self.page.update()
             return
         
@@ -848,11 +853,10 @@ class ImageGenTab:
         
         if current_model is None:
             print("[DEBUG] No model loaded - showing error")
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("❌ No model loaded! Load a model first."),
                 bgcolor=Colors.RED_900,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
             return
         
@@ -914,11 +918,10 @@ class ImageGenTab:
                     self._rebuild_layout()
                 elif not result:
                     logger.error("Generation returned None")
-                    self.page.snack_bar = SnackBar(
+                    self.page.show_dialog(SnackBar(
                         content=Text("❌ Generation failed - check terminal for details"),
                         bgcolor=Colors.RED_900,
-                    )
-                    self.page.snack_bar.open = True
+                    ))
                 
                 self.page.update()
                 
@@ -931,11 +934,10 @@ class ImageGenTab:
                 self.progress_bar.value = 0
                 self.progress_text.value = ""
                 
-                self.page.snack_bar = SnackBar(
+                self.page.show_dialog(SnackBar(
                     content=Text(f"❌ Error: {str(ex)[:100]}"),
                     bgcolor=Colors.RED_900,
-                )
-                self.page.snack_bar.open = True
+                ))
                 self.page.update()
         
         threading.Thread(target=do_generate, daemon=True).start()
@@ -950,11 +952,10 @@ class ImageGenTab:
         """Save current prompt and settings to prompt library."""
         prompt = self.prompt_field.value.strip()
         if not prompt:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("Enter a prompt first!"),
                 bgcolor=Colors.ORANGE_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
             return
         
@@ -972,11 +973,10 @@ class ImageGenTab:
                 }
             )
         else:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("Prompt library not connected."),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
     
     def _build_settings_panel(self) -> Container:
@@ -1062,7 +1062,7 @@ class ImageGenTab:
             bgcolor=Colors.with_opacity(0.15, Colors.ON_SURFACE),
             padding=padding.all(10),
             border_radius=border_radius.all(8),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment.CENTER,
         )
     
     def _build_side_layout(self) -> Row:
@@ -1080,7 +1080,7 @@ class ImageGenTab:
             Container(
                 content=self._build_image_output(max_height=600),
                 expand=True,
-                alignment=ft.alignment.center,
+                alignment=ft.Alignment.CENTER,
             ),
         ], expand=True, spacing=0, vertical_alignment=CrossAxisAlignment.STRETCH)
     
@@ -1137,7 +1137,7 @@ class ImageGenTab:
             Container(
                 content=self._build_image_output(max_width=800),
                 expand=True,
-                alignment=ft.alignment.center,
+                alignment=ft.Alignment.CENTER,
                 padding=padding.only(top=15),
             ),
         ], expand=True, spacing=0)
@@ -1209,7 +1209,7 @@ class GalleryTab:
             width=100,
             options=[dropdown.Option(str(size)) for size in self.PAGE_SIZE_OPTIONS],
             value="20",
-            on_change=self._on_page_size_change,
+            on_select=self._on_page_size_change,
         )
         
         # Total images count
@@ -1388,7 +1388,7 @@ class GalleryTab:
         # Create image viewer
         fullscreen_image = Image(
             src=filepath,
-            fit=ft.ImageFit.CONTAIN,
+            fit=ft.BoxFit.CONTAIN,
             expand=True,
         )
         
@@ -1538,8 +1538,7 @@ class GalleryTab:
                     pass
             self.selected_images.clear()
             self._refresh()
-            self.page.snack_bar = SnackBar(content=Text(f"🗑️ Deleted {deleted} images"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"🗑️ Deleted {deleted} images")))
             dialog.open = False
             self.page.update()
         
@@ -1582,10 +1581,9 @@ class GalleryTab:
                 except Exception as e:
                     print(f"Failed to download {filepath}: {e}")
             
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text(f"✅ Downloaded {downloaded} images to {downloads_dir}")
-            )
-            self.page.snack_bar.open = True
+            ))
             dialog.open = False
             self.page.update()
         
@@ -1619,8 +1617,7 @@ class GalleryTab:
     def _copy_prompt(self, prompt: str):
         """Copy prompt to clipboard."""
         self.page.set_clipboard(prompt)
-        self.page.snack_bar = SnackBar(content=Text("📋 Prompt copied to clipboard!"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text("📋 Prompt copied to clipboard!")))
         self.page.update()
     
     def _delete_image(self, filepath: str):
@@ -1630,11 +1627,9 @@ class GalleryTab:
                 Path(filepath).unlink()
                 self.selected_images.discard(filepath)
                 self._refresh()
-                self.page.snack_bar = SnackBar(content=Text("🗑️ Image deleted"))
-                self.page.snack_bar.open = True
+                self.page.show_dialog(SnackBar(content=Text("🗑️ Image deleted")))
             except Exception as ex:
-                self.page.snack_bar = SnackBar(content=Text(f"❌ Error: {ex}"))
-                self.page.snack_bar.open = True
+                self.page.show_dialog(SnackBar(content=Text(f"❌ Error: {ex}")))
             dialog.open = False
             self.page.update()
         
@@ -1744,7 +1739,7 @@ class GalleryTab:
                                 src=filepath,
                                 width=120,
                                 height=120,
-                                fit=ft.ImageFit.COVER,
+                                fit=ft.BoxFit.COVER,
                                 border_radius=border_radius.all(8),
                             ),
                             Column([
@@ -1775,7 +1770,7 @@ class GalleryTab:
             self.image_grid.controls.append(
                 Container(
                     content=Text("No generated images yet", color=Colors.GREY_500),
-                    alignment=alignment.center,
+                    alignment=alignment.CENTER,
                 )
             )
         else:
@@ -1790,7 +1785,7 @@ class GalleryTab:
                         Container(
                             content=Image(
                                 src=filepath,
-                                fit=ft.ImageFit.COVER,
+                                fit=ft.BoxFit.COVER,
                                 border_radius=border_radius.all(8),
                             ),
                             border_radius=border_radius.all(8),
@@ -1808,7 +1803,7 @@ class GalleryTab:
                                 value=is_selected,
                                 on_change=lambda e, p=filepath: self._toggle_selection(p),
                             ),
-                            alignment=alignment.top_left,
+                            alignment=alignment.TOP_LEFT,
                             padding=padding.only(left=5, top=5),
                         ),
                         # Info overlay at bottom
@@ -1848,7 +1843,7 @@ class GalleryTab:
                                 border_radius=border_radius.only(bottom_left=8, bottom_right=8),
                                 padding=padding.symmetric(vertical=2),
                             ),
-                            alignment=alignment.bottom_center,
+                            alignment=alignment.BOTTOM_CENTER,
                         ),
                     ]),
                     border_radius=border_radius.all(8),
@@ -2025,7 +2020,7 @@ class ModelManagerTab:
                         size=12, color=Colors.GREY_500, text_align=ft.TextAlign.CENTER,
                     ),
                     padding=padding.all(40),
-                    alignment=alignment.center,
+                    alignment=alignment.CENTER,
                 )
             )
             return
@@ -2602,23 +2597,27 @@ class ModelManagerTab:
         
         # Create tabs for image models, chat models, and downloads
         tabs = Tabs(
+            length=3,
             selected_index=0,
             animation_duration=300,
-            tabs=[
-                Tab(
-                    text="🎨 Image Models",
-                    content=self.image_model_list,
-                ),
-                Tab(
-                    text="💬 Chat / LLM Models",
-                    content=self.chat_model_list,
-                ),
-                Tab(
-                    text="📥 Downloads",
-                    content=self.downloads_list,
-                ),
-            ],
             expand=True,
+            content=Column([
+                TabBar(
+                    tabs=[
+                        Tab(label="🎨 Image Models"),
+                        Tab(label="💬 Chat / LLM Models"),
+                        Tab(label="📥 Downloads"),
+                    ],
+                ),
+                TabBarView(
+                    expand=True,
+                    controls=[
+                        self.image_model_list,
+                        self.chat_model_list,
+                        self.downloads_list,
+                    ],
+                ),
+            ], expand=True),
         )
         
         return Container(
@@ -2917,10 +2916,9 @@ class PromptLibraryTab:
             self.on_switch_tab(0)  # 0 = ImageGenTab
         
         # Show snackbar
-        self.page.snack_bar = SnackBar(
+        self.page.show_dialog(SnackBar(
             content=Text("✅ Prompt loaded! Switched to Generate tab."),
-        )
-        self.page.snack_bar.open = True
+        ))
         self.page.update()
     
     def _clone_prompt(self, index: int):
@@ -2933,22 +2931,19 @@ class PromptLibraryTab:
             data["prompts"].append(clone)
             
             if self._save_prompts_file(data):
-                self.page.snack_bar = SnackBar(content=Text(f"✂️ Cloned: {clone['name']}"))
-                self.page.snack_bar.open = True
+                self.page.show_dialog(SnackBar(content=Text(f"✂️ Cloned: {clone['name']}")))
                 self._filter_and_display_prompts()
             else:
-                self.page.snack_bar = SnackBar(
+                self.page.show_dialog(SnackBar(
                     content=Text("Failed to clone prompt."),
                     bgcolor=Colors.RED_700,
-                )
-                self.page.snack_bar.open = True
+                ))
                 self.page.update()
     
     def _copy_prompt(self, prompt: str):
         """Copy prompt to clipboard."""
         self.page.set_clipboard(prompt)
-        self.page.snack_bar = SnackBar(content=Text("Prompt copied!"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text("Prompt copied!")))
         self.page.update()
     
     def _save_prompt(self, e):
@@ -2982,15 +2977,13 @@ class PromptLibraryTab:
                 self.category_buttons[cat].bgcolor = Colors.GREY_700
             
             self._update_save_btn_state()
-            self.page.snack_bar = SnackBar(content=Text(f"✅ Saved: {name}"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"✅ Saved: {name}")))
             self._load_prompts()
         else:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("Failed to save prompt."),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
     
     def _delete_prompt(self, index: int):
@@ -2999,8 +2992,7 @@ class PromptLibraryTab:
         if 0 <= index < len(data["prompts"]):
             deleted = data["prompts"].pop(index)
             self._save_prompts_file(data)
-            self.page.snack_bar = SnackBar(content=Text(f"Deleted: {deleted.get('name', 'prompt')}"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"Deleted: {deleted.get('name', 'prompt')}")))
             self._load_prompts()
     
     def add_prompt_from_generator(self, prompt: str, negative: str, settings: dict = None):
@@ -3027,15 +3019,13 @@ class PromptLibraryTab:
         data["prompts"].append(prompt_data)
         
         if self._save_prompts_file(data):
-            self.page.snack_bar = SnackBar(content=Text(f"💾 Saved to library: {name[:30]}..."))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"💾 Saved to library: {name[:30]}...")))
             self._load_prompts()
         else:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("Failed to save prompt."),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
     
     def build(self) -> Container:
@@ -3233,8 +3223,7 @@ class SettingsTab:
         set_setting("default_width", int(self.default_width.value))
         set_setting("default_height", int(self.default_height.value))
         
-        self.page.snack_bar = SnackBar(content=Text("Settings saved!"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text("Settings saved!")))
         self.page.update()
 
     # ---------------------------------------------------------------
@@ -3262,8 +3251,7 @@ class SettingsTab:
         if update:
             self._prompt_update(update)
         elif manual:
-            self.page.snack_bar = SnackBar(content=Text(f"You're running the latest version ({CURRENT_VERSION})."))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"You're running the latest version ({CURRENT_VERSION}).")))
             self.page.update()
         else:
             self.page.update()
@@ -3298,8 +3286,7 @@ class SettingsTab:
             check_and_apply_update(update)  # never returns on success
         except Exception as ex:
             logger.error(f"Update failed: {ex}")
-            self.page.snack_bar = SnackBar(content=Text(f"Update failed: {ex}"), bgcolor=Colors.RED_700)
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"Update failed: {ex}"), bgcolor=Colors.RED_700))
             self.page.update()
 
     def _confirm_clear_cache(self, e):
@@ -3338,14 +3325,13 @@ class SettingsTab:
                     else:
                         item.unlink()
             
-            self.page.snack_bar = SnackBar(content=Text("Cache cleared!"))
+            self.page.show_dialog(SnackBar(content=Text("Cache cleared!")))
         except Exception as e:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text(f"Error: {e}"),
                 bgcolor=Colors.RED_700,
-            )
+            ))
         
-        self.page.snack_bar.open = True
         self.page.update()
     
     def _get_cache_size(self) -> str:
@@ -3476,7 +3462,7 @@ def main(page: Page):
             width=220,
             options=[dropdown.Option(key=tid, text=name) for tid, name in themes],
             value=app_state.current_theme,
-            on_change=on_theme_change,
+            on_select=on_theme_change,
         )
     
     # Create prompt library first (needed for image gen callback)
@@ -3517,35 +3503,33 @@ def main(page: Page):
     
     # Build tabs
     tabs = Tabs(
+        length=6,
         selected_index=0,
         animation_duration=200,
-        tabs=[
-            Tab(
-                text="🖌️ Generate",
-                content=image_gen_tab.build(),
-            ),
-            Tab(
-                text="🃏 Cards",
-                content=card_generator_tab.build(),
-            ),
-            Tab(
-                text="📚 Prompts",
-                content=prompt_library_tab.build(),
-            ),
-            Tab(
-                text="🖼️ Gallery",
-                content=gallery_tab.build(),
-            ),
-            Tab(
-                text="📦 Models",
-                content=model_manager_tab.build(),
-            ),
-            Tab(
-                text="⚙️ Settings",
-                content=settings_tab.build(),
-            ),
-        ],
         expand=True,
+        content=Column([
+            TabBar(
+                tabs=[
+                    Tab(label="🖌️ Generate"),
+                    Tab(label="🃏 Cards"),
+                    Tab(label="📚 Prompts"),
+                    Tab(label="🖼️ Gallery"),
+                    Tab(label="📦 Models"),
+                    Tab(label="⚙️ Settings"),
+                ],
+            ),
+            TabBarView(
+                expand=True,
+                controls=[
+                    image_gen_tab.build(),
+                    card_generator_tab.build(),
+                    prompt_library_tab.build(),
+                    gallery_tab.build(),
+                    model_manager_tab.build(),
+                    settings_tab.build(),
+                ],
+            ),
+        ], expand=True),
     )
     
     # Set the callback for switching to generate tab after tabs is created

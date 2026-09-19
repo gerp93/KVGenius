@@ -17,11 +17,16 @@ from flet import (
     ElevatedButton, IconButton, TextButton, Card,
     Icons, Colors, FontWeight, ScrollMode, AlertDialog,
     SnackBar, ListView, Dropdown, dropdown, Slider,
-    ProgressBar, ProgressRing, Divider, Checkbox, Tabs, Tab,
+    ProgressBar, ProgressRing, Divider, Checkbox, Tabs, Tab, TabBar, TabBarView,
     padding, border_radius, alignment, GridView,
     ControlState, ButtonStyle, MainAxisAlignment,
     DataTable, DataColumn, DataRow, DataCell,
 )
+alignment = alignment.Alignment  # flet 0.86.5: Alignment constants replace old module attrs
+
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+border_radius = border_radius.BorderRadius  # flet 0.86.5: BorderRadius classmethods replace old module functions
+
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +82,9 @@ class CardGeneratorTab:
         self.selected_library_cards: set = set()    # Card IDs of selected cards in library
         
         # File picker for exports
-        self.file_picker = ft.FilePicker(on_result=self._on_export_file_picked)
+        self.file_picker = ft.FilePicker()
         self.page.overlay.append(self.file_picker)
-        self._pending_export_format = None
-        
+
         # Initialize CAH generator
         if CAH_AVAILABLE:
             try:
@@ -124,7 +128,7 @@ class CardGeneratorTab:
                 for key in self.STYLES.keys()
             ],
             value="classic",
-            on_change=self._on_style_change,
+            on_select=self._on_style_change,
         )
         
         # Custom style input (hidden by default)
@@ -265,7 +269,7 @@ class CardGeneratorTab:
                 dropdown.Option("white", "⬜ White Only"),
             ],
             value="all",
-            on_change=lambda e: self._apply_library_filters(),
+            on_select=lambda e: self._apply_library_filters(),
         )
         
         self.library_fav_filter = Dropdown(
@@ -277,7 +281,7 @@ class CardGeneratorTab:
                 dropdown.Option("not_favorited", "☆ Not Favorited"),
             ],
             value="all",
-            on_change=lambda e: self._apply_library_filters(),
+            on_select=lambda e: self._apply_library_filters(),
         )
         
         self.library_exported_filter = Dropdown(
@@ -289,7 +293,7 @@ class CardGeneratorTab:
                 dropdown.Option("not_exported", "⬜ Not Exported"),
             ],
             value="all",
-            on_change=lambda e: self._apply_library_filters(),
+            on_select=lambda e: self._apply_library_filters(),
         )
         
         self.library_sort = Dropdown(
@@ -304,7 +308,7 @@ class CardGeneratorTab:
                 dropdown.Option("fav_last", "☆ Favorites Last"),
             ],
             value="newest",
-            on_change=lambda e: self._apply_library_filters(),
+            on_select=lambda e: self._apply_library_filters(),
         )
         
         # Pagination controls
@@ -330,12 +334,12 @@ class CardGeneratorTab:
         
         self.export_json_btn = ElevatedButton(
             "📥 Export JSON",
-            on_click=lambda e: self._export_cards("json"),
+            on_click=lambda e: self.page.run_task(self._export_cards, "json"),
         )
-        
+
         self.export_txt_btn = ElevatedButton(
             "📥 Export TXT",
-            on_click=lambda e: self._export_cards("txt"),
+            on_click=lambda e: self.page.run_task(self._export_cards, "txt"),
         )
         
         # Selection controls for library
@@ -514,8 +518,7 @@ class CardGeneratorTab:
             # Adjust indices in selection set
             self.selected_generated_cards = {i - 1 if i > index else i for i in self.selected_generated_cards if i != index}
             self._refresh_generated_output()
-            self.page.snack_bar = SnackBar(content=Text("🗑️ Card removed"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text("🗑️ Card removed")))
             self.page.update()
     
     def _delete_selected_generated(self, e=None):
@@ -530,8 +533,7 @@ class CardGeneratorTab:
         
         self.selected_generated_cards.clear()
         self._refresh_generated_output()
-        self.page.snack_bar = SnackBar(content=Text("🗑️ Selected cards removed"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text("🗑️ Selected cards removed")))
         self.page.update()
     
     def _refresh_generated_output(self):
@@ -558,8 +560,7 @@ class CardGeneratorTab:
     def _copy_to_clipboard(self, text: str):
         """Copy text to clipboard."""
         self.page.set_clipboard(text)
-        self.page.snack_bar = SnackBar(content=Text("📋 Copied to clipboard!"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text("📋 Copied to clipboard!")))
         self.page.update()
 
     def _refresh_debug_view(self):
@@ -650,21 +651,19 @@ class CardGeneratorTab:
             return
         
         if not self._check_model_loaded():
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("❌ Please load a chat model first"),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
             return
         
         topic = self.topic_input.value.strip() if self.topic_input.value else ""
         if not topic:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("❌ Please enter a topic or theme"),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
             return
         
@@ -859,21 +858,19 @@ class CardGeneratorTab:
             return
         
         if not self._check_model_loaded():
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("❌ Please load a chat model first"),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
             return
         
         article = self.article_input.value.strip() if self.article_input.value else ""
         if not article or len(article) < 50:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text("❌ Please paste a longer article (at least 50 characters)"),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
             return
         
@@ -1286,8 +1283,7 @@ class CardGeneratorTab:
                 if self.cah_generator.update_card_text(card_id, new_text):
                     self.page.close(dlg)
                     self._apply_library_filters()
-                    self.page.snack_bar = SnackBar(content=Text("✏️ Card updated"))
-                    self.page.snack_bar.open = True
+                    self.page.show_dialog(SnackBar(content=Text("✏️ Card updated")))
                     self.page.update()
         
         def cancel_edit(e):
@@ -1316,8 +1312,7 @@ class CardGeneratorTab:
             self.selected_library_cards.discard(card_id)
             # Re-apply filters without resetting page
             self._apply_library_filters(reset_page=False)
-            self.page.snack_bar = SnackBar(content=Text("🗑️ Card deleted"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text("🗑️ Card deleted")))
             self.page.update()
     
     def _delete_selected_library(self, e=None):
@@ -1332,8 +1327,7 @@ class CardGeneratorTab:
         self.selected_library_cards.clear()
         # Re-apply filters without resetting page
         self._apply_library_filters(reset_page=False)
-        self.page.snack_bar = SnackBar(content=Text(f"🗑️ Deleted {count} cards"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text(f"🗑️ Deleted {count} cards")))
         self.page.update()
     
     def _toggle_card_exported(self, card_id: str):
@@ -1357,8 +1351,7 @@ class CardGeneratorTab:
             self.cah_generator._save_cards()
         self.selected_library_cards.clear()
         self._apply_library_filters(reset_page=False)
-        self.page.snack_bar = SnackBar(content=Text(f"✅ Marked {count} cards as exported"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text(f"✅ Marked {count} cards as exported")))
         self.page.update()
     
     def _unexport_selected_library(self, e=None):
@@ -1376,8 +1369,7 @@ class CardGeneratorTab:
             self.cah_generator._save_cards()
         self.selected_library_cards.clear()
         self._apply_library_filters(reset_page=False)
-        self.page.snack_bar = SnackBar(content=Text(f"⬜ Unmarked {count} cards as exported"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text(f"⬜ Unmarked {count} cards as exported")))
         self.page.update()
     
     def _update_library_selection_ui(self):
@@ -1430,8 +1422,7 @@ class CardGeneratorTab:
             self.cah_generator._save_cards()
         self.selected_library_cards.clear()
         self._apply_library_filters(reset_page=False)
-        self.page.snack_bar = SnackBar(content=Text(f"⭐ Added {count} cards to favorites"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text(f"⭐ Added {count} cards to favorites")))
         self.page.update()
     
     def _unfavorite_selected_library(self, e=None):
@@ -1450,8 +1441,7 @@ class CardGeneratorTab:
             self.cah_generator._save_cards()
         self.selected_library_cards.clear()
         self._apply_library_filters(reset_page=False)
-        self.page.snack_bar = SnackBar(content=Text(f"☆ Removed {count} cards from favorites"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text(f"☆ Removed {count} cards from favorites")))
         self.page.update()
 
     def _toggle_favorite(self, card: CAHCard):
@@ -1460,45 +1450,35 @@ class CardGeneratorTab:
             self.cah_generator.toggle_favorite(card.id)
             self._load_library()
     
-    def _export_cards(self, format: str):
-        """Export cards to file - opens file save dialog."""
+    async def _export_cards(self, format: str):
+        """Export cards to file - opens save dialog and writes the result directly."""
         logger.info(f"_export_cards called with format={format}")
         if not self.cah_generator:
             logger.warning("No cah_generator for export")
             return
-        
+
         cards = self.cah_generator.get_cards()
         logger.info(f"Exporting {len(cards)} cards")
         if not cards:
-            self.page.snack_bar = SnackBar(content=Text("❌ No cards to export"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text("❌ No cards to export")))
             self.page.update()
             return
-        
-        # Store format for the callback
-        self._pending_export_format = format
-        
-        # Open save file dialog
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         default_name = f"cards_{timestamp}.{format}"
-        
-        self.file_picker.save_file(
+
+        path = await self.file_picker.save_file(
             dialog_title="Save Cards Export",
             file_name=default_name,
             allowed_extensions=[format],
         )
-    
-    def _on_export_file_picked(self, e: ft.FilePickerResultEvent):
-        """Handle file save dialog result."""
-        if not e.path or not self._pending_export_format:
+
+        if not path:
             return
-        
-        format = self._pending_export_format
-        filepath = Path(e.path)
-        
+
+        filepath = Path(path)
+
         try:
-            cards = self.cah_generator.get_cards()
-            
             if format == "json":
                 with open(filepath, "w", encoding="utf-8") as f:
                     json.dump([{
@@ -1539,16 +1519,12 @@ class CardGeneratorTab:
             
         except Exception as ex:
             logger.error(f"Export error: {ex}")
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text(f"❌ Export failed: {str(ex)}"),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
-        
-        finally:
-            self._pending_export_format = None
-    
+
     def _delete_last_n(self, e):
         """Delete the last N cards."""
         if not self.cah_generator:
@@ -1565,8 +1541,7 @@ class CardGeneratorTab:
         self.cah_generator.cards = remaining
         self.cah_generator._save_cards()
         
-        self.page.snack_bar = SnackBar(content=Text(f"🗑️ Deleted {min(n, len(cards))} cards"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text(f"🗑️ Deleted {min(n, len(cards))} cards")))
         self._load_library()
     
     def _confirm_clear_all(self, e):
@@ -1582,8 +1557,7 @@ class CardGeneratorTab:
             self.cah_generator.cards = []
             self.cah_generator._save_cards()
             dialog.open = False
-            self.page.snack_bar = SnackBar(content=Text("🗑️ All cards cleared"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text("🗑️ All cards cleared")))
             self._load_library()
         
         def cancel(e):
@@ -1788,31 +1762,29 @@ class CardGeneratorTab:
 
         # Create sub-tabs
         sub_tabs = Tabs(
+            length=4,
             selected_index=0,
             animation_duration=200,
-            tabs=[
-                Tab(
-                    text="🎴 Generate",
-                    icon=Icons.AUTO_AWESOME,
-                    content=self._build_generate_tab(),
-                ),
-                Tab(
-                    text="📰 From Article",
-                    icon=Icons.ARTICLE,
-                    content=self._build_article_tab(),
-                ),
-                Tab(
-                    text="📚 My Cards",
-                    icon=Icons.COLLECTIONS_BOOKMARK,
-                    content=self._build_library_tab(),
-                ),
-                Tab(
-                    text="🐛 Debug",
-                    icon=Icons.BUG_REPORT,
-                    content=self._build_debug_tab(),
-                ),
-            ],
             expand=True,
+            content=Column([
+                TabBar(
+                    tabs=[
+                        Tab(label="🎴 Generate", icon=Icons.AUTO_AWESOME),
+                        Tab(label="📰 From Article", icon=Icons.ARTICLE),
+                        Tab(label="📚 My Cards", icon=Icons.COLLECTIONS_BOOKMARK),
+                        Tab(label="🐛 Debug", icon=Icons.BUG_REPORT),
+                    ],
+                ),
+                TabBarView(
+                    expand=True,
+                    controls=[
+                        self._build_generate_tab(),
+                        self._build_article_tab(),
+                        self._build_library_tab(),
+                        self._build_debug_tab(),
+                    ],
+                ),
+            ], expand=True),
         )
         
         return Container(

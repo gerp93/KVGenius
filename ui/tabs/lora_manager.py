@@ -15,9 +15,12 @@ from flet import (
     IconButton, Colors, Icons, ListView, Card, Dropdown, dropdown,
     MainAxisAlignment, CrossAxisAlignment, ScrollMode, SnackBar,
     FontWeight, padding, border_radius, AlertDialog, TextButton,
-    Tabs, Tab, ProgressBar, FilePicker, FilePickerResultEvent,
+    Tabs, Tab, ProgressBar, FilePicker,
     Divider, Image,
 )
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+border_radius = border_radius.BorderRadius  # flet 0.86.5: BorderRadius classmethods replace old module functions
+
 
 from ui.state import app_state
 
@@ -53,7 +56,7 @@ class LoRAManagerTab:
                 dropdown.Option("text", "💬 Text/Chat"),
             ],
             value="all",
-            on_change=self._on_filter_change,
+            on_select=self._on_filter_change,
         )
         
         # Base model filter
@@ -69,7 +72,7 @@ class LoRAManagerTab:
                 dropdown.Option("unknown", "Unknown"),
             ],
             value="all",
-            on_change=self._on_filter_change,
+            on_select=self._on_filter_change,
         )
         
         # Search field
@@ -97,9 +100,7 @@ class LoRAManagerTab:
         self.status_text = Text("", size=11, color=Colors.GREY_400)
         
         # File picker for import
-        self.file_picker = FilePicker(
-            on_result=self._on_file_picked,
-        )
+        self.file_picker = FilePicker()
         
         # === DETAIL PANEL (right side) ===
         self.detail_name = Text("Select a LoRA", size=18, weight=FontWeight.BOLD)
@@ -116,7 +117,7 @@ class LoRAManagerTab:
             src="",
             width=200,
             height=200,
-            fit=ft.ImageFit.CONTAIN,
+            fit=ft.BoxFit.CONTAIN,
             visible=False,
         )
         
@@ -130,7 +131,7 @@ class LoRAManagerTab:
                 dropdown.Option("text", "💬 Text/Chat (LLM)"),
             ],
             value="image",
-            on_change=self._on_edit_use_case_change,
+            on_select=self._on_edit_use_case_change,
         )
         self.edit_triggers = TextField(label="Trigger Words (comma separated)", width=300)
         self.edit_base_model = Dropdown(
@@ -533,19 +534,17 @@ class LoRAManagerTab:
                     lora_path.rename(new_path)
                     self.selected_lora = new_name
             
-            self.page.snack_bar = SnackBar(content=Text(f"✅ Saved: {new_name}"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"✅ Saved: {new_name}")))
             self.edit_mode = False
             self._refresh()
             self._update_detail_panel()
             self.page.update()
             
         except Exception as ex:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text(f"❌ Error saving: {str(ex)}"),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
             self.page.update()
     
     def _confirm_delete(self, e):
@@ -582,17 +581,15 @@ class LoRAManagerTab:
         lora_path = LORA_DIR / self.selected_lora
         try:
             shutil.rmtree(lora_path)
-            self.page.snack_bar = SnackBar(content=Text(f"🗑️ Deleted: {self.selected_lora}"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"🗑️ Deleted: {self.selected_lora}")))
             self.selected_lora = None
             self._refresh()
             self._update_detail_panel()
         except Exception as ex:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text(f"❌ Error deleting: {str(ex)}"),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
         
         self.page.update()
     
@@ -621,7 +618,7 @@ class LoRAManagerTab:
         )
         self.page.update()
     
-    def _on_file_picked(self, e: FilePickerResultEvent):
+    def _on_file_picked(self, e):
         """Handle file picker result."""
         if not e.files:
             return
@@ -685,11 +682,10 @@ class LoRAManagerTab:
         def do_import(e):
             name = name_field.value.strip().replace(" ", "_")
             if not name:
-                self.page.snack_bar = SnackBar(
+                self.page.show_dialog(SnackBar(
                     content=Text("Please enter a name"),
                     bgcolor=Colors.ORANGE_700,
-                )
-                self.page.snack_bar.open = True
+                ))
                 self.page.update()
                 return
             
@@ -810,19 +806,17 @@ class LoRAManagerTab:
                 with open(config_file, 'w', encoding='utf-8') as f:
                     json.dump(adapter_config, f, indent=2)
             
-            self.page.snack_bar = SnackBar(content=Text(f"✅ Imported: {name}"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"✅ Imported: {name}")))
             
             self.selected_lora = name
             self._refresh()
             self._update_detail_panel()
             
         except Exception as ex:
-            self.page.snack_bar = SnackBar(
+            self.page.show_dialog(SnackBar(
                 content=Text(f"❌ Import failed: {str(ex)}"),
                 bgcolor=Colors.RED_700,
-            )
-            self.page.snack_bar.open = True
+            ))
         
         self.page.update()
     
