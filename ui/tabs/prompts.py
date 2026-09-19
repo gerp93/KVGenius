@@ -11,6 +11,9 @@ from flet import (
     IconButton, ListView, Colors, Icons, MainAxisAlignment, ScrollMode,
     FontWeight, padding, border_radius, SnackBar, dropdown, Dropdown,
 )
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+border_radius = border_radius.BorderRadius  # flet 0.86.5: BorderRadius classmethods replace old module functions
+
 
 logger = logging.getLogger(__name__)
 
@@ -235,20 +238,17 @@ class PromptLibraryTab:
             self.on_use_prompt(prompt, negative)
         if self.on_switch_tab:
             self.on_switch_tab(0)
-        self.page.snack_bar = SnackBar(content=Text("✅ Prompt loaded!"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text("✅ Prompt loaded!")))
         self.page.update()
     
     def _copy_prompt(self, prompt: str):
         self.page.set_clipboard(prompt)
-        self.page.snack_bar = SnackBar(content=Text("Prompt copied!"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text("Prompt copied!")))
         self.page.update()
     
     def _save_prompt(self, e):
         if not self.db:
-            self.page.snack_bar = SnackBar(content=Text("❌ Database not available"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text("❌ Database not available")))
             self.page.update()
             return
         
@@ -274,12 +274,10 @@ class PromptLibraryTab:
                 self.category_buttons[cat].bgcolor = Colors.GREY_700
             self._update_save_btn_state()
             
-            self.page.snack_bar = SnackBar(content=Text(f"✅ Saved: {name}"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"✅ Saved: {name}")))
             self._load_prompts()
         except Exception as ex:
-            self.page.snack_bar = SnackBar(content=Text(f"❌ Error: {ex}"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"❌ Error: {ex}")))
             self.page.update()
     
     def _delete_prompt(self, prompt_id: int):
@@ -292,12 +290,10 @@ class PromptLibraryTab:
             
             self.db.delete_prompt(prompt_id)
             
-            self.page.snack_bar = SnackBar(content=Text(f"Deleted: {name}"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"Deleted: {name}")))
             self._load_prompts()
         except Exception as ex:
-            self.page.snack_bar = SnackBar(content=Text(f"❌ Error: {ex}"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"❌ Error: {ex}")))
             self.page.update()
     
     def add_prompt_from_generator(self, prompt: str, negative: str, settings: dict = None):
@@ -324,8 +320,7 @@ class PromptLibraryTab:
                 lora_strength=settings.get("lora_strength", 0.8) if settings else 0.8,
             )
             
-            self.page.snack_bar = SnackBar(content=Text(f"💾 Saved to library: {name[:30]}..."))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"💾 Saved to library: {name[:30]}...")))
             self._load_prompts()
         except Exception as ex:
             logger.error(f"Error saving prompt from generator: {ex}")

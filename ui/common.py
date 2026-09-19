@@ -14,6 +14,12 @@ from flet import (
     padding, border_radius, border, GridView, Checkbox, Stack, alignment,
     ControlState, ButtonStyle, Divider,
 )
+alignment = alignment.Alignment  # flet 0.86.5: Alignment constants replace old module attrs
+
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+border_radius = border_radius.BorderRadius  # flet 0.86.5: BorderRadius classmethods replace old module functions
+border = border.Border  # flet 0.86.5: Border classmethods replace old module functions
+
 
 # Set up logging
 logger = logging.getLogger(__name__)

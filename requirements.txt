@@ -6,10 +6,20 @@
 # set) into the bundle, so if flet isn't listed here, the packaged app itself
 # has no flet in it and crashes with "ModuleNotFoundError: No module named
 # 'flet'" the moment it starts (import flet as ft in desktop_app.py).
-flet[all]
+#
+# Pinned to 0.86.5: the UI code targets that version's API (e.g. Tabs/Tab,
+# Dropdown.on_select, Padding/BorderRadius classmethods, page.show_dialog for
+# SnackBar). An unpinned flet[all] here resolves to the latest release for
+# both this install AND the CI runner's own `"flet[all]"` install above
+# (pip resolves the two together in one command, so this pin controls both),
+# and flet 1.0 made breaking changes to that API (e.g. dropped ElevatedButton,
+# restructured Tabs) that this codebase hasn't been migrated to.
+flet[all]==0.86.5
 
 # Image Generation (checkpoint metadata; actual generation runs via ComfyUI)
 safetensors>=0.3.0
+Pillow>=10.0.0
+huggingface-hub>=0.20.0
 
 # Utilities
 pyyaml>=6.0

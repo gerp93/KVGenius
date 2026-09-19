@@ -11,6 +11,8 @@ from flet import (
     IconButton, Colors, Icons, MainAxisAlignment, FontWeight,
     padding, dropdown,
 )
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+
 
 from ui.state import app_state
 from ui.common import get_gpu_info
@@ -150,7 +152,7 @@ class HeaderBar:
             width=450,
             options=options,
             value=first_value,
-            on_change=self._on_model_change,
+            on_select=self._on_model_change,
         )
         
         self.gpu_info = Text(get_gpu_info(), size=11, color=Colors.GREY_500)

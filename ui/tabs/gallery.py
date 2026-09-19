@@ -19,6 +19,12 @@ from flet import (
     ScrollMode, FontWeight, padding, border_radius, border, Stack,
     alignment, ControlState, ButtonStyle, dropdown, SnackBar, Divider,
 )
+alignment = alignment.Alignment  # flet 0.86.5: Alignment constants replace old module attrs
+
+padding = padding.Padding  # flet 0.86.5: Padding classmethods replace old module functions
+border_radius = border_radius.BorderRadius  # flet 0.86.5: BorderRadius classmethods replace old module functions
+border = border.Border  # flet 0.86.5: Border classmethods replace old module functions
+
 
 from ui.state import app_state
 from core import get_generated_images
@@ -65,7 +71,7 @@ class GalleryTab:
             width=100,
             options=[dropdown.Option(str(size)) for size in self.PAGE_SIZE_OPTIONS],
             value="20",
-            on_change=self._on_page_size_change,
+            on_select=self._on_page_size_change,
         )
         
         self.total_count_text = Text("Total: 0 images", size=12, color=Colors.GREY_400)
@@ -230,8 +236,7 @@ class GalleryTab:
                     pass
             self.selected_images.clear()
             self._refresh()
-            self.page.snack_bar = SnackBar(content=Text(f"🗑️ Deleted {deleted} images"))
-            self.page.snack_bar.open = True
+            self.page.show_dialog(SnackBar(content=Text(f"🗑️ Deleted {deleted} images")))
             dialog.open = False
             self.page.update()
         
@@ -259,8 +264,7 @@ class GalleryTab:
     
     def _copy_prompt(self, prompt: str):
         self.page.set_clipboard(prompt)
-        self.page.snack_bar = SnackBar(content=Text("📋 Prompt copied!"))
-        self.page.snack_bar.open = True
+        self.page.show_dialog(SnackBar(content=Text("📋 Prompt copied!")))
         self.page.update()
     
     def _delete_image(self, filepath: str):
@@ -269,11 +273,9 @@ class GalleryTab:
                 Path(filepath).unlink()
                 self.selected_images.discard(filepath)
                 self._refresh()
-                self.page.snack_bar = SnackBar(content=Text("🗑️ Image deleted"))
-                self.page.snack_bar.open = True
+                self.page.show_dialog(SnackBar(content=Text("🗑️ Image deleted")))
             except Exception as ex:
-                self.page.snack_bar = SnackBar(content=Text(f"❌ Error: {ex}"))
-                self.page.snack_bar.open = True
+                self.page.show_dialog(SnackBar(content=Text(f"❌ Error: {ex}")))
             dialog.open = False
             self.page.update()
         
@@ -308,7 +310,7 @@ class GalleryTab:
         
         fullscreen_image = Image(
             src=filepath,
-            fit=ft.ImageFit.CONTAIN,
+            fit=ft.BoxFit.CONTAIN,
             expand=True,
         )
         
@@ -399,7 +401,7 @@ class GalleryTab:
                 card = Card(
                     content=Container(
                         content=Row([
-                            Image(src=filepath, width=120, height=120, fit=ft.ImageFit.COVER,
+                            Image(src=filepath, width=120, height=120, fit=ft.BoxFit.COVER,
                                  border_radius=border_radius.all(8)),
                             Column([
                                 Text(img_info["filename"], weight=FontWeight.BOLD, size=13),
@@ -424,7 +426,7 @@ class GalleryTab:
         
         if not self.all_images:
             self.image_grid.controls.append(
-                Container(content=Text("No generated images yet", color=Colors.GREY_500), alignment=alignment.center)
+                Container(content=Text("No generated images yet", color=Colors.GREY_500), alignment=alignment.CENTER)
             )
         else:
             for img_info in self.all_images:
@@ -434,7 +436,7 @@ class GalleryTab:
                 card = Container(
                     content=Stack([
                         Container(
-                            content=Image(src=filepath, fit=ft.ImageFit.COVER, border_radius=border_radius.all(8)),
+                            content=Image(src=filepath, fit=ft.BoxFit.COVER, border_radius=border_radius.all(8)),
                             border_radius=border_radius.all(8),
                             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         ),
@@ -445,7 +447,7 @@ class GalleryTab:
                         ),
                         Container(
                             content=Checkbox(value=is_selected, on_change=lambda e, p=filepath: self._toggle_selection(p)),
-                            alignment=alignment.top_left,
+                            alignment=alignment.TOP_LEFT,
                             padding=padding.only(left=5, top=5),
                         ),
                         Container(
@@ -461,7 +463,7 @@ class GalleryTab:
                                 bgcolor=Colors.with_opacity(0.7, Colors.BLACK),
                                 border_radius=border_radius.only(bottom_left=8, bottom_right=8),
                             ),
-                            alignment=alignment.bottom_center,
+                            alignment=alignment.BOTTOM_CENTER,
                         ),
                     ]),
                     border_radius=border_radius.all(8),
