@@ -186,11 +186,11 @@ class SettingsTab:
     def _confirm_clear_cache(self, e):
         """Show confirmation dialog before clearing cache."""
         def close_dialog(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def do_clear(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self._clear_cache()
             self.page.update()
         
@@ -202,8 +202,7 @@ class SettingsTab:
                 TextButton("Clear Cache", on_click=do_clear),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _check_for_updates(self, e):
@@ -234,11 +233,11 @@ class SettingsTab:
 
     def _prompt_update(self, update: dict):
         def close_dialog(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
 
         def do_update(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
             threading.Thread(target=self._download_and_apply_update, args=(update,), daemon=True).start()
 
@@ -253,8 +252,7 @@ class SettingsTab:
                 TextButton("Update Now", on_click=do_update),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
 
     def _download_and_apply_update(self, update: dict):

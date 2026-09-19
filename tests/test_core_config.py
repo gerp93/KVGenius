@@ -14,37 +14,57 @@ from unittest.mock import patch
 import core.config as core_config
 
 
+def _patch_config_dirs(monkeypatch, bundled_dir, user_dir=None):
+    """load_config() checks USER_CONFIG_DIR (writable user overrides) before
+    falling back to CONFIG_DIR (bundled defaults/examples); save_config()
+    always writes to USER_CONFIG_DIR. Point both at isolated tmp dirs so
+    tests never touch the real per-user data directory."""
+    monkeypatch.setattr(core_config, "CONFIG_DIR", bundled_dir)
+    monkeypatch.setattr(core_config, "USER_CONFIG_DIR", user_dir or bundled_dir)
+
+
 class TestLoadConfig:
     def test_missing_file_returns_empty(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         result = core_config.load_config("nonexistent.yaml")
         assert result == {}
 
     def test_loads_yaml_config(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         cfg_file = tmp_path / "test.yaml"
         cfg_file.write_text(yaml.dump({"key": "value"}))
         result = core_config.load_config("test.yaml")
         assert result["key"] == "value"
 
     def test_falls_back_to_example_yaml(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         example_file = tmp_path / "settings.example.yaml"
         example_file.write_text(yaml.dump({"from_example": True}))
         result = core_config.load_config("settings.yaml")
         assert result.get("from_example") is True
 
     def test_empty_yaml_returns_empty_dict(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         cfg_file = tmp_path / "empty.yaml"
         cfg_file.write_text("")
         result = core_config.load_config("empty.yaml")
         assert result == {}
 
+    def test_user_override_takes_priority_over_bundled(self, tmp_path, monkeypatch):
+        bundled_dir = tmp_path / "bundled"
+        user_dir = tmp_path / "user"
+        bundled_dir.mkdir()
+        user_dir.mkdir()
+        _patch_config_dirs(monkeypatch, bundled_dir, user_dir)
+        (bundled_dir / "settings.yaml").write_text(yaml.dump({"theme": "bundled"}))
+        (user_dir / "settings.yaml").write_text(yaml.dump({"theme": "user"}))
+        result = core_config.load_config("settings.yaml")
+        assert result["theme"] == "user"
+
 
 class TestSaveConfig:
     def test_saves_yaml_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         data = {"foo": "bar", "count": 42}
         result = core_config.save_config("output.yaml", data)
         assert result is True
@@ -52,23 +72,34 @@ class TestSaveConfig:
         assert saved["foo"] == "bar"
         assert saved["count"] == 42
 
+    def test_never_writes_into_bundled_config_dir(self, tmp_path, monkeypatch):
+        bundled_dir = tmp_path / "bundled"
+        user_dir = tmp_path / "user"
+        bundled_dir.mkdir()
+        user_dir.mkdir()
+        _patch_config_dirs(monkeypatch, bundled_dir, user_dir)
+        core_config.save_config("settings.yaml", {"x": 1})
+        assert not (bundled_dir / "settings.yaml").exists()
+        assert (user_dir / "settings.yaml").exists()
+
     def test_returns_false_on_write_error(self, tmp_path, monkeypatch):
-        # Point CONFIG_DIR to a file (not a directory) to trigger an error
+        # Point USER_CONFIG_DIR (the actual write target) at a file, not a
+        # directory, to trigger an error
         fake_dir = tmp_path / "not_a_dir.txt"
         fake_dir.write_text("i am a file")
-        monkeypatch.setattr(core_config, "CONFIG_DIR", fake_dir)
+        _patch_config_dirs(monkeypatch, tmp_path, fake_dir)
         result = core_config.save_config("settings.yaml", {"x": 1})
         assert result is False
 
 
 class TestLoadUserSettings:
     def test_returns_dict(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         result = core_config.load_user_settings()
         assert isinstance(result, dict)
 
     def test_returns_saved_settings(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         (tmp_path / "settings.yaml").write_text(yaml.dump({"theme": "dark"}))
         result = core_config.load_user_settings()
         assert result.get("theme") == "dark"
@@ -76,7 +107,7 @@ class TestLoadUserSettings:
 
 class TestSaveUserSettings:
     def test_saves_and_reloads(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         settings = {"language": "en", "debug": False}
         assert core_config.save_user_settings(settings) is True
         reloaded = core_config.load_user_settings()
@@ -85,12 +116,12 @@ class TestSaveUserSettings:
 
 class TestGetSetting:
     def test_returns_default_when_key_missing(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         result = core_config.get_setting("nonexistent_key", default="fallback")
         assert result == "fallback"
 
     def test_returns_value_when_key_present(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         (tmp_path / "settings.yaml").write_text(yaml.dump({"my_key": "my_val"}))
         result = core_config.get_setting("my_key")
         assert result == "my_val"
@@ -98,12 +129,12 @@ class TestGetSetting:
 
 class TestSetSetting:
     def test_sets_and_retrieves(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         assert core_config.set_setting("color", "blue") is True
         assert core_config.get_setting("color") == "blue"
 
     def test_does_not_overwrite_other_keys(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         core_config.set_setting("first", 1)
         core_config.set_setting("second", 2)
         assert core_config.get_setting("first") == 1
@@ -112,14 +143,14 @@ class TestSetSetting:
 
 class TestLoadImageModelPresets:
     def test_returns_three_dicts(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         hf, local, templates = core_config.load_image_model_presets()
         assert isinstance(hf, dict)
         assert isinstance(local, dict)
         assert isinstance(templates, dict)
 
     def test_loads_from_yaml(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         data = {
             "huggingface": {"Model A": {"id": "org/model-a"}},
             "local": {"Local B": {"path": "/local/b"}},
@@ -134,12 +165,12 @@ class TestLoadImageModelPresets:
 
 class TestLoadChatModelPresets:
     def test_returns_dict(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         result = core_config.load_chat_model_presets()
         assert isinstance(result, dict)
 
     def test_loads_models_from_yaml(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path)
+        _patch_config_dirs(monkeypatch, tmp_path)
         data = {"models": {"TestChat": {"id": "org/test-chat", "vram": "~7 GB"}}}
         (tmp_path / "chat_model_presets.yaml").write_text(yaml.dump(data))
         result = core_config.load_chat_model_presets()

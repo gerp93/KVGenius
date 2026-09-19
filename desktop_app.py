@@ -1466,16 +1466,13 @@ class GalleryTab:
         
         close_btn.on_click = lambda e: self._close_fullscreen(dialog)
         
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _close_fullscreen(self, dialog):
         """Close the fullscreen image viewer."""
         try:
-            dialog.open = False
-            if dialog in self.page.overlay:
-                self.page.overlay.remove(dialog)
+            self.page.pop_dialog()
             self.page.update()
         except Exception as e:
             logger.error(f"Error closing fullscreen dialog: {e}")
@@ -1489,14 +1486,8 @@ class GalleryTab:
         self._delete_image(filepath)
         # Close all dialogs
         try:
-            for dialog in list(self.page.overlay):
-                if isinstance(dialog, AlertDialog):
-                    try:
-                        dialog.open = False
-                        if dialog in self.page.overlay:
-                            self.page.overlay.remove(dialog)
-                    except:
-                        pass
+            while self.page.pop_dialog():
+                pass
             self.page.update()
         except Exception as e:
             logger.error(f"Error closing dialogs: {e}")
@@ -1539,11 +1530,11 @@ class GalleryTab:
             self.selected_images.clear()
             self._refresh()
             self.page.show_dialog(SnackBar(content=Text(f"🗑️ Deleted {deleted} images")))
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -1554,8 +1545,7 @@ class GalleryTab:
                 TextButton("Delete All", on_click=do_delete),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _download_selected(self, e=None):
@@ -1584,11 +1574,11 @@ class GalleryTab:
             self.page.show_dialog(SnackBar(
                 content=Text(f"✅ Downloaded {downloaded} images to {downloads_dir}")
             ))
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -1599,8 +1589,7 @@ class GalleryTab:
                 TextButton("Download", on_click=do_download),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _open_folder(self, filepath: str):
@@ -1630,11 +1619,11 @@ class GalleryTab:
                 self.page.show_dialog(SnackBar(content=Text("🗑️ Image deleted")))
             except Exception as ex:
                 self.page.show_dialog(SnackBar(content=Text(f"❌ Error: {ex}")))
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -1645,8 +1634,7 @@ class GalleryTab:
                 TextButton("Delete", on_click=do_delete),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _show_metadata(self, img_info: Dict):
@@ -1666,7 +1654,7 @@ class GalleryTab:
         ], spacing=8, scroll=ScrollMode.AUTO)
         
         def close(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -1674,8 +1662,7 @@ class GalleryTab:
             content=Container(content=content, width=400, height=300),
             actions=[TextButton("Close", on_click=close)],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _update_list(self):
@@ -2139,11 +2126,11 @@ class ModelManagerTab:
         
         def delete_files(e):
             self._delete_model_files(model_name, repo_id)
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -2171,8 +2158,7 @@ class ModelManagerTab:
                 ),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _delete_model_files(self, model_name: str, repo_id: str):
@@ -2216,11 +2202,11 @@ class ModelManagerTab:
         
         def delete_local(e):
             self._delete_local_model(model_name, file_path)
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -2254,8 +2240,7 @@ class ModelManagerTab:
                 ),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _delete_local_model(self, model_name: str, file_path: str):
@@ -2313,11 +2298,11 @@ class ModelManagerTab:
         """Show confirmation dialog for permanently removing a model from the list."""
         def remove_model(e):
             self._remove_model_permanently(model_name)
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -2346,8 +2331,7 @@ class ModelManagerTab:
                 ),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _remove_model_permanently(self, model_name: str):
@@ -3258,11 +3242,11 @@ class SettingsTab:
 
     def _prompt_update(self, update: dict):
         def close_dialog(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
 
         def do_update(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
             threading.Thread(target=self._download_and_apply_update, args=(update,), daemon=True).start()
 
@@ -3277,8 +3261,7 @@ class SettingsTab:
                 TextButton("Update Now", on_click=do_update),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
 
     def _download_and_apply_update(self, update: dict):
@@ -3292,11 +3275,11 @@ class SettingsTab:
     def _confirm_clear_cache(self, e):
         """Show confirmation dialog before clearing cache."""
         def close_dialog(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def do_clear(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self._clear_cache()
             self.page.update()
         
@@ -3308,8 +3291,7 @@ class SettingsTab:
                 TextButton("Clear Cache", on_click=do_clear),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _clear_cache(self):

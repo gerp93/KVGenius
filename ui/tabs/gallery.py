@@ -237,11 +237,11 @@ class GalleryTab:
             self.selected_images.clear()
             self._refresh()
             self.page.show_dialog(SnackBar(content=Text(f"🗑️ Deleted {deleted} images")))
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -252,8 +252,7 @@ class GalleryTab:
                 TextButton("Delete All", on_click=do_delete),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _open_folder(self, filepath: str):
@@ -276,11 +275,11 @@ class GalleryTab:
                 self.page.show_dialog(SnackBar(content=Text("🗑️ Image deleted")))
             except Exception as ex:
                 self.page.show_dialog(SnackBar(content=Text(f"❌ Error: {ex}")))
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -291,8 +290,7 @@ class GalleryTab:
                 TextButton("Delete", on_click=do_delete),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _show_fullscreen_image(self, filepath: str, img_info: dict):
@@ -301,7 +299,7 @@ class GalleryTab:
         def close_dialog(e=None):
             """Close the dialog properly."""
             try:
-                dialog.open = False
+                self.page.pop_dialog()
                 self.page.update()
             except Exception as ex:
                 logger.error(f"Error closing dialog: {ex}")
@@ -362,8 +360,7 @@ class GalleryTab:
             on_dismiss=close_dialog,
         )
         
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _close_fullscreen(self):
