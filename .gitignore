@@ -1,32 +1,20 @@
-# Python
-_version.py
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
+# Node / npm
+node_modules/
+npm-debug.log*
+
+# Build output
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+dist-electron/
+out/
+release/
+build/
+
+# Electron-builder
+electron-builder-effective-config.yaml
 
 # Environment
 .env
-.venv
+.env.local
 
 # IDE
 .vscode/
@@ -35,44 +23,14 @@ wheels/
 *.swo
 *~
 
-# ============================================
-# User Data - all in data/ folder (gitignored)
-# ============================================
-data/
-
-# ============================================
-# User Configuration (local overrides)
-# ============================================
-# User's actual model presets (use .example.yaml as template)
-config/image_model_presets.yaml
-config/chat_model_presets.yaml
-
-# Legacy paths (in case they still exist)
-model_cache/
-
-# ============================================
-# Logs folder
-# ============================================
+# User data (SQLite DB, generated images, logs) - location is user-configurable,
+# see src/main/dbLocation.ts once it exists; never checked in regardless
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-journal
 logs/
-lora_models/
-training_datasets/
-generated_images/
-chat_history.db
-chat_history.db-journal
-
-# Logs
-*.log
-logs/
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Chat exports
-chat_*_Chat_-_*
 
 # OS
 .DS_Store
 Thumbs.db
-config/saved_prompts.yaml
