@@ -83,7 +83,7 @@ class CardGeneratorTab:
         
         # File picker for exports
         self.file_picker = ft.FilePicker()
-        self.page.overlay.append(self.file_picker)
+        self.page.services.append(self.file_picker)
 
         # Initialize CAH generator
         if CAH_AVAILABLE:
