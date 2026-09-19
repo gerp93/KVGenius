@@ -23,12 +23,9 @@ border_radius = border_radius.BorderRadius  # flet 0.86.5: BorderRadius classmet
 
 
 from ui.state import app_state
+from core import LORA_DIR
 
 logger = logging.getLogger(__name__)
-
-# LoRA directory
-LORA_DIR = Path("./data/lora_models")
-LORA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class LoRAManagerTab:
@@ -554,11 +551,11 @@ class LoRAManagerTab:
         
         def do_delete(e):
             self._delete_lora()
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -569,8 +566,7 @@ class LoRAManagerTab:
                 TextButton("Delete", on_click=do_delete),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _delete_lora(self):
@@ -697,11 +693,11 @@ class LoRAManagerTab:
                 base_model_dropdown.value,
                 desc_field.value.strip(),
             )
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -721,8 +717,7 @@ class LoRAManagerTab:
                 ElevatedButton("Import", on_click=do_import),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _import_lora(self, file_path: str, name: str, use_case: str, trigger_word: str, base_model: str, description: str):

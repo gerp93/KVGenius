@@ -1281,13 +1281,13 @@ class CardGeneratorTab:
             new_text = edit_field.value.strip()
             if new_text and self.cah_generator:
                 if self.cah_generator.update_card_text(card_id, new_text):
-                    self.page.close(dlg)
+                    self.page.pop_dialog()
                     self._apply_library_filters()
                     self.page.show_dialog(SnackBar(content=Text("✏️ Card updated")))
                     self.page.update()
         
         def cancel_edit(e):
-            self.page.close(dlg)
+            self.page.pop_dialog()
         
         dlg = AlertDialog(
             modal=True,
@@ -1303,7 +1303,7 @@ class CardGeneratorTab:
             actions_alignment=MainAxisAlignment.END,
         )
         
-        self.page.open(dlg)
+        self.page.show_dialog(dlg)
     
     def _delete_library_card(self, card_id: str):
         """Delete a single card from the library."""
@@ -1501,7 +1501,7 @@ class CardGeneratorTab:
             
             # Show success dialog
             def close_dialog(e):
-                dialog.open = False
+                self.page.pop_dialog()
                 self.page.update()
             
             dialog = AlertDialog(
@@ -1511,8 +1511,7 @@ class CardGeneratorTab:
                     TextButton("OK", on_click=close_dialog),
                 ],
             )
-            self.page.overlay.append(dialog)
-            dialog.open = True
+            self.page.show_dialog(dialog)
             self.page.update()
             
             logger.info(f"Exported {len(cards)} cards to {filepath}")
@@ -1556,12 +1555,12 @@ class CardGeneratorTab:
         def do_clear(e):
             self.cah_generator.cards = []
             self.cah_generator._save_cards()
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.show_dialog(SnackBar(content=Text("🗑️ All cards cleared")))
             self._load_library()
         
         def cancel(e):
-            dialog.open = False
+            self.page.pop_dialog()
             self.page.update()
         
         dialog = AlertDialog(
@@ -1572,8 +1571,7 @@ class CardGeneratorTab:
                 TextButton("Clear All", on_click=do_clear),
             ],
         )
-        self.page.overlay.append(dialog)
-        dialog.open = True
+        self.page.show_dialog(dialog)
         self.page.update()
     
     def _build_generate_tab(self) -> Container:
