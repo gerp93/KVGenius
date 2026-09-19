@@ -607,7 +607,7 @@ class LoRAManagerTab:
     
     def _open_import_dialog(self, e):
         """Open the file picker for importing a LoRA."""
-        self.page.overlay.append(self.file_picker)
+        self.page.services.append(self.file_picker)
         self.file_picker.pick_files(
             allowed_extensions=["safetensors"],
             dialog_title="Select LoRA file (.safetensors)",
