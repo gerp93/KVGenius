@@ -232,6 +232,17 @@ input:focus {
   display: block;
 }
 
+.library-card__video-placeholder {
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-hover);
+}
+
 .library-card__info {
   padding: 8px;
   font-size: 12px;

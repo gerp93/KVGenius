@@ -5,6 +5,11 @@ export interface GenerationParams {
   seed: number;
   steps: number;
   cfg: number;
+  /** Video families only: frame count (e.g. 81 frames @ 16fps ≈ 5s). */
+  length?: number;
+  /** Video families only: local path to the source image to animate, chosen via
+   * window.kvgenius.chooseSourceImage() and uploaded to ComfyUI at generation time. */
+  sourceImagePath?: string;
 }
 
 export interface GenerationRecord {
@@ -16,10 +21,18 @@ export interface GenerationRecord {
   seed: number;
   steps: number;
   cfg: number;
+  length: number | null;
   modelFamily: string;
   imagePath: string;
   createdAt: string;
 }
+
+/** Which model families produce a video vs a still image - drives whether the
+ * renderer shows an <img> or a <video> for a given record's output/result. */
+export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
+  'z-image-turbo': 'image',
+  'wan22-i2v': 'video',
+};
 
 export interface SavedPrompt {
   id: number;
@@ -53,9 +66,12 @@ export interface UpdateCheckResult {
 
 /** Contract exposed on window.kvgenius by the preload script. */
 export interface KVGeniusAPI {
-  generate: (params: GenerationParams) => Promise<GenerateResult>;
+  generate: (family: string, params: GenerationParams) => Promise<GenerateResult>;
   listGenerations: () => Promise<GenerationRecord[]>;
   imageUrlFor: (imagePath: string) => string;
+  /** Opens a native file dialog for picking a video mode's source image.
+   * Resolves the chosen local path, or null if cancelled. */
+  chooseSourceImage: () => Promise<string | null>;
 
   listSavedPrompts: () => Promise<SavedPrompt[]>;
   savePrompt: (name: string | null, prompt: string) => Promise<SavedPrompt>;

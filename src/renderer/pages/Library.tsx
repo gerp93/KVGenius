@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GenerationRecord, SavedPrompt } from '../../shared/types';
+import { FAMILY_KIND, GenerationRecord, SavedPrompt } from '../../shared/types';
 
 interface Props {
   onRecall: (record: GenerationRecord) => void;
@@ -55,7 +55,11 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
       <div className="library-grid">
         {records.map((record) => (
           <div key={record.id} className="library-card" onClick={() => handleClick(record)}>
-            <img src={window.kvgenius.imageUrlFor(record.imagePath)} alt={record.prompt} />
+            {FAMILY_KIND[record.modelFamily] === 'video' ? (
+              <div className="library-card__video-placeholder">🎬 Video</div>
+            ) : (
+              <img src={window.kvgenius.imageUrlFor(record.imagePath)} alt={record.prompt} />
+            )}
             <div className="library-card__info" title={record.prompt}>
               {record.prompt}
             </div>
