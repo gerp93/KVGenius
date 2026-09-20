@@ -7,9 +7,11 @@ submits a curated ComfyUI workflow template over HTTP, waits for the result,
 and saves the generated image alongside the prompt and settings that
 produced it.
 
-**Requires a running ComfyUI instance** (default `http://localhost:8188`)
-with the model files the active template expects already installed. See
-`src/main/templates/` for the workflow templates KVGenius ships with.
+**Requires a running ComfyUI instance** (default `http://localhost:8000`,
+ComfyUI Desktop's own default - the standalone ComfyUI server defaults to
+`8188` instead, which is configurable in Settings) with the model files the
+active template expects already installed. See `src/main/templates/` for
+the workflow templates KVGenius ships with.
 
 **Status:** early rewrite. Currently supports one mode (plain text-to-image)
 against one model template (Z Image Turbo). Image-to-image, inpainting, and

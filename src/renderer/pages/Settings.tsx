@@ -166,32 +166,34 @@ export default function Settings({ theme, onThemeChange }: Props) {
         <label className="field-label" htmlFor="comfyui-host">
           Server address
         </label>
-        <div style={{ display: 'flex', gap: 8, maxWidth: 560, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, maxWidth: 640, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             id="comfyui-host"
             type="text"
             value={host}
             onChange={(e) => setHost(e.target.value)}
             placeholder={defaultHost}
-            style={{ flex: 1 }}
+            style={{ flex: 1, minWidth: 200 }}
           />
-          <button type="button" className="primary" onClick={handleSave}>
-            Save
-          </button>
-          <button type="button" onClick={handleReset}>
-            Reset to Default
-          </button>
-          <button type="button" onClick={checkConnection}>
-            Test Connection
-          </button>
+          <div className="button-row" style={{ flexWrap: 'nowrap' }}>
+            <button type="button" className="primary" onClick={handleSave}>
+              Save
+            </button>
+            <button type="button" onClick={handleReset}>
+              Reset to Default
+            </button>
+            <button type="button" onClick={checkConnection}>
+              Test Connection
+            </button>
+          </div>
         </div>
 
         <p style={{ color: connectionColor[connection], fontWeight: 600 }}>{connectionLabel[connection]}</p>
 
         <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
-          Default: {defaultHost || '...'}. Change this if ComfyUI is running on a different host
-          or port. ComfyUI Desktop's Settings → Server-Config shows its configured host/port (it
-          isn't always the classic default of localhost:8188).
+          Default: {defaultHost || '...'} (ComfyUI Desktop's own default - the standalone ComfyUI
+          server defaults to port 8188 instead). ComfyUI Desktop's Settings → Server-Config shows
+          its actual configured host/port if this doesn't connect.
         </p>
       </section>
 
@@ -200,7 +202,7 @@ export default function Settings({ theme, onThemeChange }: Props) {
         <p style={{ color: 'var(--color-text-muted)', fontSize: 12, wordBreak: 'break-all' }}>
           Current: {dbInfo?.path ?? '...'} {dbInfo?.isDefault ? '(default)' : ''}
         </p>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="button-row">
           <button type="button" onClick={handleRevealDb}>
             Show in File Manager
           </button>

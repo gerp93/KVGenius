@@ -13,7 +13,9 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
   'z-image-turbo': zImageTurboTemplate,
 };
 
-export const DEFAULT_COMFYUI_HOST = 'http://localhost:8188';
+// ComfyUI Desktop (the Electron distribution this app targets) defaults to port 8000, not
+// the classic standalone ComfyUI server's 8188 - different implementations, different defaults.
+export const DEFAULT_COMFYUI_HOST = 'http://localhost:8000';
 
 /**
  * Node IDs in src/main/templates/z-image-turbo.json that patchTemplate() fills in.

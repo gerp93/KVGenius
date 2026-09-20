@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, NavLink, Link } from 'react-router-dom';
+import { Routes, Route, NavLink, Link, useLocation } from 'react-router-dom';
 import Generate from './pages/Generate';
 import Library from './pages/Library';
 import Settings from './pages/Settings';
@@ -11,8 +11,10 @@ type ConnectionStatus = 'checking' | 'connected' | 'unreachable';
 
 export default function App() {
   const [recallRecord, setRecallRecord] = useState<GenerationRecord | null>(null);
+  const [recallPrompt, setRecallPrompt] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
   const [theme, setThemeState] = useState<string | null>(null);
+  const location = useLocation();
 
   useEffect(() => {
     window.kvgenius.getTheme().then(setThemeState);
@@ -63,9 +65,23 @@ export default function App() {
           {connectionLabel[connection]}
         </Link>
       </div>
+      {/* Generate stays mounted across navigation (instead of going through <Routes>) so its
+          in-progress prompt/settings survive a trip to Library or Settings and back - only
+          hidden via CSS, never unmounted and reset. Library/Settings still mount fresh on each
+          visit via <Routes>, which is what keeps Library's list in sync with new generations. */}
+      {/* display: contents keeps this wrapper out of the flex box model entirely when visible,
+          so Generate's own .page div is still the direct flex child of .app-shell, same as
+          when it rendered through <Routes> - needed for its flex: 1 height to keep working. */}
+      <div style={{ display: location.pathname === '/' ? 'contents' : 'none' }}>
+        <Generate
+          recallRecord={recallRecord}
+          onRecalled={() => setRecallRecord(null)}
+          recallPrompt={recallPrompt}
+          onPromptRecalled={() => setRecallPrompt(null)}
+        />
+      </div>
       <Routes>
-        <Route path="/" element={<Generate recallRecord={recallRecord} onRecalled={() => setRecallRecord(null)} />} />
-        <Route path="/library" element={<Library onRecall={setRecallRecord} />} />
+        <Route path="/library" element={<Library onRecall={setRecallRecord} onRecallPrompt={setRecallPrompt} />} />
         <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
       </Routes>
     </div>
