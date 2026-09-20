@@ -21,8 +21,17 @@ implementation here is exactly the kind of drift it exists to prevent.
 - `src/main/templates/` — ComfyUI workflow templates in API format (not the
   visual "workflow format" you'd drag into ComfyUI's own editor — see the
   session history for why that distinction matters). One template per model
-  family; `src/main/comfyui.ts`'s `NODE_MAP` records which node IDs get
-  patched at generation time and must stay in sync with the template JSON.
+  family (`z-image-turbo.json` for image mode, `wan22-i2v.json` for video
+  mode); `src/main/comfyui.ts` has a separate node-ID map per family (e.g.
+  `WAN22_I2V_NODE_MAP`) recording which fields get patched at generation
+  time, and these must stay in sync with their template JSON. `wan22-i2v`
+  deliberately leaves its 4-step-LoRA switch chain and the CFG=1 primitive
+  feeding its second KSampler pass untouched - only the fields a user
+  actually needs (prompt, width/height/length, seed, source image) are
+  patched, matching the curated-field philosophy below.
+- `src/shared/types.ts`'s `FAMILY_KIND` map says whether a family produces
+  an image or a video - the renderer uses it to decide `<img>` vs `<video>`
+  for a given record, without needing a separate DB column for it.
 
 ## Key design decisions
 

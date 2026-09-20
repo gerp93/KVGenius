@@ -137,18 +137,18 @@ function imageUrlFor(imagePath: string): string {
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.handle('generate', async (_event, params: GenerationParams) => {
+  ipcMain.handle('generate', async (_event, family: string, params: GenerationParams) => {
     if (!db) throw new Error('Database not initialized');
 
-    const imageBytes = await comfyGenerate('z-image-turbo', params);
+    const output = await comfyGenerate(family, params);
 
     const imagesDir = getImagesDir();
     fs.mkdirSync(imagesDir, { recursive: true });
-    const filename = `${Date.now()}-${params.seed}.png`;
+    const filename = `${Date.now()}-${params.seed}${output.extension}`;
     const imagePath = path.join(imagesDir, filename);
-    fs.writeFileSync(imagePath, imageBytes);
+    fs.writeFileSync(imagePath, output.bytes);
 
-    const record = insertGeneration(db, params, 'z-image-turbo', imagePath);
+    const record = insertGeneration(db, params, family, imagePath);
     return { record, imageUrl: imageUrlFor(imagePath) };
   });
 
@@ -158,6 +158,17 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('imageUrlFor', (_event, imagePath: string) => imageUrlFor(imagePath));
+
+  ipcMain.handle('chooseSourceImage', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a source image for video mode',
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
 
   ipcMain.handle('listSavedPrompts', () => {
     if (!db) throw new Error('Database not initialized');

@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import { GenerationRecord } from '../../shared/types';
+import { FAMILY_KIND, GenerationRecord } from '../../shared/types';
+
+type Mode = 'image' | 'video';
+
+const FAMILY_FOR_MODE: Record<Mode, string> = {
+  image: 'z-image-turbo',
+  video: 'wan22-i2v',
+};
 
 interface Props {
   recallRecord: GenerationRecord | null;
@@ -21,6 +28,7 @@ const ASPECT_RATIO_PRESETS: { label: string; width: number; height: number }[] =
 ];
 
 export default function Generate({ recallRecord, onRecalled, recallPrompt, onPromptRecalled }: Props) {
+  const [mode, setMode] = useState<Mode>('image');
   const [prompt, setPrompt] = useState('');
   const [width, setWidth] = useState(1024);
   const [height, setHeight] = useState(1024);
@@ -28,15 +36,37 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
   const [seedLocked, setSeedLocked] = useState(false);
   const [steps, setSteps] = useState(8);
   const [cfg, setCfg] = useState(1);
+  const [length, setLength] = useState(81);
+  const [sourceImagePath, setSourceImagePath] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [resultMode, setResultMode] = useState<Mode>('image');
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
+  function handleModeChange(newMode: Mode) {
+    setMode(newMode);
+    setSourceImagePath(null);
+    if (newMode === 'video') {
+      setWidth(640);
+      setHeight(640);
+    } else {
+      setWidth(1024);
+      setHeight(1024);
+    }
+  }
+
+  async function handleChooseSourceImage() {
+    const path = await window.kvgenius.chooseSourceImage();
+    if (path) setSourceImagePath(path);
+  }
+
   useEffect(() => {
     if (!recallRecord) return;
+    const recalledMode: Mode = FAMILY_KIND[recallRecord.modelFamily] === 'video' ? 'video' : 'image';
+    setMode(recalledMode);
     setPrompt(recallRecord.prompt);
     setWidth(recallRecord.width);
     setHeight(recallRecord.height);
@@ -44,7 +74,12 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
     setSeedLocked(true);
     setSteps(recallRecord.steps);
     setCfg(recallRecord.cfg);
+    setLength(recallRecord.length ?? 81);
+    // The source image used for a past video generation isn't retained - only the
+    // resulting video is. A new one has to be chosen before this can be re-run.
+    setSourceImagePath(null);
     setImageUrl(window.kvgenius.imageUrlFor(recallRecord.imagePath));
+    setResultMode(recalledMode);
     onRecalled();
   }, [recallRecord, onRecalled]);
 
@@ -59,21 +94,28 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
       setError('Enter a prompt first.');
       return;
     }
+    if (mode === 'video' && !sourceImagePath) {
+      setError('Choose a source image first.');
+      return;
+    }
     setError(null);
     setIsGenerating(true);
     const usedSeed = seedLocked ? seed : randomSeed();
     if (!seedLocked) setSeed(usedSeed);
+    const generatedMode = mode;
 
     try {
-      const result = await window.kvgenius.generate({
+      const result = await window.kvgenius.generate(FAMILY_FOR_MODE[mode], {
         prompt,
         width,
         height,
         seed: usedSeed,
         steps,
         cfg,
+        ...(mode === 'video' ? { length, sourceImagePath: sourceImagePath ?? undefined } : {}),
       });
       setImageUrl(result.imageUrl);
+      setResultMode(generatedMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -96,6 +138,32 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
     <div className="page generate-page">
       <div className="generate-layout">
         <div className="generate-form">
+          <div className="button-row--even" style={{ marginBottom: 12 }}>
+            <button
+              type="button"
+              className={mode === 'image' ? 'primary' : undefined}
+              onClick={() => handleModeChange('image')}
+            >
+              🖼️ Image
+            </button>
+            <button
+              type="button"
+              className={mode === 'video' ? 'primary' : undefined}
+              onClick={() => handleModeChange('video')}
+            >
+              🎬 Video
+            </button>
+          </div>
+
+          {mode === 'video' && (
+            <div style={{ marginBottom: 12 }}>
+              <label className="field-label">Source Image</label>
+              <button type="button" onClick={handleChooseSourceImage} style={{ width: '100%' }}>
+                {sourceImagePath ? sourceImagePath.split('/').pop() : 'Choose Source Image...'}
+              </button>
+            </div>
+          )}
+
           <label className="field-label" htmlFor="prompt">
             Prompt
           </label>
@@ -107,32 +175,34 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
             style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
           />
 
-          <div style={{ marginTop: 12 }}>
-            <label className="field-label" htmlFor="aspect-ratio">
-              Aspect Ratio
-            </label>
-            <select
-              id="aspect-ratio"
-              defaultValue=""
-              onChange={(e) => {
-                const preset = ASPECT_RATIO_PRESETS[Number(e.target.value)];
-                if (!preset) return;
-                setWidth(preset.width);
-                setHeight(preset.height);
-                e.target.value = '';
-              }}
-              style={{ width: '100%' }}
-            >
-              <option value="" disabled>
-                Choose a preset...
-              </option>
-              {ASPECT_RATIO_PRESETS.map((preset, i) => (
-                <option key={preset.label} value={i}>
-                  {preset.label} - {preset.width}×{preset.height}
+          {mode === 'image' && (
+            <div style={{ marginTop: 12 }}>
+              <label className="field-label" htmlFor="aspect-ratio">
+                Aspect Ratio
+              </label>
+              <select
+                id="aspect-ratio"
+                defaultValue=""
+                onChange={(e) => {
+                  const preset = ASPECT_RATIO_PRESETS[Number(e.target.value)];
+                  if (!preset) return;
+                  setWidth(preset.width);
+                  setHeight(preset.height);
+                  e.target.value = '';
+                }}
+                style={{ width: '100%' }}
+              >
+                <option value="" disabled>
+                  Choose a preset...
                 </option>
-              ))}
-            </select>
-          </div>
+                {ASPECT_RATIO_PRESETS.map((preset, i) => (
+                  <option key={preset.label} value={i}>
+                    {preset.label} - {preset.width}×{preset.height}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -165,6 +235,26 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
             </div>
           </div>
 
+          {mode === 'video' && (
+            <div style={{ marginTop: 12 }}>
+              <label className="field-label" htmlFor="length">
+                Length (frames)
+              </label>
+              <input
+                id="length"
+                type="number"
+                value={length}
+                min={1}
+                max={200}
+                onChange={(e) => setLength(Number(e.target.value))}
+                style={{ width: 160 }}
+              />
+              <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+                81 frames @ 16fps ≈ 5s (this template's default).
+              </p>
+            </div>
+          )}
+
           <div style={{ marginTop: 12 }}>
             <label className="field-label" htmlFor="seed">
               Seed
@@ -187,6 +277,7 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
             </div>
           </div>
 
+          {mode === 'image' && (
           <div style={{ marginTop: 16 }}>
             <button
               type="button"
@@ -229,9 +320,15 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
               </div>
             )}
           </div>
+          )}
 
           <div className="button-row--even" style={{ marginTop: 20 }}>
-            <button type="button" className="primary" onClick={handleGenerate} disabled={isGenerating}>
+            <button
+              type="button"
+              className="primary"
+              onClick={handleGenerate}
+              disabled={isGenerating || (mode === 'video' && !sourceImagePath)}
+            >
               {isGenerating ? 'Generating...' : 'Generate'}
             </button>
             <button type="button" onClick={handleSavePrompt} disabled={!prompt.trim()}>
@@ -249,6 +346,8 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
               <div className="progress-bar progress-bar--indeterminate" />
               <span>Generating...</span>
             </div>
+          ) : imageUrl && resultMode === 'video' ? (
+            <video src={imageUrl} controls style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8 }} />
           ) : imageUrl ? (
             <img src={imageUrl} alt="Generated" style={{ maxWidth: '100%', borderRadius: 8 }} />
           ) : (

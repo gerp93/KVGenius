@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS generations (
   seed INTEGER NOT NULL,
   steps INTEGER NOT NULL,
   cfg REAL NOT NULL,
+  length INTEGER,
   model_family TEXT NOT NULL,
   image_path TEXT NOT NULL,
   created_at TEXT NOT NULL
@@ -27,11 +28,27 @@ CREATE TABLE IF NOT EXISTS saved_prompts (
 );
 `;
 
+interface ColumnInfo {
+  name: string;
+}
+
+/** CREATE TABLE IF NOT EXISTS only covers a brand-new database - an existing one predating
+ * the `length` column (added for video families) needs it added in place, or every read/write
+ * against it fails with "no such column". Checked rather than blindly run, since re-running
+ * ALTER TABLE ADD COLUMN on a column that already exists errors instead of no-op'ing. */
+function migrateSchema(db: DatabaseSync): void {
+  const columns = db.prepare('PRAGMA table_info(generations)').all() as unknown as ColumnInfo[];
+  if (!columns.some((c) => c.name === 'length')) {
+    db.exec('ALTER TABLE generations ADD COLUMN length INTEGER;');
+  }
+}
+
 export function initDatabase(dbPath: string): DatabaseSync {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  migrateSchema(db);
   return db;
 }
 
@@ -44,6 +61,7 @@ interface GenerationRow {
   seed: number;
   steps: number;
   cfg: number;
+  length: number | null;
   model_family: string;
   image_path: string;
   created_at: string;
@@ -59,6 +77,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     seed: row.seed,
     steps: row.steps,
     cfg: row.cfg,
+    length: row.length,
     modelFamily: row.model_family,
     imagePath: row.image_path,
     createdAt: row.created_at,
@@ -72,9 +91,10 @@ export function insertGeneration(
   imagePath: string
 ): GenerationRecord {
   const createdAt = new Date().toISOString();
+  const length = params.length ?? null;
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, model_family, image_path, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -83,6 +103,7 @@ export function insertGeneration(
     params.seed,
     params.steps,
     params.cfg,
+    length,
     modelFamily,
     imagePath,
     createdAt
@@ -96,6 +117,7 @@ export function insertGeneration(
     seed: params.seed,
     steps: params.steps,
     cfg: params.cfg,
+    length,
     modelFamily,
     imagePath,
     createdAt,

@@ -1,7 +1,10 @@
 import { randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { GenerationParams } from '../shared/types';
 import { getEffectiveComfyUIHost } from './dbLocation';
 import zImageTurboTemplate from './templates/z-image-turbo.json';
+import wan22I2vTemplate from './templates/wan22-i2v.json';
 
 // Imported directly (not read from disk at runtime via fs) so tsc inlines the JSON into the
 // compiled output - `tsc -p tsconfig.main.json` only compiles .ts files, it doesn't copy
@@ -11,6 +14,7 @@ import zImageTurboTemplate from './templates/z-image-turbo.json';
 // model family template; add to this map as more templates are added.
 const TEMPLATES: Record<string, Record<string, unknown>> = {
   'z-image-turbo': zImageTurboTemplate,
+  'wan22-i2v': wan22I2vTemplate,
 };
 
 // ComfyUI Desktop (the Electron distribution this app targets) defaults to port 8000, not
@@ -23,10 +27,26 @@ export const DEFAULT_COMFYUI_HOST = 'http://localhost:8000';
  * block at the top of comfyui-templates.md (to be written once a second
  * template exists and this needs a real per-family map).
  */
-const NODE_MAP = {
+const Z_IMAGE_TURBO_NODE_MAP = {
   prompt: '57:27',
   sampler: '57:3',
   latent: '57:13',
+};
+
+/**
+ * Node IDs in src/main/templates/wan22-i2v.json. This is a 2-stage (high-noise then
+ * low-noise) KSamplerAdvanced pipeline gated by a "4-step LoRA" switch chain (node 129:131)
+ * that the template ships already enabled - deliberately not exposed here, matching the
+ * curated-per-family-template philosophy (see CLAUDE.md): only the fields a user actually
+ * needs to touch are patched, everything else stays exactly as the template author set it.
+ * Only samplerHighNoise's seed is patched - samplerLowNoise (129:85) has add_noise:'disable'
+ * and return_with_leftover_noise from stage 1, so its own noise_seed field is inert.
+ */
+const WAN22_I2V_NODE_MAP = {
+  loadImage: '97',
+  positivePrompt: '129:93',
+  imageToVideo: '129:98',
+  samplerHighNoise: '129:86',
 };
 
 export class ComfyUIUnavailableError extends Error {}
@@ -65,18 +85,59 @@ function loadTemplate(family: string): Record<string, unknown> {
   return template;
 }
 
-function patchTemplate(template: Record<string, unknown>, params: GenerationParams): Record<string, unknown> {
+/** Uploads a local image file to ComfyUI's input directory so a LoadImage node can
+ * reference it by filename. Returns the filename ComfyUI stored it under. */
+async function uploadSourceImage(filePath: string): Promise<string> {
+  const bytes = fs.readFileSync(filePath);
+  const form = new FormData();
+  form.append('image', new Blob([bytes]), path.basename(filePath));
+  const resp = await comfyRequest('/upload/image', { method: 'POST', body: form });
+  const data = (await resp.json()) as { name?: string };
+  if (!data.name) {
+    throw new ComfyUIUnavailableError(`ComfyUI did not return a filename for the uploaded image: ${JSON.stringify(data)}`);
+  }
+  return data.name;
+}
+
+async function patchTemplate(
+  family: string,
+  template: Record<string, unknown>,
+  params: GenerationParams
+): Promise<Record<string, unknown>> {
   const workflow = JSON.parse(JSON.stringify(template));
 
-  const promptNode = workflow[NODE_MAP.prompt] as { inputs: Record<string, unknown> };
+  if (family === 'wan22-i2v') {
+    if (!params.sourceImagePath) {
+      throw new Error('Video mode requires a source image.');
+    }
+    const uploadedName = await uploadSourceImage(params.sourceImagePath);
+
+    const loadImageNode = workflow[WAN22_I2V_NODE_MAP.loadImage] as { inputs: Record<string, unknown> };
+    loadImageNode.inputs.image = uploadedName;
+
+    const promptNode = workflow[WAN22_I2V_NODE_MAP.positivePrompt] as { inputs: Record<string, unknown> };
+    promptNode.inputs.text = params.prompt;
+
+    const imageToVideoNode = workflow[WAN22_I2V_NODE_MAP.imageToVideo] as { inputs: Record<string, unknown> };
+    imageToVideoNode.inputs.width = params.width;
+    imageToVideoNode.inputs.height = params.height;
+    imageToVideoNode.inputs.length = params.length ?? 81;
+
+    const samplerNode = workflow[WAN22_I2V_NODE_MAP.samplerHighNoise] as { inputs: Record<string, unknown> };
+    samplerNode.inputs.noise_seed = params.seed;
+
+    return workflow;
+  }
+
+  const promptNode = workflow[Z_IMAGE_TURBO_NODE_MAP.prompt] as { inputs: Record<string, unknown> };
   promptNode.inputs.text = params.prompt;
 
-  const samplerNode = workflow[NODE_MAP.sampler] as { inputs: Record<string, unknown> };
+  const samplerNode = workflow[Z_IMAGE_TURBO_NODE_MAP.sampler] as { inputs: Record<string, unknown> };
   samplerNode.inputs.seed = params.seed;
   samplerNode.inputs.steps = params.steps;
   samplerNode.inputs.cfg = params.cfg;
 
-  const latentNode = workflow[NODE_MAP.latent] as { inputs: Record<string, unknown> };
+  const latentNode = workflow[Z_IMAGE_TURBO_NODE_MAP.latent] as { inputs: Record<string, unknown> };
   latentNode.inputs.width = params.width;
   latentNode.inputs.height = params.height;
 
@@ -96,14 +157,14 @@ async function submit(workflow: Record<string, unknown>): Promise<string> {
   return data.prompt_id;
 }
 
-interface HistoryImage {
+interface HistoryFile {
   filename: string;
   subfolder: string;
   type: string;
 }
 
 interface HistoryEntry {
-  outputs?: Record<string, { images?: HistoryImage[] }>;
+  outputs?: Record<string, Record<string, HistoryFile[]>>;
 }
 
 async function getHistory(promptId: string): Promise<HistoryEntry | null> {
@@ -128,29 +189,49 @@ async function waitForResult(
   }
 }
 
-async function fetchImageBytes(img: HistoryImage): Promise<Buffer> {
+async function fetchFileBytes(file: HistoryFile): Promise<Buffer> {
   const params = new URLSearchParams({
-    filename: img.filename,
-    subfolder: img.subfolder,
-    type: img.type,
+    filename: file.filename,
+    subfolder: file.subfolder,
+    type: file.type,
   });
-  const resp = await comfyRequest(`/view?${params.toString()}`, { signal: AbortSignal.timeout(60_000) });
+  const resp = await comfyRequest(`/view?${params.toString()}`, { signal: AbortSignal.timeout(600_000) });
   return Buffer.from(await resp.arrayBuffer());
 }
 
-/** Submit a generation and return the resulting PNG bytes. */
-export async function generate(family: string, params: GenerationParams): Promise<Buffer> {
+// Different ComfyUI save nodes have used different output key names across versions/node
+// packs (SaveImage: "images", the native SaveVideo node and older VHS-style video nodes:
+// "videos" or "gifs") - checked in priority order rather than assumed, since this hasn't
+// been run against a real ComfyUI + Wan2.2 instance to confirm the exact key.
+const OUTPUT_KEYS = ['images', 'videos', 'gifs'];
+
+function extractOutputFile(entry: HistoryEntry, promptId: string): HistoryFile {
+  const outputs = entry.outputs ?? {};
+  for (const nodeOutput of Object.values(outputs)) {
+    for (const key of OUTPUT_KEYS) {
+      const files = nodeOutput[key];
+      if (Array.isArray(files) && files.length > 0) return files[0];
+    }
+  }
+  throw new Error(`ComfyUI prompt ${promptId} finished with no image/video output`);
+}
+
+export interface GenerateOutput {
+  bytes: Buffer;
+  /** File extension including the leading dot, taken from ComfyUI's own output filename
+   * (e.g. '.png', '.mp4') so the caller doesn't have to guess it per family. */
+  extension: string;
+}
+
+/** Submit a generation and return the resulting file's bytes and extension. */
+export async function generate(family: string, params: GenerationParams): Promise<GenerateOutput> {
   const template = loadTemplate(family);
-  const workflow = patchTemplate(template, params);
+  const workflow = await patchTemplate(family, template, params);
   const promptId = await submit(workflow);
   const entry = await waitForResult(promptId);
 
-  const outputs = entry.outputs ?? {};
-  for (const nodeOutput of Object.values(outputs)) {
-    const images = nodeOutput.images;
-    if (images && images.length > 0) {
-      return fetchImageBytes(images[0]);
-    }
-  }
-  throw new Error(`ComfyUI prompt ${promptId} finished with no image output`);
+  const file = extractOutputFile(entry, promptId);
+  const bytes = await fetchFileBytes(file);
+  const extension = path.extname(file.filename) || '.png';
+  return { bytes, extension };
 }
