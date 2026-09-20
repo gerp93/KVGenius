@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, Link, useLocation } from 'react-router-dom';
 import Generate from './pages/Generate';
 import Library from './pages/Library';
 import Settings from './pages/Settings';
+import Hardpoint from './pages/Hardpoint';
 import { GenerationRecord } from '../shared/types';
 
 const CONNECTION_POLL_MS = 15000;
@@ -54,6 +55,9 @@ export default function App() {
         <NavLink to="/library" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Library
         </NavLink>
+        <NavLink to="/hardpoint" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
+          Hardpoint
+        </NavLink>
         <NavLink to="/settings" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Settings
         </NavLink>
@@ -82,6 +86,7 @@ export default function App() {
       </div>
       <Routes>
         <Route path="/library" element={<Library onRecall={setRecallRecord} onRecallPrompt={setRecallPrompt} />} />
+        <Route path="/hardpoint" element={<Hardpoint />} />
         <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
       </Routes>
     </div>
