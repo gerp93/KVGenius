@@ -10,6 +10,14 @@ function randomSeed(): number {
   return Math.floor(Math.random() * 2 ** 32);
 }
 
+const ASPECT_RATIO_PRESETS: { label: string; width: number; height: number }[] = [
+  { label: 'Square (1:1)', width: 1024, height: 1024 },
+  { label: 'Portrait (2:3)', width: 832, height: 1216 },
+  { label: 'Portrait (9:16)', width: 768, height: 1344 },
+  { label: 'Landscape (3:2)', width: 1216, height: 832 },
+  { label: 'Landscape (16:9)', width: 1344, height: 768 },
+];
+
 export default function Generate({ recallRecord, onRecalled }: Props) {
   const [prompt, setPrompt] = useState('');
   const [width, setWidth] = useState(1024);
@@ -115,8 +123,35 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
             style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
           />
 
+          <div style={{ marginTop: 12 }}>
+            <label className="field-label" htmlFor="aspect-ratio">
+              Aspect Ratio
+            </label>
+            <select
+              id="aspect-ratio"
+              defaultValue=""
+              onChange={(e) => {
+                const preset = ASPECT_RATIO_PRESETS[Number(e.target.value)];
+                if (!preset) return;
+                setWidth(preset.width);
+                setHeight(preset.height);
+                e.target.value = '';
+              }}
+              style={{ width: '100%' }}
+            >
+              <option value="" disabled>
+                Choose a preset...
+              </option>
+              {ASPECT_RATIO_PRESETS.map((preset, i) => (
+                <option key={preset.label} value={i}>
+                  {preset.label} - {preset.width}×{preset.height}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-            <div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <label className="field-label" htmlFor="width">
                 Width
               </label>
@@ -127,9 +162,10 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
                 step={64}
                 min={256}
                 onChange={(e) => setWidth(Number(e.target.value))}
+                style={{ width: '100%' }}
               />
             </div>
-            <div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <label className="field-label" htmlFor="height">
                 Height
               </label>
@@ -140,6 +176,7 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
                 step={64}
                 min={256}
                 onChange={(e) => setHeight(Number(e.target.value))}
+                style={{ width: '100%' }}
               />
             </div>
           </div>
@@ -167,7 +204,11 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
           </div>
 
           <div style={{ marginTop: 16 }}>
-            <button type="button" onClick={() => setAdvancedOpen((v) => !v)}>
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              style={{ width: '100%', justifyContent: 'flex-start' }}
+            >
               {advancedOpen ? '▾' : '▸'} Advanced
             </button>
             {advancedOpen && (
@@ -205,7 +246,7 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+          <div className="button-row--even" style={{ marginTop: 20 }}>
             <button type="button" className="primary" onClick={handleGenerate} disabled={isGenerating}>
               {isGenerating ? 'Generating...' : 'Generate'}
             </button>
@@ -218,7 +259,11 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
           {saveStatus && <p style={{ color: 'var(--color-accent-green)' }}>{saveStatus}</p>}
 
           <div style={{ marginTop: 20 }}>
-            <button type="button" onClick={() => setSavedPromptsOpen((v) => !v)}>
+            <button
+              type="button"
+              onClick={() => setSavedPromptsOpen((v) => !v)}
+              style={{ width: '100%', justifyContent: 'flex-start' }}
+            >
               {savedPromptsOpen ? '▾' : '▸'} Saved Prompts ({savedPrompts.length})
             </button>
             {savedPromptsOpen && (

@@ -69,12 +69,17 @@ body {
 button {
   font-family: inherit;
   font-size: 14px;
+  min-height: 38px;
   padding: 8px 16px;
   border-radius: 6px;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 button:hover:not(:disabled) {
@@ -121,6 +126,27 @@ input:focus {
   font-size: 12px;
   color: var(--color-text-muted);
   margin-bottom: 4px;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.button-row button {
+  min-width: 130px;
+}
+
+.button-row--even {
+  display: flex;
+  gap: 8px;
+}
+
+.button-row--even button {
+  flex: 1;
+  min-width: 0;
 }
 
 .generate-layout {
