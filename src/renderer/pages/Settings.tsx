@@ -210,15 +210,18 @@ export default function Settings({ theme, onThemeChange }: Props) {
             Choose Existing File...
           </button>
           <button type="button" onClick={handleChooseNewDbLocation}>
-            Choose New Location...
+            Choose New Parent Folder...
           </button>
           <button type="button" onClick={handleResetDb}>
             Reset to Default
           </button>
         </div>
         <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
-          Changing the database location restarts KVGenius (a running database connection can't
-          be repointed at a new file).
+          "Choose New Parent Folder..." creates a 'KVGenius_Data' folder inside whatever you pick and
+          puts the database and generated images together inside it - so pointing two different
+          apps at the same shared parent folder (e.g. a synced backup location) can't mix their
+          files together. Changing the database location restarts KVGenius (a running database
+          connection can't be repointed at a new file).
         </p>
       </section>
 
