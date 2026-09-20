@@ -93,7 +93,12 @@ function createWindow(): void {
   if (!app.isPackaged) {
     void mainWindow.loadURL('http://localhost:5173');
   } else {
-    void mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+    // __dirname here is dist/main/main (main.ts -> src/main/main.ts, outDir dist/main,
+    // rootDir src) while the renderer build lands at dist/renderer (vite.config.ts's
+    // build.outDir) - a sibling of dist/main, not a child of it. One ".." only reaches
+    // dist/main; confirmed by actually running the packaged AppImage, which failed to
+    // load the window with ERR_FILE_NOT_FOUND before this fix.
+    void mainWindow.loadFile(path.join(__dirname, '..', '..', 'renderer', 'index.html'));
   }
 
   mainWindow.on('closed', () => {
