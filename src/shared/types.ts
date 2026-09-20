@@ -105,4 +105,7 @@ export interface KVGeniusAPI {
 
   getAppVersion: () => Promise<string>;
   checkForUpdates: () => Promise<UpdateCheckResult>;
+
+  /** Launch or focus the Hardpoint AI services dashboard. */
+  openHardpoint: () => Promise<{ status: 'ok' } | { status: 'error'; message: string }>;
 }

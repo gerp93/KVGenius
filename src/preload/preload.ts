@@ -31,6 +31,8 @@ const api: KVGeniusAPI = {
 
   getAppVersion: () => ipcRenderer.invoke('getAppVersion'),
   checkForUpdates: () => ipcRenderer.invoke('checkForUpdates'),
+
+  openHardpoint: () => ipcRenderer.invoke('openHardpoint'),
 };
 
 contextBridge.exposeInMainWorld('kvgenius', api);
