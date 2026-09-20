@@ -7,9 +7,6 @@ and this repo's `REPO_SCOPE.md` entry for that). Just what's not built yet.
 ## Features
 
 - Image-to-image and inpainting modes (Generate/txt2img is the only mode so far)
-- Settings page: ComfyUI host override, database relocate/adopt/reset UI
-  (the underlying functions already exist in `src/main/dbLocation.ts`, just
-  no UI surfaces them yet)
 - Real negative prompt for the Z Image Turbo template, gated behind raising
   CFG above 1 (currently zeroed out — see `src/main/comfyui.ts`'s node map
   and the template's `ConditioningZeroOut` node). Needs an actual

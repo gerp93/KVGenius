@@ -50,6 +50,16 @@ body {
   background: var(--color-top-bar-hover);
 }
 
+.top-bar__connection {
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+  padding: 6px 14px;
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .page {
   flex: 1;
   overflow: auto;
@@ -87,6 +97,7 @@ button.primary:hover:not(:disabled) {
 }
 
 textarea,
+select,
 input[type='text'],
 input[type='number'] {
   font-family: inherit;
@@ -99,6 +110,7 @@ input[type='number'] {
 }
 
 textarea:focus,
+select:focus,
 input:focus {
   outline: 2px solid var(--color-primary-action);
   outline-offset: -1px;

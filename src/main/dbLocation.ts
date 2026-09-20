@@ -6,7 +6,10 @@ import { DEFAULT_COMFYUI_HOST } from './comfyui';
 interface AppConfig {
   dbPath?: string;
   comfyuiHost?: string;
+  theme?: string;
 }
+
+export const DEFAULT_THEME = 'neon';
 
 function getConfigPath(): string {
   return path.join(app.getPath('userData'), 'app-config.json');
@@ -145,4 +148,12 @@ export function resetComfyUIHost(): void {
 /** Default folder generated images are saved into, next to the database. */
 export function getImagesDir(): string {
   return path.join(path.dirname(getEffectiveDbPath()), 'images');
+}
+
+export function getEffectiveTheme(): string {
+  return readConfig().theme || DEFAULT_THEME;
+}
+
+export function setTheme(themeId: string): void {
+  writeConfig({ ...readConfig(), theme: themeId.trim() });
 }
