@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { GenerationRecord, SavedPrompt } from '../../shared/types';
+import { GenerationRecord } from '../../shared/types';
 
 interface Props {
   recallRecord: GenerationRecord | null;
   onRecalled: () => void;
+  recallPrompt: string | null;
+  onPromptRecalled: () => void;
 }
 
 function randomSeed(): number {
@@ -18,7 +20,7 @@ const ASPECT_RATIO_PRESETS: { label: string; width: number; height: number }[] =
   { label: 'Landscape (16:9)', width: 1344, height: 768 },
 ];
 
-export default function Generate({ recallRecord, onRecalled }: Props) {
+export default function Generate({ recallRecord, onRecalled, recallPrompt, onPromptRecalled }: Props) {
   const [prompt, setPrompt] = useState('');
   const [width, setWidth] = useState(1024);
   const [height, setHeight] = useState(1024);
@@ -33,20 +35,6 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
-  const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
-  const [savedPromptsOpen, setSavedPromptsOpen] = useState(false);
-
-  function refreshSavedPrompts() {
-    window.kvgenius
-      .listSavedPrompts()
-      .then(setSavedPrompts)
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }
-
-  useEffect(() => {
-    refreshSavedPrompts();
-  }, []);
-
   useEffect(() => {
     if (!recallRecord) return;
     setPrompt(recallRecord.prompt);
@@ -59,6 +47,12 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
     setImageUrl(window.kvgenius.imageUrlFor(recallRecord.imagePath));
     onRecalled();
   }, [recallRecord, onRecalled]);
+
+  useEffect(() => {
+    if (recallPrompt === null) return;
+    setPrompt(recallPrompt);
+    onPromptRecalled();
+  }, [recallPrompt, onPromptRecalled]);
 
   async function handleGenerate() {
     if (!prompt.trim()) {
@@ -91,18 +85,8 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
     if (!prompt.trim()) return;
     try {
       await window.kvgenius.savePrompt(null, prompt);
-      setSaveStatus('Prompt saved.');
-      setTimeout(() => setSaveStatus(null), 2000);
-      refreshSavedPrompts();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function handleDeleteSavedPrompt(id: number) {
-    try {
-      await window.kvgenius.deleteSavedPrompt(id);
-      refreshSavedPrompts();
+      setSaveStatus('Prompt saved - find it in Library.');
+      setTimeout(() => setSaveStatus(null), 2500);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -257,59 +241,15 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
 
           {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
           {saveStatus && <p style={{ color: 'var(--color-accent-green)' }}>{saveStatus}</p>}
-
-          <div style={{ marginTop: 20 }}>
-            <button
-              type="button"
-              onClick={() => setSavedPromptsOpen((v) => !v)}
-              style={{ width: '100%', justifyContent: 'flex-start' }}
-            >
-              {savedPromptsOpen ? '▾' : '▸'} Saved Prompts ({savedPrompts.length})
-            </button>
-            {savedPromptsOpen && (
-              <div style={{ marginTop: 8 }}>
-                {savedPrompts.length === 0 && (
-                  <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
-                    No saved prompts yet - use "Save Prompt" above.
-                  </p>
-                )}
-                {savedPrompts.map((sp) => (
-                  <div
-                    key={sp.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '6px 0',
-                      borderBottom: '1px solid var(--color-border)',
-                    }}
-                  >
-                    <span
-                      onClick={() => setPrompt(sp.prompt)}
-                      title="Click to use this prompt"
-                      style={{
-                        flex: 1,
-                        cursor: 'pointer',
-                        fontSize: 13,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {sp.prompt}
-                    </span>
-                    <button type="button" onClick={() => handleDeleteSavedPrompt(sp.id)} title="Delete">
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
         <div className="generate-preview">
-          {imageUrl ? (
+          {isGenerating ? (
+            <div className="generate-preview__loading">
+              <div className="progress-bar progress-bar--indeterminate" />
+              <span>Generating...</span>
+            </div>
+          ) : imageUrl ? (
             <img src={imageUrl} alt="Generated" style={{ maxWidth: '100%', borderRadius: 8 }} />
           ) : (
             <div className="generate-preview__placeholder">No image yet</div>
