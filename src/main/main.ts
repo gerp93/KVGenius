@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } from 'electron';
 import { DatabaseSync } from 'node:sqlite';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -23,7 +23,15 @@ import {
   getEffectiveTheme,
   setTheme,
 } from './dbLocation';
-import { initDatabase, insertGeneration, listGenerations, listSavedPrompts, insertSavedPrompt, deleteSavedPrompt } from './db';
+import {
+  initDatabase,
+  insertGeneration,
+  listGenerations,
+  deleteGeneration,
+  listSavedPrompts,
+  insertSavedPrompt,
+  deleteSavedPrompt,
+} from './db';
 import { generate as comfyGenerate, isAvailable as comfyIsAvailable, DEFAULT_COMFYUI_HOST } from './comfyui';
 import { GenerationParams } from '../shared/types';
 
@@ -170,6 +178,31 @@ function registerIpcHandlers(): void {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
+  });
+
+  ipcMain.handle('deleteGeneration', (_event, id: number, imagePath: string) => {
+    if (!db) throw new Error('Database not initialized');
+    deleteGeneration(db, id);
+    try {
+      fs.unlinkSync(imagePath);
+    } catch {
+      // Already gone (or never existed) - the DB row is still correctly deleted either way.
+    }
+  });
+
+  ipcMain.handle('revealGenerationInFileManager', (_event, imagePath: string) => {
+    shell.showItemInFolder(imagePath);
+  });
+
+  ipcMain.handle('saveGenerationAs', async (_event, imagePath: string) => {
+    if (!mainWindow) return false;
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save As',
+      defaultPath: path.basename(imagePath),
+    });
+    if (result.canceled || !result.filePath) return false;
+    fs.copyFileSync(imagePath, result.filePath);
+    return true;
   });
 
   ipcMain.handle('listSavedPrompts', () => {

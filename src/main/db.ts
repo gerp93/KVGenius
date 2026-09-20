@@ -129,6 +129,10 @@ export function listGenerations(db: DatabaseSync): GenerationRecord[] {
   return rows.map(rowToRecord);
 }
 
+export function deleteGeneration(db: DatabaseSync, id: number): void {
+  db.prepare('DELETE FROM generations WHERE id = ?').run(id);
+}
+
 interface SavedPromptRow {
   id: number;
   name: string | null;

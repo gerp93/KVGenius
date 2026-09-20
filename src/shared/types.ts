@@ -72,6 +72,13 @@ export interface KVGeniusAPI {
   /** Opens a native file dialog for picking a video mode's source image.
    * Resolves the chosen local path, or null if cancelled. */
   chooseSourceImage: () => Promise<string | null>;
+  /** Deletes the generation's DB row and its output file on disk. */
+  deleteGeneration: (id: number, imagePath: string) => Promise<void>;
+  /** Reveals the generation's output file in the system file manager. */
+  revealGenerationInFileManager: (imagePath: string) => Promise<void>;
+  /** Opens a native save dialog and copies the output file to the chosen location.
+   * Resolves true if saved, false if the dialog was cancelled. */
+  saveGenerationAs: (imagePath: string) => Promise<boolean>;
 
   listSavedPrompts: () => Promise<SavedPrompt[]>;
   savePrompt: (name: string | null, prompt: string) => Promise<SavedPrompt>;
