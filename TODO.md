@@ -12,9 +12,6 @@ and this repo's `REPO_SCOPE.md` entry for that). Just what's not built yet.
   and the template's `ConditioningZeroOut` node). Needs an actual
   side-by-side quality comparison before deciding whether to ship it as a
   default, not just wiring it in blind.
-- Saved-prompts UI (the `savePrompt`/`listSavedPrompts`/`deleteSavedPrompt`
-  IPC + DB layer exists; no page uses `listSavedPrompts`/`deleteSavedPrompt`
-  yet)
 - Support for additional model families beyond Z Image Turbo (SD1.5-style,
   SDXL-style, Flux-style templates), each with its own curated field set
 
