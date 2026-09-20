@@ -42,12 +42,22 @@ export function getPackagedAppConfigPath(): string {
   return path.join(app.getPath('appData'), 'kvgenius', 'app-config.json');
 }
 
+// The db always lives inside its own app-named subfolder, both at the default install
+// location and anywhere it's relocated to - not a bare file/`images` sibling directly in a
+// shared parent directory, which silently collides with another app's same-named db/images
+// folder if the user ever points both apps at a shared parent (e.g. a synced backup folder).
+// Suffixed 'Data' (not just 'KVGenius') because at the default install location this folder
+// nests inside userData, which Electron already names after the app (app.setName('kvgenius'))
+// - 'kvgenius/KVGenius/' would be a redundant identically-named parent/child pair.
+const DB_SUBFOLDER = 'KVGenius_Data';
+const DB_FILENAME = 'kvgenius.db';
+
 /** Where the installed app would open its database - used to keep dev from sharing it. */
 export function getPackagedConfiguredDbPath(): string | null {
   if (app.isPackaged) return null;
   const packagedConfig = readConfigAt(getPackagedAppConfigPath());
   if (packagedConfig.dbPath?.trim()) return normalizeDbPath(packagedConfig.dbPath);
-  return normalizeDbPath(path.join(app.getPath('appData'), 'kvgenius', 'kvgenius.db'));
+  return normalizeDbPath(path.join(app.getPath('appData'), 'kvgenius', DB_SUBFOLDER, DB_FILENAME));
 }
 
 export function isPackagedDatabasePath(dbPath: string): boolean {
@@ -71,7 +81,41 @@ export function enforceDevDatabaseIsolation(): boolean {
 }
 
 export function getDefaultDbPath(): string {
-  return path.join(app.getPath('userData'), 'kvgenius.db');
+  return path.join(app.getPath('userData'), DB_SUBFOLDER, DB_FILENAME);
+}
+
+/** Where the db file would live if relocated inside the given parent folder - always nested
+ * under DB_SUBFOLDER, same as the default location, so a user picking a shared parent folder
+ * (e.g. one also used by another app) can't collide with that other app's own db/images. */
+export function dbPathInsideFolder(parentFolder: string): string {
+  return path.join(parentFolder, DB_SUBFOLDER, DB_FILENAME);
+}
+
+/**
+ * One-time migration for installs that started before the default location was nested under
+ * DB_SUBFOLDER: if nothing has ever been manually relocated, the new nested default doesn't
+ * exist yet, but the old flat `userData/kvgenius.db` does, move it (and its WAL/SHM sidecars,
+ * if present) into place. Must run before initDatabase() ever opens a connection.
+ *
+ * Existing generated images are deliberately NOT moved here - their DB rows store absolute
+ * paths and keep working exactly where they are; only new generations start landing in the
+ * newly-nested images folder (getImagesDir() is always a sibling of wherever the db lives).
+ */
+export function migrateLegacyDefaultDbLocation(): void {
+  if (!isUsingDefaultDbLocation()) return;
+
+  const newPath = getDefaultDbPath();
+  if (fs.existsSync(newPath)) return;
+
+  const oldPath = path.join(app.getPath('userData'), DB_FILENAME);
+  if (!fs.existsSync(oldPath)) return;
+
+  fs.mkdirSync(path.dirname(newPath), { recursive: true });
+  fs.renameSync(oldPath, newPath);
+  for (const suffix of ['-wal', '-shm']) {
+    const oldSidecar = oldPath + suffix;
+    if (fs.existsSync(oldSidecar)) fs.renameSync(oldSidecar, newPath + suffix);
+  }
 }
 
 /** The database file the app will actually load on startup: a user-chosen location, or the default. */

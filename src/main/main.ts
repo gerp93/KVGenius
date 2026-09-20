@@ -14,7 +14,9 @@ import {
   resetToDefaultDbPath,
   revealDbInFileManager,
   getImagesDir,
+  dbPathInsideFolder,
   enforceDevDatabaseIsolation,
+  migrateLegacyDefaultDbLocation,
   getEffectiveComfyUIHost,
   setComfyUIHost,
   resetComfyUIHost,
@@ -241,14 +243,15 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('chooseNewDbLocation', async () => {
     if (!mainWindow) return null;
-    const result = await dialog.showSaveDialog(mainWindow, {
-      title: 'Choose a new location for the KVGenius database',
-      defaultPath: getDefaultDbPath(),
-      filters: [{ name: 'KVGenius database', extensions: ['db'] }],
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a parent folder for the KVGenius database',
+      message: "A 'KVGenius_Data' folder will be created inside whatever you pick, holding the database and generated images together.",
+      properties: ['openDirectory', 'createDirectory'],
     });
-    if (result.canceled || !result.filePath) return null;
-    relocateAndRelaunch(result.filePath);
-    return result.filePath;
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const newPath = dbPathInsideFolder(result.filePaths[0]);
+    relocateAndRelaunch(newPath);
+    return newPath;
   });
 
   ipcMain.handle('resetDbToDefault', () => {
@@ -345,6 +348,7 @@ function checkForUpdatesNow(): Promise<UpdateCheckResult> {
 app
   .whenReady()
   .then(() => {
+    migrateLegacyDefaultDbLocation();
     enforceDevDatabaseIsolation();
     db = initDatabase(getEffectiveDbPath());
 
