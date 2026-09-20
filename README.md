@@ -1,18 +1,46 @@
 # KVGenius
 
-AI image generation desktop app — a lightweight Electron front end over a
-locally-running [ComfyUI](https://github.com/comfyanonymous/ComfyUI) server.
-KVGenius doesn't load any models itself; it submits curated workflow
-templates to your ComfyUI instance over HTTP and displays the results.
+A lightweight Electron desktop app for AI image generation — a thin wrapper
+over a locally-running [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
+server. KVGenius doesn't load any models or run any inference itself: it
+submits a curated ComfyUI workflow template over HTTP, waits for the result,
+and saves the generated image alongside the prompt and settings that
+produced it.
 
-**Status:** rewrite in progress. The previous Flet/Python implementation is
-preserved on the [`legacy-flet-app`](https://github.com/gerp93/KVGenius/tree/legacy-flet-app)
-branch for reference; `main` now holds the new Electron version going
-forward.
+**Requires a running ComfyUI instance** (default `http://localhost:8188`)
+with the model files the active template expects already installed. See
+`src/main/templates/` for the workflow templates KVGenius ships with.
+
+**Status:** early rewrite. Currently supports one mode (plain text-to-image)
+against one model template (Z Image Turbo). Image-to-image, inpainting, and
+additional model families are planned — see [TODO.md](TODO.md).
+
+The previous Flet/Python implementation of this app is preserved on the
+[`legacy-flet-app`](https://github.com/gerp93/KVGenius/tree/legacy-flet-app)
+branch for reference.
+
+## Development
+
+```bash
+npm install
+npm run dev
+```
+
+## Building
+
+```bash
+npm run build
+npm run package
+```
+
+## Standards
 
 Follows [gerp93/KVG_Standards](https://github.com/gerp93/KVG_Standards) for
-theming, licensing, release/CI, update-check, and the rest of the org's app
-conventions.
+theming (VisualAssault, vendored in `src/renderer/themes.css`), licensing,
+release/CI (`.github/workflows/auto-release.yml` /
+`.github/workflows/cut-release.yml` → `release-electron.yml`), update-check
+(`electron-updater`), the application menu (`src/main/menu.ts`), and
+database location (`src/main/dbLocation.ts`).
 
 ## License
 
