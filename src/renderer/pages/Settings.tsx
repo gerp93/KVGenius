@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DbInfo } from '../../shared/types';
+import { DbInfo, UpdateCheckResult } from '../../shared/types';
 import { THEME_NAMES, themeDisplayName } from '../../shared/themes';
 
 type ConnectionStatus = 'unknown' | 'checking' | 'connected' | 'unreachable';
@@ -17,6 +17,10 @@ export default function Settings({ theme, onThemeChange }: Props) {
   const [connection, setConnection] = useState<ConnectionStatus>('unknown');
   const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
 
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateCheckResult['status'] | 'idle' | 'checking'>('idle');
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+
   useEffect(() => {
     window.kvgenius
       .getComfyUIHost()
@@ -28,7 +32,20 @@ export default function Settings({ theme, onThemeChange }: Props) {
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
 
     window.kvgenius.getDbInfo().then(setDbInfo);
+    window.kvgenius.getAppVersion().then(setAppVersion);
   }, []);
+
+  async function handleCheckForUpdates() {
+    setUpdateStatus('checking');
+    setUpdateMessage(null);
+    const result = await window.kvgenius.checkForUpdates();
+    setUpdateStatus(result.status);
+    if (result.status === 'available') {
+      setUpdateMessage(`Version ${result.version} is downloading in the background.`);
+    } else if (result.status === 'error') {
+      setUpdateMessage(result.message ?? 'Something went wrong.');
+    }
+  }
 
   async function checkConnection() {
     setConnection('checking');
@@ -201,6 +218,34 @@ export default function Settings({ theme, onThemeChange }: Props) {
           Changing the database location restarts KVGenius (a running database connection can't
           be repointed at a new file).
         </p>
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h3>Updates</h3>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+          {appVersion ? `You're running version ${appVersion}.` : 'Loading version...'}
+        </p>
+        <button
+          type="button"
+          disabled={updateStatus === 'checking' || updateStatus === 'unsupported'}
+          onClick={handleCheckForUpdates}
+        >
+          {updateStatus === 'checking' ? 'Checking...' : 'Check for Updates'}
+        </button>
+        {updateStatus === 'not-available' && (
+          <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 8 }}>You're up to date.</p>
+        )}
+        {updateStatus === 'available' && (
+          <p style={{ color: 'var(--color-accent-green)', fontSize: 12, marginTop: 8 }}>{updateMessage}</p>
+        )}
+        {updateStatus === 'error' && (
+          <p style={{ color: 'var(--color-accent-red)', fontSize: 12, marginTop: 8 }}>Check failed: {updateMessage}</p>
+        )}
+        {updateStatus === 'unsupported' && (
+          <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 8 }}>
+            Update checks are only available in a packaged build, not in dev mode.
+          </p>
+        )}
       </section>
 
       {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}

@@ -45,6 +45,12 @@ export interface DbInfo {
   defaultPath: string;
 }
 
+export interface UpdateCheckResult {
+  status: 'available' | 'not-available' | 'error' | 'unsupported';
+  version?: string;
+  message?: string;
+}
+
 /** Contract exposed on window.kvgenius by the preload script. */
 export interface KVGeniusAPI {
   generate: (params: GenerationParams) => Promise<GenerateResult>;
@@ -70,4 +76,7 @@ export interface KVGeniusAPI {
   chooseExistingDb: () => Promise<string | null>;
   chooseNewDbLocation: () => Promise<string | null>;
   resetDbToDefault: () => Promise<void>;
+
+  getAppVersion: () => Promise<string>;
+  checkForUpdates: () => Promise<UpdateCheckResult>;
 }

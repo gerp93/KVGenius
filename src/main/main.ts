@@ -247,6 +247,88 @@ function registerIpcHandlers(): void {
     app.relaunch();
     app.exit();
   });
+
+  ipcMain.handle('getAppVersion', () => app.getVersion());
+  ipcMain.handle('checkForUpdates', () => checkForUpdatesNow());
+}
+
+function setupAutoUpdater(): void {
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-downloaded', (info) => {
+    void dialog
+      .showMessageBox(mainWindow!, {
+        type: 'info',
+        title: 'Update ready',
+        message: `KVGenius ${info.version} has been downloaded.`,
+        detail: 'Restart now to install it, or it will install automatically the next time you quit.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then((result) => {
+        if (result.response === 0) {
+          autoUpdater.quitAndInstall();
+        }
+      });
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('Auto-update error:', err);
+  });
+
+  autoUpdater.checkForUpdates().catch((err) => {
+    console.error('Failed to check for updates:', err);
+  });
+}
+
+interface UpdateCheckResult {
+  status: 'available' | 'not-available' | 'error' | 'unsupported';
+  version?: string;
+  message?: string;
+}
+
+function checkForUpdatesNow(): Promise<UpdateCheckResult> {
+  if (!app.isPackaged) {
+    return Promise.resolve({ status: 'unsupported' });
+  }
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      autoUpdater.removeListener('update-available', onAvailable);
+      autoUpdater.removeListener('update-not-available', onNotAvailable);
+      autoUpdater.removeListener('error', onError);
+    };
+    const onAvailable = (info: { version: string }) => {
+      cleanup();
+      resolve({ status: 'available', version: info.version });
+    };
+    const onNotAvailable = () => {
+      cleanup();
+      resolve({ status: 'not-available' });
+    };
+    const onError = (err: Error) => {
+      cleanup();
+      const message = err?.message ?? String(err);
+      // A CI release job uploads the installer before it generates/uploads the update
+      // manifest (it needs the installer's own SHA512 first) -- a check that lands in that
+      // multi-minute gap 404s on the manifest even though the release itself is live.
+      resolve({
+        status: 'error',
+        message: message.includes('Cannot find latest')
+          ? 'A new version may still be uploading -- try again in a few minutes.'
+          : message,
+      });
+    };
+
+    autoUpdater.once('update-available', onAvailable);
+    autoUpdater.once('update-not-available', onNotAvailable);
+    autoUpdater.once('error', onError);
+    autoUpdater.checkForUpdates().catch(onError);
+  });
 }
 
 app
@@ -259,10 +341,7 @@ app
     registerIpcHandlers();
     setupApplicationMenu();
     createWindow();
-
-    if (app.isPackaged) {
-      void autoUpdater.checkForUpdatesAndNotify();
-    }
+    setupAutoUpdater();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

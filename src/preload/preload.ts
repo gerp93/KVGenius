@@ -23,6 +23,9 @@ const api: KVGeniusAPI = {
   chooseExistingDb: () => ipcRenderer.invoke('chooseExistingDb'),
   chooseNewDbLocation: () => ipcRenderer.invoke('chooseNewDbLocation'),
   resetDbToDefault: () => ipcRenderer.invoke('resetDbToDefault'),
+
+  getAppVersion: () => ipcRenderer.invoke('getAppVersion'),
+  checkForUpdates: () => ipcRenderer.invoke('checkForUpdates'),
 };
 
 contextBridge.exposeInMainWorld('kvgenius', api);
