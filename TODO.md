@@ -15,6 +15,14 @@ and this repo's `REPO_SCOPE.md` entry for that). Just what's not built yet.
 - Support for additional image model families beyond Z Image Turbo
   (SD1.5-style, SDXL-style, Flux-style templates), each with its own
   curated field set
+- Job queue: let multiple generations be queued up instead of one at a
+  time, with a side panel showing what's queued/running. Real
+  architectural change - today `generate()` is one blocking IPC call
+  per submission; a queue needs the main process to track multiple
+  in-flight/pending jobs (not just the single currentPromptId/
+  currentAbortController pair cancelGeneration() uses today) and push
+  state updates to the renderer as jobs move through it, rather than
+  the renderer just awaiting one promise.
 
 ## Needs real-world verification
 

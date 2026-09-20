@@ -32,7 +32,12 @@ import {
   insertSavedPrompt,
   deleteSavedPrompt,
 } from './db';
-import { generate as comfyGenerate, isAvailable as comfyIsAvailable, DEFAULT_COMFYUI_HOST } from './comfyui';
+import {
+  generate as comfyGenerate,
+  isAvailable as comfyIsAvailable,
+  cancelCurrentGeneration,
+  DEFAULT_COMFYUI_HOST,
+} from './comfyui';
 import { GenerationParams } from '../shared/types';
 
 // Dev and packaged builds must never share a userData/appData folder, or
@@ -161,6 +166,8 @@ function registerIpcHandlers(): void {
     const record = insertGeneration(db, params, family, imagePath);
     return { record, imageUrl: imageUrlFor(imagePath) };
   });
+
+  ipcMain.handle('cancelGeneration', () => cancelCurrentGeneration());
 
   ipcMain.handle('listGenerations', () => {
     if (!db) throw new Error('Database not initialized');

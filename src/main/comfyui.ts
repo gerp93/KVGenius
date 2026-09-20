@@ -59,6 +59,7 @@ async function comfyRequest(path: string, init?: RequestInit): Promise<Response>
   try {
     resp = await fetch(url, init);
   } catch (err) {
+    if (init?.signal?.aborted) throw new GenerationCancelledError('Generation cancelled.');
     throw new ComfyUIUnavailableError(`ComfyUI not reachable at ${host}: ${String(err)}`);
   }
   if (!resp.ok) {
@@ -66,6 +67,39 @@ async function comfyRequest(path: string, init?: RequestInit): Promise<Response>
     throw new ComfyUIUnavailableError(`ComfyUI returned ${resp.status} ${resp.statusText}: ${body}`);
   }
   return resp;
+}
+
+// Tracks the one generation this app can have in flight at a time, so cancelCurrentGeneration()
+// can (a) actually tell ComfyUI to stop the work - not just give up waiting for it client-side,
+// which was a real bug: the client hitting its own timeout left the job running on the GPU with
+// nothing left listening for the result - and (b) abort the local fetch/poll loop so the
+// blocked IPC call returns promptly instead of hanging until whatever timeout is set below.
+let currentPromptId: string | null = null;
+let currentAbortController: AbortController | null = null;
+
+/** Best-effort: asks ComfyUI to interrupt whatever it's currently running and removes the
+ * tracked prompt from its queue if it hadn't started yet, then aborts the local wait. Safe to
+ * call with nothing in flight (no-ops). Does not itself throw - the in-flight generate() call
+ * surfaces the actual cancellation via GenerationCancelledError once its fetch/poll aborts. */
+export async function cancelCurrentGeneration(): Promise<void> {
+  const promptId = currentPromptId;
+  if (promptId) {
+    try {
+      await comfyRequest('/interrupt', { method: 'POST' });
+    } catch {
+      // ComfyUI may already be unreachable/gone - the local abort below still unblocks the UI.
+    }
+    try {
+      await comfyRequest('/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delete: [promptId] }),
+      });
+    } catch {
+      // Best-effort - it may already have started (not in queue) or already finished.
+    }
+  }
+  currentAbortController?.abort();
 }
 
 export async function isAvailable(): Promise<boolean> {
@@ -87,11 +121,11 @@ function loadTemplate(family: string): Record<string, unknown> {
 
 /** Uploads a local image file to ComfyUI's input directory so a LoadImage node can
  * reference it by filename. Returns the filename ComfyUI stored it under. */
-async function uploadSourceImage(filePath: string): Promise<string> {
+async function uploadSourceImage(filePath: string, signal: AbortSignal): Promise<string> {
   const bytes = fs.readFileSync(filePath);
   const form = new FormData();
   form.append('image', new Blob([bytes]), path.basename(filePath));
-  const resp = await comfyRequest('/upload/image', { method: 'POST', body: form });
+  const resp = await comfyRequest('/upload/image', { method: 'POST', body: form, signal });
   const data = (await resp.json()) as { name?: string };
   if (!data.name) {
     throw new ComfyUIUnavailableError(`ComfyUI did not return a filename for the uploaded image: ${JSON.stringify(data)}`);
@@ -102,7 +136,8 @@ async function uploadSourceImage(filePath: string): Promise<string> {
 async function patchTemplate(
   family: string,
   template: Record<string, unknown>,
-  params: GenerationParams
+  params: GenerationParams,
+  signal: AbortSignal
 ): Promise<Record<string, unknown>> {
   const workflow = JSON.parse(JSON.stringify(template));
 
@@ -110,7 +145,7 @@ async function patchTemplate(
     if (!params.sourceImagePath) {
       throw new Error('Video mode requires a source image.');
     }
-    const uploadedName = await uploadSourceImage(params.sourceImagePath);
+    const uploadedName = await uploadSourceImage(params.sourceImagePath, signal);
 
     const loadImageNode = workflow[WAN22_I2V_NODE_MAP.loadImage] as { inputs: Record<string, unknown> };
     loadImageNode.inputs.image = uploadedName;
@@ -144,11 +179,12 @@ async function patchTemplate(
   return workflow;
 }
 
-async function submit(workflow: Record<string, unknown>): Promise<string> {
+async function submit(workflow: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const resp = await comfyRequest('/prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt: workflow, client_id: randomUUID() }),
+    signal,
   });
   const data = (await resp.json()) as { prompt_id?: string };
   if (!data.prompt_id) {
@@ -167,35 +203,61 @@ interface HistoryEntry {
   outputs?: Record<string, Record<string, HistoryFile[]>>;
 }
 
-async function getHistory(promptId: string): Promise<HistoryEntry | null> {
-  const resp = await comfyRequest(`/history/${promptId}`);
+async function getHistory(promptId: string, signal: AbortSignal): Promise<HistoryEntry | null> {
+  const resp = await comfyRequest(`/history/${promptId}`, { signal });
   const data = (await resp.json()) as Record<string, HistoryEntry>;
   return data[promptId] ?? null;
 }
 
+/** setTimeout that rejects immediately on abort instead of only checking the signal after the
+ * fact, so a cancel doesn't have to wait out the rest of the current poll interval. */
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new GenerationCancelledError('Generation cancelled.'));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new GenerationCancelledError('Generation cancelled.'));
+      },
+      { once: true }
+    );
+  });
+}
+
+// A hard ceiling exists as a last-resort sanity net, but cancelCurrentGeneration() (a real
+// Cancel button, not a guess) is the actual mechanism now - a slow but genuinely still-running
+// generation (a cold model load, a long video render) shouldn't get killed by an arbitrary
+// timeout the way a 10-minute default previously did, especially since that failure mode left
+// the GPU still grinding on a job the app had already given up tracking.
 async function waitForResult(
   promptId: string,
-  timeoutMs = 600_000,
+  signal: AbortSignal,
+  timeoutMs = 3_600_000,
   pollIntervalMs = 1000
 ): Promise<HistoryEntry> {
   const start = Date.now();
   for (;;) {
-    const entry = await getHistory(promptId);
+    const entry = await getHistory(promptId, signal);
     if (entry) return entry;
     if (Date.now() - start > timeoutMs) {
       throw new Error(`ComfyUI prompt ${promptId} did not finish within ${timeoutMs}ms`);
     }
-    await new Promise((r) => setTimeout(r, pollIntervalMs));
+    await abortableSleep(pollIntervalMs, signal);
   }
 }
 
-async function fetchFileBytes(file: HistoryFile): Promise<Buffer> {
+async function fetchFileBytes(file: HistoryFile, signal: AbortSignal): Promise<Buffer> {
   const params = new URLSearchParams({
     filename: file.filename,
     subfolder: file.subfolder,
     type: file.type,
   });
-  const resp = await comfyRequest(`/view?${params.toString()}`, { signal: AbortSignal.timeout(600_000) });
+  const resp = await comfyRequest(`/view?${params.toString()}`, { signal });
   return Buffer.from(await resp.arrayBuffer());
 }
 
@@ -223,15 +285,24 @@ export interface GenerateOutput {
   extension: string;
 }
 
-/** Submit a generation and return the resulting file's bytes and extension. */
+/** Submit a generation and return the resulting file's bytes and extension. Only one
+ * generation can be in flight at a time - see cancelCurrentGeneration(). */
 export async function generate(family: string, params: GenerationParams): Promise<GenerateOutput> {
-  const template = loadTemplate(family);
-  const workflow = await patchTemplate(family, template, params);
-  const promptId = await submit(workflow);
-  const entry = await waitForResult(promptId);
+  const controller = new AbortController();
+  currentAbortController = controller;
+  try {
+    const template = loadTemplate(family);
+    const workflow = await patchTemplate(family, template, params, controller.signal);
+    const promptId = await submit(workflow, controller.signal);
+    currentPromptId = promptId;
+    const entry = await waitForResult(promptId, controller.signal);
 
-  const file = extractOutputFile(entry, promptId);
-  const bytes = await fetchFileBytes(file);
-  const extension = path.extname(file.filename) || '.png';
-  return { bytes, extension };
+    const file = extractOutputFile(entry, promptId);
+    const bytes = await fetchFileBytes(file, controller.signal);
+    const extension = path.extname(file.filename) || '.png';
+    return { bytes, extension };
+  } finally {
+    currentPromptId = null;
+    currentAbortController = null;
+  }
 }

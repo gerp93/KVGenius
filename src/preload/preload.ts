@@ -3,6 +3,7 @@ import { GenerationParams, KVGeniusAPI } from '../shared/types';
 
 const api: KVGeniusAPI = {
   generate: (family: string, params: GenerationParams) => ipcRenderer.invoke('generate', family, params),
+  cancelGeneration: () => ipcRenderer.invoke('cancelGeneration'),
   listGenerations: () => ipcRenderer.invoke('listGenerations'),
   imageUrlFor: (imagePath: string) => `kvimage://${encodeURIComponent(imagePath)}`,
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),

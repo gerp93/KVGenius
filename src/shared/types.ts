@@ -67,6 +67,9 @@ export interface UpdateCheckResult {
 /** Contract exposed on window.kvgenius by the preload script. */
 export interface KVGeniusAPI {
   generate: (family: string, params: GenerationParams) => Promise<GenerateResult>;
+  /** Interrupts the in-flight generation on ComfyUI's side (not just gives up waiting for it
+   * client-side) and unblocks the pending generate() call. Safe to call with nothing in flight. */
+  cancelGeneration: () => Promise<void>;
   listGenerations: () => Promise<GenerationRecord[]>;
   imageUrlFor: (imagePath: string) => string;
   /** Opens a native file dialog for picking a video mode's source image.
