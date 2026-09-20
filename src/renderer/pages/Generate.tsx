@@ -109,11 +109,10 @@ export default function Generate({ recallRecord, onRecalled }: Props) {
           </label>
           <textarea
             id="prompt"
-            rows={5}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Describe the image you want..."
-            style={{ width: '100%', resize: 'vertical' }}
+            style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
           />
 
           <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
