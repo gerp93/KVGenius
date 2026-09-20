@@ -8,11 +8,21 @@ import { autoUpdater } from 'electron-updater';
 import { setupApplicationMenu, attachContextMenu } from './menu';
 import {
   getEffectiveDbPath,
+  getDefaultDbPath,
+  isUsingDefaultDbLocation,
+  setDbPath,
+  resetToDefaultDbPath,
+  revealDbInFileManager,
   getImagesDir,
   enforceDevDatabaseIsolation,
+  getEffectiveComfyUIHost,
+  setComfyUIHost,
+  resetComfyUIHost,
+  getEffectiveTheme,
+  setTheme,
 } from './dbLocation';
 import { initDatabase, insertGeneration, listGenerations, listSavedPrompts, insertSavedPrompt, deleteSavedPrompt } from './db';
-import { generate as comfyGenerate } from './comfyui';
+import { generate as comfyGenerate, isAvailable as comfyIsAvailable, DEFAULT_COMFYUI_HOST } from './comfyui';
 import { GenerationParams } from '../shared/types';
 
 // Dev and packaged builds must never share a userData/appData folder, or
@@ -162,6 +172,80 @@ function registerIpcHandlers(): void {
   ipcMain.handle('deleteSavedPrompt', (_event, id: number) => {
     if (!db) throw new Error('Database not initialized');
     deleteSavedPrompt(db, id);
+  });
+
+  ipcMain.handle('getComfyUIHost', () => ({
+    host: getEffectiveComfyUIHost(),
+    defaultHost: DEFAULT_COMFYUI_HOST,
+  }));
+
+  ipcMain.handle('setComfyUIHost', (_event, host: string) => {
+    setComfyUIHost(host);
+  });
+
+  ipcMain.handle('resetComfyUIHost', () => {
+    resetComfyUIHost();
+  });
+
+  ipcMain.handle('checkComfyUIConnection', () => comfyIsAvailable());
+
+  ipcMain.handle('getTheme', () => getEffectiveTheme());
+
+  ipcMain.handle('setTheme', (_event, themeId: string) => {
+    setTheme(themeId);
+  });
+
+  ipcMain.handle('getDbInfo', () => ({
+    path: getEffectiveDbPath(),
+    isDefault: isUsingDefaultDbLocation(),
+    defaultPath: getDefaultDbPath(),
+  }));
+
+  ipcMain.handle('revealDbInFileManager', () => revealDbInFileManager());
+
+  // The database must be closed before its file is copied/adopted (setDbPath's job), and a
+  // live node:sqlite connection can't just be repointed at a different path afterward - the
+  // simplest correct fix is a full relaunch, which re-opens at whatever getEffectiveDbPath()
+  // now resolves to. Matches the standard's own "then restart the app" requirement.
+  function relocateAndRelaunch(newPath: string): void {
+    db?.close();
+    db = null;
+    setDbPath(newPath);
+    app.relaunch();
+    app.exit();
+  }
+
+  ipcMain.handle('chooseExistingDb', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose an existing KVGenius database',
+      defaultPath: getEffectiveDbPath(),
+      filters: [{ name: 'KVGenius database', extensions: ['db'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    relocateAndRelaunch(result.filePaths[0]);
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('chooseNewDbLocation', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Choose a new location for the KVGenius database',
+      defaultPath: getDefaultDbPath(),
+      filters: [{ name: 'KVGenius database', extensions: ['db'] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    relocateAndRelaunch(result.filePath);
+    return result.filePath;
+  });
+
+  ipcMain.handle('resetDbToDefault', () => {
+    db?.close();
+    db = null;
+    resetToDefaultDbPath();
+    app.relaunch();
+    app.exit();
   });
 }
 
