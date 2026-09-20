@@ -41,10 +41,27 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [resultMode, setResultMode] = useState<Mode>('image');
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isGenerating) return;
+    setElapsedSeconds(0);
+    const startedAt = Date.now();
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isGenerating]);
+
+  function formatElapsed(totalSeconds: number): string {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  }
 
   function handleModeChange(newMode: Mode) {
     setMode(newMode);
@@ -120,6 +137,14 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function handleCancel() {
+    try {
+      await window.kvgenius.cancelGeneration();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -323,14 +348,20 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
           )}
 
           <div className="button-row--even" style={{ marginTop: 20 }}>
-            <button
-              type="button"
-              className="primary"
-              onClick={handleGenerate}
-              disabled={isGenerating || (mode === 'video' && !sourceImagePath)}
-            >
-              {isGenerating ? 'Generating...' : 'Generate'}
-            </button>
+            {isGenerating ? (
+              <button type="button" onClick={handleCancel}>
+                ✕ Cancel ({formatElapsed(elapsedSeconds)})
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="primary"
+                onClick={handleGenerate}
+                disabled={mode === 'video' && !sourceImagePath}
+              >
+                Generate
+              </button>
+            )}
             <button type="button" onClick={handleSavePrompt} disabled={!prompt.trim()}>
               Save Prompt
             </button>
@@ -344,7 +375,10 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
           {isGenerating ? (
             <div className="generate-preview__loading">
               <div className="progress-bar progress-bar--indeterminate" />
-              <span>Generating...</span>
+              <span>Generating... {formatElapsed(elapsedSeconds)}</span>
+              <button type="button" onClick={handleCancel}>
+                ✕ Cancel
+              </button>
             </div>
           ) : imageUrl && resultMode === 'video' ? (
             <video src={imageUrl} controls style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8 }} />
