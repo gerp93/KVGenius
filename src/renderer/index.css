@@ -803,7 +803,9 @@ input:focus {
 .library-panel__media {
   position: relative;
   flex: 1 1 auto;
-  min-height: 240px;
+  /* The picture never gets smaller than this, however long the prompt is - the prompt area
+     below scrolls instead. */
+  min-height: 380px;
   display: flex;
 }
 
@@ -845,6 +847,10 @@ input:focus {
 
 .library-panel__prompt {
   margin: 0;
+  /* Shrinks (and scrolls) before the picture does; a short prompt just takes its own height. */
+  flex: 0 1 auto;
+  min-height: 96px;
+  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 13px;
@@ -967,4 +973,12 @@ input:focus {
   border-radius: 50%;
   color: #fff;
   background: rgba(0, 0, 0, 0.6);
+}
+
+.generated-video__error pre {
+  margin: 6px 0 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
 }

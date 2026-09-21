@@ -1,6 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { GenerationKind, GenerationParams, KVGeniusAPI } from '../shared/types';
 
+// Videos are served by a local HTTP server, everything else by the kvimage:// protocol - the same
+// rule as imageUrlFor() in main.ts (the sandboxed preload can't import it).
+const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.mkv'];
+const mediaBase: string = ipcRenderer.sendSync('getMediaBase');
+
+function mediaUrlFor(filePath: string): string {
+  const isVideo = VIDEO_EXTENSIONS.some((ext) => filePath.toLowerCase().endsWith(ext));
+  return isVideo && mediaBase ? `${mediaBase}/${encodeURIComponent(filePath)}` : `kvimage://${encodeURIComponent(filePath)}`;
+}
+
 const api: KVGeniusAPI = {
   generate: (family: string, params: GenerationParams) => ipcRenderer.invoke('generate', family, params),
   cancelGeneration: () => ipcRenderer.invoke('cancelGeneration'),
@@ -11,10 +21,11 @@ const api: KVGeniusAPI = {
   getFileSize: (imagePath: string) => ipcRenderer.invoke('getFileSize', imagePath),
   exportGenerations: (imagePaths: string[]) => ipcRenderer.invoke('exportGenerations', imagePaths),
   setGenerationFavorite: (id: number, favorite: boolean) => ipcRenderer.invoke('setGenerationFavorite', id, favorite),
-  imageUrlFor: (imagePath: string) => `kvimage://${encodeURIComponent(imagePath)}`,
+  imageUrlFor: (imagePath: string) => mediaUrlFor(imagePath),
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),
   deleteGeneration: (id: number, imagePath: string) => ipcRenderer.invoke('deleteGeneration', id, imagePath),
   revealGenerationInFileManager: (imagePath: string) => ipcRenderer.invoke('revealGenerationInFileManager', imagePath),
+  diagnoseVideo: (imagePath: string) => ipcRenderer.invoke('diagnoseVideo', imagePath),
   openGenerationExternally: (imagePath: string) => ipcRenderer.invoke('openGenerationExternally', imagePath),
   saveGenerationAs: (imagePath: string) => ipcRenderer.invoke('saveGenerationAs', imagePath),
 

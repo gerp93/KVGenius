@@ -197,16 +197,6 @@ export function countGenerations(
  * isn't there. Files that are missing, already elsewhere (e.g. under a previously relocated
  * database), or would collide with an existing file are left alone. Returns how many were moved.
  */
-/** File paths of every generated video, for background maintenance of the files themselves. */
-export function listVideoPaths(db: DatabaseSync, videoFamilies: string[]): string[] {
-  if (videoFamilies.length === 0) return [];
-  const marks = videoFamilies.map(() => '?').join(', ');
-  const rows = db
-    .prepare(`SELECT image_path FROM generations WHERE model_family IN (${marks})`)
-    .all(...videoFamilies) as unknown as { image_path: string }[];
-  return rows.map((r) => r.image_path);
-}
-
 export function moveLegacyOutput(
   db: DatabaseSync,
   videoFamilies: string[],

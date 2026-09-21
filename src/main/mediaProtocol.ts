@@ -8,7 +8,7 @@ export const MEDIA_SCHEME = 'kvimage';
  * elements read the scheme. Exported so the standalone playback test registers it identically. */
 export const MEDIA_SCHEME_PRIVILEGES = { secure: true, supportFetchAPI: true, corsEnabled: true, stream: true };
 
-const MIME_BY_EXTENSION: Record<string, string> = {
+export const MIME_BY_EXTENSION: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -25,20 +25,31 @@ const MIME_BY_EXTENSION: Record<string, string> = {
  * file:// URL) because a <video> element only plays - and only seeks - if the response has a
  * real video Content-Type, advertises Accept-Ranges, and answers `Range:` requests with 206.
  */
+/** True if `resolvedPath` is inside one of the allowed directories or is an individually allowed file. */
+export function isAllowedMediaPath(
+  resolvedPath: string,
+  allowedDirectories: string[],
+  extraAllowedFiles: ReadonlySet<string>
+): boolean {
+  const allowedDirs = allowedDirectories.map((dir) => path.resolve(dir));
+  return allowedDirs.some((dir) => resolvedPath.startsWith(dir + path.sep)) || extraAllowedFiles.has(resolvedPath);
+}
+
+export const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.mkv'];
+
 export async function handleMediaRequest(
   request: Request,
   allowedDirectories: string[],
   extraAllowedFiles: ReadonlySet<string> = new Set()
 ): Promise<Response> {
-  const encodedPath = request.url.replace('kvimage://', '').replace(/#.*$/, '');
+  const encodedPath = request.url.replace('kvimage://', '').replace(/[?#].*$/, '');
   const filePath = decodeURIComponent(encodedPath);
   // Only ever serve files inside the app's own output directories (plus the individual source
   // images the user picked in a file dialog) - the renderer passes
   // paths back that originated from the database, but this is cheap insurance against a
   // malformed/crafted kvimage:// URL reaching outside it.
-  const allowedDirs = allowedDirectories.map((dir) => path.resolve(dir));
   const resolved = path.resolve(filePath);
-  if (!allowedDirs.some((dir) => resolved.startsWith(dir + path.sep)) && !extraAllowedFiles.has(resolved)) {
+  if (!isAllowedMediaPath(resolved, allowedDirectories, extraAllowedFiles)) {
     return new Response('Forbidden', { status: 403 });
   }
 
