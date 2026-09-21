@@ -1,15 +1,10 @@
 export const HARDPOINT_API_BASE = 'http://127.0.0.1:3921';
 
-/** True when Hardpoint's loopback API answers (used by embeds — not the same as the Hardpoint window being open). */
+/** True when Hardpoint's loopback API answers. Probes via main-process IPC —
+ * a renderer `fetch` to :3921 fails under Chromium even when Hardpoint is up. */
 export async function isHardpointReachable(): Promise<boolean> {
   try {
-    const response = await fetch(`${HARDPOINT_API_BASE}/api/status`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(2_000),
-      // Avoid cached "down" after Hardpoint just started.
-      cache: 'no-store',
-    });
-    return response.ok;
+    return await window.kvgenius.hardpointIsReachable();
   } catch {
     return false;
   }

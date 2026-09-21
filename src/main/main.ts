@@ -39,7 +39,7 @@ import {
   DEFAULT_COMFYUI_HOST,
 } from './comfyui';
 import { GenerationParams } from '../shared/types';
-import { openHardpoint } from './hardpointLaunch';
+import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
 
 // Dev and packaged builds must never share a userData/appData folder, or
 // enforceDevDatabaseIsolation() below can never tell them apart (it compares
@@ -306,6 +306,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('getAppVersion', () => app.getVersion());
   ipcMain.handle('checkForUpdates', () => checkForUpdatesNow());
   ipcMain.handle('openHardpoint', () => openHardpoint());
+  ipcMain.handle('hardpointIsReachable', () => isHardpointReachable());
 }
 
 function setupAutoUpdater(): void {

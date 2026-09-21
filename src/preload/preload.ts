@@ -33,6 +33,7 @@ const api: KVGeniusAPI = {
   checkForUpdates: () => ipcRenderer.invoke('checkForUpdates'),
 
   openHardpoint: () => ipcRenderer.invoke('openHardpoint'),
+  hardpointIsReachable: () => ipcRenderer.invoke('hardpointIsReachable'),
 };
 
 contextBridge.exposeInMainWorld('kvgenius', api);

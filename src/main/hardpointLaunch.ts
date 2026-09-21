@@ -10,7 +10,9 @@ export type HardpointOpenResult =
   | { status: 'ok' }
   | { status: 'error'; message: string };
 
-async function isHardpointReachable(): Promise<boolean> {
+/** Probe from the main process — renderer fetch to :3921 is blocked by Chromium
+ * (cross-origin / local-network rules) even when Hardpoint is up. */
+export async function isHardpointReachable(): Promise<boolean> {
   try {
     const response = await fetch(HARDPOINT_STATUS_URL, {
       method: 'GET',

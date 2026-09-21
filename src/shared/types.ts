@@ -108,4 +108,6 @@ export interface KVGeniusAPI {
 
   /** Launch or focus the Hardpoint AI services dashboard. */
   openHardpoint: () => Promise<{ status: 'ok' } | { status: 'error'; message: string }>;
+  /** Main-process probe of Hardpoint's loopback API (renderer fetch is blocked). */
+  hardpointIsReachable: () => Promise<boolean>;
 }
