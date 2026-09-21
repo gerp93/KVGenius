@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import GeneratedVideo from '../components/GeneratedVideo';
+import QueuePanel from '../components/QueuePanel';
+import ResultViewer from '../components/ResultViewer';
+import ExpandButton from '../components/Lightbox';
+import { MAX_BATCH_SIZE, MAX_PENDING_JOBS, useGenerationQueue } from '../hooks/useGenerationQueue';
+import { formatElapsed } from '../utils/format';
+import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
 import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../../shared/types';
 
 type Mode = 'image' | 'video';
@@ -18,24 +23,18 @@ interface Props {
   onVideoSourceHandled: () => void;
 }
 
-// wan22-i2v renders at 16fps (CreateVideo node in its template) and needs a frame count of
-// 4n+1, so a duration in seconds snaps to quarter-seconds (81 frames = 5s).
-const VIDEO_FPS = 16;
-
-function secondsToFrames(seconds: number): number {
-  const clamped = Math.min(12, Math.max(1, seconds || 0));
-  return 4 * Math.round(clamped * (VIDEO_FPS / 4)) + 1;
-}
-
-function framesToSeconds(frames: number): number {
-  return Math.round(((frames - 1) / VIDEO_FPS) * 4) / 4;
-}
-
 // Long side of a video generated from an existing image (matches the 640px default).
 const VIDEO_LONG_SIDE = 640;
 
 function randomSeed(): number {
   return Math.floor(Math.random() * 2 ** 32);
+}
+
+/** `count` different random seeds - a batch of the same prompt is pointless with repeated ones. */
+function uniqueRandomSeeds(count: number): number[] {
+  const seeds = new Set<number>();
+  while (seeds.size < count) seeds.add(randomSeed());
+  return [...seeds];
 }
 
 const ASPECT_RATIO_PRESETS: { label: string; width: number; height: number }[] = [
@@ -66,30 +65,18 @@ export default function Generate({
   const [sourceImagePath, setSourceImagePath] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [resultMode, setResultMode] = useState<Mode>('image');
+  const [batchSize, setBatchSize] = useState(1);
+  const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The record currently shown in the preview (image or video) - what "Convert to Video" acts on.
-  const [resultRecord, setResultRecord] = useState<GenerationRecord | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isGenerating) return;
-    setElapsedSeconds(0);
-    const startedAt = Date.now();
-    const interval = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isGenerating]);
-
-  function formatElapsed(totalSeconds: number): string {
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-  }
+  const queue = useGenerationQueue();
+  const { showRecord } = queue;
+  const runningJob = queue.jobs.find((j) => j.status === 'running');
+  const busy = queue.jobs.some((j) => j.status === 'queued' || j.status === 'running');
+  const viewSlots = queue.jobs.filter((j) => j.batchId === queue.viewBatchId);
+  // Several at once need different seeds, so a locked seed always means exactly one.
+  const effectiveBatch = seedLocked ? 1 : batchSize;
 
   function handleModeChange(newMode: Mode) {
     setMode(newMode);
@@ -142,11 +129,9 @@ export default function Generate({
     // The source image used for a past video generation isn't retained - only the
     // resulting video is. A new one has to be chosen before this can be re-run.
     setSourceImagePath(null);
-    setImageUrl(window.kvgenius.imageUrlFor(recallRecord.imagePath));
-    setResultRecord(recallRecord);
-    setResultMode(recalledMode);
+    showRecord(recallRecord, recalledMode, window.kvgenius.imageUrlFor(recallRecord.imagePath));
     onRecalled();
-  }, [recallRecord, onRecalled]);
+  }, [recallRecord, onRecalled, showRecord]);
 
   useEffect(() => {
     if (recallPrompt === null) return;
@@ -154,7 +139,7 @@ export default function Generate({
     onPromptRecalled();
   }, [recallPrompt, onPromptRecalled]);
 
-  async function handleGenerate() {
+  function handleGenerate() {
     if (!prompt.trim()) {
       setError('Enter a prompt first.');
       return;
@@ -164,48 +149,41 @@ export default function Generate({
       return;
     }
     setError(null);
-    setIsGenerating(true);
-    const usedSeed = seedLocked ? seed : randomSeed();
-    if (!seedLocked) setSeed(usedSeed);
-    const generatedMode = mode;
 
-    try {
-      const result = await window.kvgenius.generate(FAMILY_FOR_MODE[mode], {
-        prompt,
-        width,
-        height,
-        seed: usedSeed,
-        steps,
-        cfg,
-        ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
-      });
-      setImageUrl(result.imageUrl);
-      setResultRecord(result.record);
-      setResultMode(generatedMode);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsGenerating(false);
+    const seeds = seedLocked ? [seed] : uniqueRandomSeeds(effectiveBatch);
+    if (!seedLocked) setSeed(seeds[0]);
+    const base = {
+      prompt,
+      width,
+      height,
+      steps,
+      cfg,
+      ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
+    };
+    const added = queue.enqueue(
+      seeds.map((jobSeed) => ({ family: FAMILY_FOR_MODE[mode], kind: mode, params: { ...base, seed: jobSeed } }))
+    );
+    if (added < seeds.length) {
+      setError(`The queue is full (${MAX_PENDING_JOBS} waiting) - added ${added} of ${seeds.length}.`);
     }
   }
 
-  async function handleCancel() {
+  function handleCancel() {
+    if (runningJob) queue.cancelJob(runningJob.id);
+  }
+
+  async function handleToggleFavorite(record: GenerationRecord) {
+    const favorite = !record.favorite;
     try {
-      await window.kvgenius.cancelGeneration();
+      await window.kvgenius.setGenerationFavorite(record.id, favorite);
+      queue.updateRecord(record.id, { favorite });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  async function handleToggleFavorite() {
-    if (!resultRecord) return;
-    const favorite = !resultRecord.favorite;
-    try {
-      await window.kvgenius.setGenerationFavorite(resultRecord.id, favorite);
-      setResultRecord({ ...resultRecord, favorite });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+  function handleConvertToVideo(record: GenerationRecord) {
+    setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
   }
 
   async function handleSavePrompt() {
@@ -221,7 +199,7 @@ export default function Generate({
 
   return (
     <div className="page generate-page">
-      <div className="generate-layout">
+      <div className={`generate-layout${queueCollapsed ? ' generate-layout--queue-collapsed' : ''}`}>
         <div className="generate-form">
           <div className="button-row--even" style={{ marginBottom: 12 }}>
             <button
@@ -254,11 +232,14 @@ export default function Generate({
                 </span>
               </button>
               {sourceImagePath && (
-                <img
-                  className="source-image-preview"
-                  src={window.kvgenius.imageUrlFor(sourceImagePath)}
-                  alt="Source image"
-                />
+                <div className="source-image-preview-wrap">
+                  <ExpandButton src={window.kvgenius.imageUrlFor(sourceImagePath)} kind="image" alt="Source image" />
+                  <img
+                    className="source-image-preview"
+                    src={window.kvgenius.imageUrlFor(sourceImagePath)}
+                    alt="Source image"
+                  />
+                </div>
               )}
             </div>
           )}
@@ -377,6 +358,27 @@ export default function Generate({
             </div>
           </div>
 
+          <div style={{ marginTop: 12 }}>
+            <label className="field-label" htmlFor="batch-size">
+              Batch size
+            </label>
+            <input
+              id="batch-size"
+              type="number"
+              min={1}
+              max={MAX_BATCH_SIZE}
+              value={effectiveBatch}
+              disabled={seedLocked}
+              onChange={(e) => setBatchSize(Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(Number(e.target.value)) || 1)))}
+              style={{ width: 100 }}
+            />
+            <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+              {seedLocked
+                ? 'Switch the seed to 🎲 Random to make several at once - each needs its own seed.'
+                : `Queues this many, each with its own random seed (up to ${MAX_BATCH_SIZE}).`}
+            </p>
+          </div>
+
           {mode === 'image' && (
           <div style={{ marginTop: 16 }}>
             <button
@@ -422,19 +424,19 @@ export default function Generate({
           </div>
           )}
 
-          <div className="button-row--even" style={{ marginTop: 20 }}>
-            {isGenerating ? (
+          <div className={`generate-actions${busy ? ' generate-actions--busy' : ''}`}>
+            <button
+              type="button"
+              className="primary generate-actions__go"
+              onClick={handleGenerate}
+              disabled={mode === 'video' && !sourceImagePath}
+            >
+              {busy ? '＋ Queue Another' : 'Generate'}
+              {effectiveBatch > 1 ? ` (${effectiveBatch})` : ''}
+            </button>
+            {runningJob && (
               <button type="button" onClick={handleCancel}>
-                ✕ Cancel ({formatElapsed(elapsedSeconds)})
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="primary"
-                onClick={handleGenerate}
-                disabled={mode === 'video' && !sourceImagePath}
-              >
-                Generate
+                ✕ Cancel ({formatElapsed(Math.floor((queue.now - (runningJob.startedAt ?? queue.now)) / 1000))})
               </button>
             )}
             <button type="button" onClick={handleSavePrompt} disabled={!prompt.trim()}>
@@ -447,56 +449,24 @@ export default function Generate({
         </div>
 
         <div className="generate-preview">
-          {isGenerating ? (
-            <div className="generate-preview__loading">
-              <div className="progress-bar progress-bar--indeterminate" />
-              <span>Generating... {formatElapsed(elapsedSeconds)}</span>
-              <button type="button" onClick={handleCancel}>
-                ✕ Cancel
-              </button>
-            </div>
-          ) : imageUrl ? (
-            <div className="generate-preview__result">
-              {resultMode === 'video' ? (
-                <GeneratedVideo
-                  src={imageUrl}
-                  filePath={resultRecord?.imagePath ?? ''}
-                  style={{ maxWidth: '100%', minHeight: 0, borderRadius: 8 }}
-                />
-              ) : (
-                <img src={imageUrl} alt="Generated" style={{ maxWidth: '100%', minHeight: 0, flex: '0 1 auto', objectFit: 'contain', borderRadius: 8 }} />
-              )}
-              {resultRecord && (
-                <div className="button-row">
-                  <button
-                    type="button"
-                    onClick={handleToggleFavorite}
-                    title={resultRecord.favorite ? 'Remove from favorites' : 'Save to favorites'}
-                  >
-                    {resultRecord.favorite ? '★ Favorited' : '☆ Favorite'}
-                  </button>
-                  {resultMode === 'image' && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setUpVideoFromImage({
-                          imagePath: resultRecord.imagePath,
-                          width: resultRecord.width,
-                          height: resultRecord.height,
-                        })
-                      }
-                      title="Set up video mode with this image as the source"
-                    >
-                      🎬 Convert to Video
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="generate-preview__placeholder">No image yet</div>
-          )}
+          <ResultViewer
+            slots={viewSlots}
+            now={queue.now}
+            onToggleFavorite={handleToggleFavorite}
+            onConvertToVideo={handleConvertToVideo}
+            onCancelJob={queue.cancelJob}
+          />
         </div>
+
+        <QueuePanel
+          jobs={queue.jobs}
+          now={queue.now}
+          collapsed={queueCollapsed}
+          onToggle={() => setQueueCollapsed((v) => !v)}
+          onCancelJob={queue.cancelJob}
+          onClearQueued={queue.clearQueued}
+          onDismissFailed={queue.dismissFailed}
+        />
       </div>
     </div>
   );

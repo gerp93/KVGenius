@@ -30,6 +30,15 @@ export interface GenerationRecord {
 
 export type GenerationKind = 'image' | 'video';
 
+/** Just enough of a generation to act on it (delete, export) without loading the whole record. */
+export interface GenerationRef {
+  id: number;
+  imagePath: string;
+  favorite: boolean;
+}
+
+export type ExportResult = { status: 'saved'; path: string; count: number } | { status: 'cancelled' };
+
 /** A request to open the Generate tab in video mode with an existing image as the source. */
 export interface VideoSourceRequest {
   imagePath: string;
@@ -92,6 +101,12 @@ export interface KVGeniusAPI {
   ) => Promise<GenerationRecord[]>;
   /** Totals per kind, restricted to favorites when `favoritesOnly`. */
   countGenerations: (favoritesOnly: boolean) => Promise<Record<GenerationKind, number>>;
+  /** Every generation of the kind (newest first), for Select All across pages that aren't loaded. */
+  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean) => Promise<GenerationRef[]>;
+  /** Size of an output file in bytes, or null if it is missing. */
+  getFileSize: (imagePath: string) => Promise<number | null>;
+  /** Asks where to save, then writes the given output files into a zip archive there. */
+  exportGenerations: (imagePaths: string[]) => Promise<ExportResult>;
   setGenerationFavorite: (id: number, favorite: boolean) => Promise<void>;
   imageUrlFor: (imagePath: string) => string;
   /** Opens a native file dialog for picking a video mode's source image.
