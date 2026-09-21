@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import PromptModal from '../components/PromptModal';
 import QueuePanel from '../components/QueuePanel';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
@@ -69,6 +70,9 @@ export default function Generate({
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  // Save Prompt opens a modal asking for a name and optional tags.
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [existingTags, setExistingTags] = useState<string[]>([]);
 
   const queue = useGenerationQueue();
   const { showRecord } = queue;
@@ -77,6 +81,21 @@ export default function Generate({
   const viewSlots = queue.jobs.filter((j) => j.batchId === queue.viewBatchId);
   // Several at once need different seeds, so a locked seed always means exactly one.
   const effectiveBatch = seedLocked ? 1 : batchSize;
+
+  // Everything that decides what a run produces. The same signature with the same seed is the same
+  // picture, so a locked seed plus an unchanged signature would only repeat the last result.
+  function runSignature(seedValue: number): string {
+    return JSON.stringify([
+      mode,
+      prompt.trim(),
+      width,
+      height,
+      seedValue,
+      mode === 'image' ? [steps, cfg] : [secondsToFrames(lengthSeconds), sourceImagePath],
+    ]);
+  }
+  const [lastRunSignature, setLastRunSignature] = useState<string | null>(null);
+  const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
 
   function handleModeChange(newMode: Mode) {
     setMode(newMode);
@@ -148,6 +167,7 @@ export default function Generate({
       setError('Choose a source image first.');
       return;
     }
+    if (repeatsLastRun) return;
     setError(null);
 
     const seeds = seedLocked ? [seed] : uniqueRandomSeeds(effectiveBatch);
@@ -166,6 +186,8 @@ export default function Generate({
     if (added < seeds.length) {
       setError(`The queue is full (${MAX_PENDING_JOBS} waiting) - added ${added} of ${seeds.length}.`);
     }
+    // The seed box shows the first seed of the run, which is what locking it later would reuse.
+    if (added > 0) setLastRunSignature(runSignature(seeds[0]));
   }
 
   function handleCancel() {
@@ -186,15 +208,23 @@ export default function Generate({
     setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
   }
 
-  async function handleSavePrompt() {
+  async function openSavePromptModal() {
     if (!prompt.trim()) return;
     try {
-      await window.kvgenius.savePrompt(null, prompt);
-      setSaveStatus('Prompt saved - find it in Library.');
-      setTimeout(() => setSaveStatus(null), 2500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Tags already in use, offered as suggestions in the modal.
+      const saved = await window.kvgenius.listSavedPrompts();
+      setExistingTags([...new Set(saved.flatMap((sp) => sp.tags))]);
+    } catch {
+      setExistingTags([]);
     }
+    setSaveModalOpen(true);
+  }
+
+  async function handleSavePrompt(name: string, tags: string[]) {
+    await window.kvgenius.savePrompt(name, prompt, tags);
+    setSaveModalOpen(false);
+    setSaveStatus(`Saved "${name}" - find it under Library > Prompts.`);
+    setTimeout(() => setSaveStatus(null), 3000);
   }
 
   return (
@@ -358,7 +388,7 @@ export default function Generate({
             </div>
           </div>
 
-          <div style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 12 }} className={seedLocked ? 'field--disabled' : undefined}>
             <label className="field-label" htmlFor="batch-size">
               Batch size
             </label>
@@ -429,7 +459,8 @@ export default function Generate({
               type="button"
               className="primary generate-actions__go"
               onClick={handleGenerate}
-              disabled={mode === 'video' && !sourceImagePath}
+              disabled={(mode === 'video' && !sourceImagePath) || repeatsLastRun}
+              title={repeatsLastRun ? 'Nothing has changed since the last run and the seed is locked' : undefined}
             >
               {busy ? '＋ Queue Another' : 'Generate'}
               {effectiveBatch > 1 ? ` (${effectiveBatch})` : ''}
@@ -439,11 +470,17 @@ export default function Generate({
                 ✕ Cancel ({formatElapsed(Math.floor((queue.now - (runningJob.startedAt ?? queue.now)) / 1000))})
               </button>
             )}
-            <button type="button" onClick={handleSavePrompt} disabled={!prompt.trim()}>
+            <button type="button" onClick={openSavePromptModal} disabled={!prompt.trim()}>
               Save Prompt
             </button>
           </div>
 
+          {repeatsLastRun && (
+            <p className="generate-repeat-hint">
+              Nothing has changed since the last run and the seed is locked, so it would make the exact same result.
+              Change a setting, or switch the seed to 🎲 Random.
+            </p>
+          )}
           {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
           {saveStatus && <p style={{ color: 'var(--color-accent-green)' }}>{saveStatus}</p>}
         </div>
@@ -468,6 +505,17 @@ export default function Generate({
           onDismissFailed={queue.dismissFailed}
         />
       </div>
+
+      {saveModalOpen && (
+        <PromptModal
+          title="Save prompt"
+          submitLabel="Save prompt"
+          prompt={prompt}
+          existingTags={existingTags}
+          onSave={handleSavePrompt}
+          onClose={() => setSaveModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

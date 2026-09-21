@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, SavedPrompt } from '../shared/types';
+import { normalizeName, normalizeTags } from '../shared/promptTags';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS saved_prompts (
   name TEXT,
   prompt TEXT NOT NULL,
   negative_prompt TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
 `;
@@ -44,6 +46,10 @@ function migrateSchema(db: DatabaseSync): void {
   }
   if (!columns.some((c) => c.name === 'favorite')) {
     db.exec('ALTER TABLE generations ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;');
+  }
+  const promptColumns = db.prepare('PRAGMA table_info(saved_prompts)').all() as unknown as ColumnInfo[];
+  if (!promptColumns.some((c) => c.name === 'tags')) {
+    db.exec("ALTER TABLE saved_prompts ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';");
   }
 }
 
@@ -247,7 +253,17 @@ interface SavedPromptRow {
   name: string | null;
   prompt: string;
   negative_prompt: string | null;
+  tags: string;
   created_at: string;
+}
+
+function parseTags(json: string | null): string[] {
+  try {
+    const parsed: unknown = JSON.parse(json ?? '[]');
+    return Array.isArray(parsed) ? normalizeTags(parsed.map(String)) : [];
+  } catch {
+    return [];
+  }
 }
 
 function rowToSavedPrompt(row: SavedPromptRow): SavedPrompt {
@@ -256,6 +272,7 @@ function rowToSavedPrompt(row: SavedPromptRow): SavedPrompt {
     name: row.name,
     prompt: row.prompt,
     negativePrompt: row.negative_prompt,
+    tags: parseTags(row.tags),
     createdAt: row.created_at,
   };
 }
@@ -265,14 +282,36 @@ export function listSavedPrompts(db: DatabaseSync): SavedPrompt[] {
   return rows.map(rowToSavedPrompt);
 }
 
-export function insertSavedPrompt(db: DatabaseSync, name: string | null, prompt: string): SavedPrompt {
+export function insertSavedPrompt(db: DatabaseSync, name: string, prompt: string, tags: string[]): SavedPrompt {
+  const cleanName = normalizeName(name);
+  if (!cleanName) throw new Error('A saved prompt needs a name.');
+  const cleanTags = normalizeTags(tags);
   const createdAt = new Date().toISOString();
-  const stmt = db.prepare(`
-    INSERT INTO saved_prompts (name, prompt, negative_prompt, created_at)
-    VALUES (?, ?, NULL, ?)
-  `);
-  const result = stmt.run(name, prompt, createdAt);
-  return { id: Number(result.lastInsertRowid), name, prompt, negativePrompt: null, createdAt };
+  const result = db
+    .prepare('INSERT INTO saved_prompts (name, prompt, negative_prompt, tags, created_at) VALUES (?, ?, NULL, ?, ?)')
+    .run(cleanName, prompt, JSON.stringify(cleanTags), createdAt);
+  return {
+    id: Number(result.lastInsertRowid),
+    name: cleanName,
+    prompt,
+    negativePrompt: null,
+    tags: cleanTags,
+    createdAt,
+  };
+}
+
+/** Renames a saved prompt and replaces its tags; the prompt text itself is not edited. */
+export function updateSavedPrompt(db: DatabaseSync, id: number, name: string, tags: string[]): SavedPrompt {
+  const cleanName = normalizeName(name);
+  if (!cleanName) throw new Error('A saved prompt needs a name.');
+  db.prepare('UPDATE saved_prompts SET name = ?, tags = ? WHERE id = ?').run(
+    cleanName,
+    JSON.stringify(normalizeTags(tags)),
+    id
+  );
+  const row = db.prepare('SELECT * FROM saved_prompts WHERE id = ?').get(id) as unknown as SavedPromptRow | undefined;
+  if (!row) throw new Error('That prompt no longer exists.');
+  return rowToSavedPrompt(row);
 }
 
 export function deleteSavedPrompt(db: DatabaseSync, id: number): void {
