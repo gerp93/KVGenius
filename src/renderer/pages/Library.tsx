@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FAMILY_KIND, GenerationRecord, SavedPrompt } from '../../shared/types';
 
+type Tab = 'image' | 'video';
+
 interface Props {
   onRecall: (record: GenerationRecord) => void;
   onRecallPrompt: (prompt: string) => void;
@@ -12,6 +14,7 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [tab, setTab] = useState<Tab>('image');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,6 +28,15 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
       .then(setSavedPrompts)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
+
+  const visibleRecords = records.filter((r) => (FAMILY_KIND[r.modelFamily] ?? 'image') === tab);
+  const imageCount = records.length - records.filter((r) => FAMILY_KIND[r.modelFamily] === 'video').length;
+  const videoCount = records.length - imageCount;
+
+  function handleTabChange(next: Tab) {
+    setTab(next);
+    setSelectedIds(new Set());
+  }
 
   function handleClick(record: GenerationRecord) {
     onRecall(record);
@@ -55,7 +67,7 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
   }
 
   function selectAll() {
-    setSelectedIds(new Set(records.map((r) => r.id)));
+    setSelectedIds(new Set(visibleRecords.map((r) => r.id)));
   }
 
   function clearSelection() {
@@ -78,7 +90,7 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
   }
 
   async function handleDeleteSelected() {
-    const toDelete = records.filter((r) => selectedIds.has(r.id));
+    const toDelete = visibleRecords.filter((r) => selectedIds.has(r.id));
     if (toDelete.length === 0) return;
     if (!window.confirm(`Delete ${toDelete.length} generation${toDelete.length === 1 ? '' : 's'}? This removes the files from disk too.`)) {
       return;
@@ -114,13 +126,23 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
       {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
 
       <h2 style={{ marginTop: 0 }}>Generations</h2>
-      {records.length === 0 && (
-        <p style={{ color: 'var(--color-text-muted)' }}>No generations yet - go make something.</p>
+      <div className="button-row" style={{ marginBottom: 12 }}>
+        <button type="button" className={tab === 'image' ? 'primary' : undefined} onClick={() => handleTabChange('image')}>
+          🖼️ Images ({imageCount})
+        </button>
+        <button type="button" className={tab === 'video' ? 'primary' : undefined} onClick={() => handleTabChange('video')}>
+          🎬 Videos ({videoCount})
+        </button>
+      </div>
+      {visibleRecords.length === 0 && (
+        <p style={{ color: 'var(--color-text-muted)' }}>
+          {tab === 'video' ? 'No videos yet - go make something.' : 'No images yet - go make something.'}
+        </p>
       )}
 
-      {records.length > 0 && (
+      {visibleRecords.length > 0 && (
         <div className="button-row" style={{ marginBottom: 12 }}>
-          <button type="button" onClick={selectAll} disabled={selectedIds.size === records.length}>
+          <button type="button" onClick={selectAll} disabled={selectedIds.size === visibleRecords.length}>
             Select All
           </button>
           <button type="button" onClick={clearSelection} disabled={selectedIds.size === 0}>
@@ -133,7 +155,7 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
       )}
 
       <div className="library-grid">
-        {records.map((record) => (
+        {visibleRecords.map((record) => (
           <div key={record.id} className="library-card">
             <label className="library-card__select" onClick={(e) => e.stopPropagation()}>
               <input
@@ -144,7 +166,17 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
             </label>
             <div onClick={() => handleClick(record)} style={{ cursor: 'pointer' }}>
               {FAMILY_KIND[record.modelFamily] === 'video' ? (
-                <div className="library-card__video-placeholder">🎬 Video</div>
+                <div className="library-card__video">
+                  {/* First frame as the thumbnail: the #t fragment seeks just past 0 so the
+                      browser paints a frame instead of a blank box. */}
+                  <video
+                    src={`${window.kvgenius.imageUrlFor(record.imagePath)}#t=0.1`}
+                    preload="metadata"
+                    muted
+                    playsInline
+                  />
+                  <span className="library-card__play-badge">▶</span>
+                </div>
               ) : (
                 <img src={window.kvgenius.imageUrlFor(record.imagePath)} alt={record.prompt} />
               )}

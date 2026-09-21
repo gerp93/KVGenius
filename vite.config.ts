@@ -18,6 +18,7 @@ const CSP = [
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' kvimage: data:",
+  "media-src 'self' kvimage:",
   "font-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",
