@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FAMILY_KIND, GenerationKind, GenerationRecord, VideoSourceRequest } from '../../shared/types';
+import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
 import GeneratedVideo from '../components/GeneratedVideo';
+import ExpandButton from '../components/Lightbox';
+import { formatBytes } from '../utils/format';
 import { justifyRows } from '../utils/justifiedRows';
 
 const PAGE_SIZE = 60;
@@ -28,7 +30,12 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  // Selected generations by id. Holds just what's needed to delete/export, so Select All can
+  // cover pages that aren't loaded yet.
+  const [selection, setSelection] = useState<Map<number, GenerationRef>>(new Map());
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [infoSize, setInfoSize] = useState<number | null>(null);
   const [infoId, setInfoId] = useState<number | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
 
@@ -65,7 +72,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     loadingRef.current = false;
     setRecords([]);
     setHasMore(true);
-    setSelectedIds(new Set());
+    setSelection(new Map());
     setInfoId(null);
     void loadPage(tab, null, favoritesOnly, token);
   }, [tab, favoritesOnly, loadPage]);
@@ -116,27 +123,74 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   );
   const infoRecord = records.find((r) => r.id === infoId) ?? null;
 
+  const infoPath = infoRecord?.imagePath ?? null;
+  useEffect(() => {
+    setInfoSize(null);
+    if (!infoPath) return;
+    let cancelled = false;
+    window.kvgenius
+      .getFileSize(infoPath)
+      .then((size) => {
+        if (!cancelled) setInfoSize(size);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [infoPath]);
+
   function handleTabChange(next: GenerationKind) {
     if (next !== tab) setTab(next);
   }
 
-  function toggleSelected(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+  function toggleSelected(record: GenerationRecord) {
+    setSelection((prev) => {
+      const next = new Map(prev);
+      if (next.has(record.id)) next.delete(record.id);
+      else next.set(record.id, { id: record.id, imagePath: record.imagePath, favorite: record.favorite });
       return next;
     });
   }
 
   function exitSelectMode() {
     setSelecting(false);
-    setSelectedIds(new Set());
+    setSelection(new Map());
+    setNotice(null);
+  }
+
+  /** Selects every generation matching the current tab and filter - not just the loaded ones. */
+  async function handleSelectAll() {
+    setBusy(true);
+    try {
+      const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly);
+      setSelection(new Map(refs.map((ref) => [ref.id, ref])));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleExportSelected() {
+    const refs = [...selection.values()];
+    if (refs.length === 0) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await window.kvgenius.exportGenerations(refs.map((r) => r.imagePath));
+      if (result.status === 'saved') {
+        setNotice(`Exported ${result.count} file${result.count === 1 ? '' : 's'} to ${result.path}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function handleCardClick(record: GenerationRecord) {
     // In select mode a card only toggles its selection; otherwise it opens the info panel.
-    if (selecting) toggleSelected(record.id);
+    if (selecting) toggleSelected(record);
     else setInfoId(record.id);
   }
 
@@ -150,15 +204,11 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     navigate('/');
   }
 
-  function forgetRecords(deleted: GenerationRecord[]) {
-    const ids = new Set(deleted.map((r) => r.id));
-    setRecords((prev) => prev.filter((r) => !ids.has(r.id)));
-    setCounts((prev) => {
-      const next = { ...prev };
-      for (const r of deleted) next[kindOf(r)] = Math.max(0, next[kindOf(r)] - 1);
-      return next;
-    });
-    setInfoId((prev) => (prev !== null && ids.has(prev) ? null : prev));
+  function forgetIds(ids: number[], kind: GenerationKind) {
+    const gone = new Set(ids);
+    setRecords((prev) => prev.filter((r) => !gone.has(r.id)));
+    setCounts((prev) => ({ ...prev, [kind]: Math.max(0, prev[kind] - ids.length) }));
+    setInfoId((prev) => (prev !== null && gone.has(prev) ? null : prev));
   }
 
   async function handleToggleFavorite(record: GenerationRecord) {
@@ -171,7 +221,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     }
     if (favoritesOnly && !favorite) {
       // Un-favoriting from the favorites view: it no longer belongs in this list.
-      forgetRecords([record]);
+      forgetIds([record.id], kindOf(record));
     } else {
       setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, favorite } : r)));
     }
@@ -182,14 +232,14 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     if (!window.confirm(`Delete this generation? This removes the file from disk too.${note}`)) return;
     try {
       await window.kvgenius.deleteGeneration(record.id, record.imagePath);
-      forgetRecords([record]);
+      forgetIds([record.id], kindOf(record));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function handleDeleteSelected() {
-    const toDelete = records.filter((r) => selectedIds.has(r.id));
+    const toDelete = [...selection.values()];
     if (toDelete.length === 0) return;
     const favoriteCount = toDelete.filter((r) => r.favorite).length;
     const note = favoriteCount > 0 ? ` ${favoriteCount} of them ${favoriteCount === 1 ? 'is a favorite' : 'are favorites'}.` : '';
@@ -198,7 +248,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     }
     try {
       await Promise.all(toDelete.map((r) => window.kvgenius.deleteGeneration(r.id, r.imagePath)));
-      forgetRecords(toDelete);
+      forgetIds(toDelete.map((r) => r.id), tab);
       exitSelectMode();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -224,7 +274,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   function renderCard(record: GenerationRecord, width: number, height: number) {
     const url = window.kvgenius.imageUrlFor(record.imagePath);
     const isVideo = kindOf(record) === 'video';
-    const selected = selecting && selectedIds.has(record.id);
+    const selected = selecting && selection.has(record.id);
     const active = !selecting && infoId === record.id;
     return (
       <div
@@ -234,7 +284,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
       >
         {selecting && (
           <span className="library-card__select">
-            <input type="checkbox" checked={selectedIds.has(record.id)} readOnly tabIndex={-1} />
+            <input type="checkbox" checked={selection.has(record.id)} readOnly tabIndex={-1} />
           </span>
         )}
         <div onClick={() => handleCardClick(record)} style={{ cursor: 'pointer' }}>
@@ -247,6 +297,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             ) : (
               <img src={url} alt={record.prompt} loading="lazy" decoding="async" />
             )}
+            {!selecting && <ExpandButton src={url} kind={isVideo ? 'video' : 'image'} filePath={record.imagePath} alt={record.prompt} />}
             {!selecting && (
               <button
                 type="button"
@@ -300,16 +351,20 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             <>
               <button
                 type="button"
-                onClick={() => setSelectedIds(new Set(records.map((r) => r.id)))}
-                disabled={selectedIds.size === records.length}
+                onClick={handleSelectAll}
+                disabled={busy || counts[tab] === 0 || selection.size === counts[tab]}
+                title="Select every item in this tab, including ones not scrolled into view yet"
               >
-                {hasMore ? 'Select All Loaded' : 'Select All'}
+                Select All ({counts[tab]})
               </button>
-              <button type="button" onClick={() => setSelectedIds(new Set())} disabled={selectedIds.size === 0}>
+              <button type="button" onClick={() => setSelection(new Map())} disabled={busy || selection.size === 0}>
                 Clear Selection
               </button>
-              <button type="button" onClick={handleDeleteSelected} disabled={selectedIds.size === 0}>
-                Delete Selected ({selectedIds.size})
+              <button type="button" onClick={handleExportSelected} disabled={busy || selection.size === 0}>
+                Export Selected ({selection.size})
+              </button>
+              <button type="button" onClick={handleDeleteSelected} disabled={busy || selection.size === 0}>
+                Delete Selected ({selection.size})
               </button>
               <button type="button" onClick={exitSelectMode}>
                 Cancel
@@ -331,6 +386,8 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             </>
           )}
         </div>
+
+        {notice && <p className="library-notice">{notice}</p>}
 
         <div className="tab-strip" role="tablist">
           <button
@@ -390,6 +447,12 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             </span>
           </div>
           <div className="library-panel__media">
+            <ExpandButton
+              src={window.kvgenius.imageUrlFor(infoRecord.imagePath)}
+              kind={kindOf(infoRecord) === 'video' ? 'video' : 'image'}
+              filePath={infoRecord.imagePath}
+              alt={infoRecord.prompt}
+            />
             {kindOf(infoRecord) === 'video' ? (
               <GeneratedVideo src={window.kvgenius.imageUrlFor(infoRecord.imagePath)} filePath={infoRecord.imagePath} />
             ) : (
@@ -425,10 +488,12 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             <dd>{kindOf(infoRecord) === 'video' ? 'Video' : 'Image'}</dd>
             <dt>Model</dt>
             <dd>{infoRecord.modelFamily}</dd>
-            <dt>Size</dt>
+            <dt>Dimensions</dt>
             <dd>
               {infoRecord.width} × {infoRecord.height}
             </dd>
+            <dt>File size</dt>
+            <dd>{infoSize === null ? '-' : formatBytes(infoSize)}</dd>
             {infoRecord.length !== null && (
               <>
                 <dt>Length</dt>

@@ -7,6 +7,9 @@ const api: KVGeniusAPI = {
   listGenerations: (kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean) =>
     ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly),
   countGenerations: (favoritesOnly: boolean) => ipcRenderer.invoke('countGenerations', favoritesOnly),
+  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean) => ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly),
+  getFileSize: (imagePath: string) => ipcRenderer.invoke('getFileSize', imagePath),
+  exportGenerations: (imagePaths: string[]) => ipcRenderer.invoke('exportGenerations', imagePaths),
   setGenerationFavorite: (id: number, favorite: boolean) => ipcRenderer.invoke('setGenerationFavorite', id, favorite),
   imageUrlFor: (imagePath: string) => `kvimage://${encodeURIComponent(imagePath)}`,
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),

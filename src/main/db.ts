@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
 import * as path from 'path';
-import { GenerationKind, GenerationParams, GenerationRecord, SavedPrompt } from '../shared/types';
+import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, SavedPrompt } from '../shared/types';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -159,6 +159,21 @@ export function listGenerations(
   return rows.map(rowToRecord);
 }
 
+export function listGenerationRefs(
+  db: DatabaseSync,
+  videoFamilies: string[],
+  kind: GenerationKind,
+  favoritesOnly: boolean
+): GenerationRef[] {
+  const condition = kindCondition(videoFamilies, kind);
+  const rows = db
+    .prepare(
+      `SELECT id, image_path, favorite FROM generations WHERE ${condition.sql} ${favoritesOnly ? 'AND favorite = 1' : ''} ORDER BY id DESC`
+    )
+    .all(...condition.params) as unknown as { id: number; image_path: string; favorite: number }[];
+  return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1 }));
+}
+
 export function countGenerations(
   db: DatabaseSync,
   videoFamilies: string[],
@@ -182,6 +197,16 @@ export function countGenerations(
  * isn't there. Files that are missing, already elsewhere (e.g. under a previously relocated
  * database), or would collide with an existing file are left alone. Returns how many were moved.
  */
+/** File paths of every generated video, for background maintenance of the files themselves. */
+export function listVideoPaths(db: DatabaseSync, videoFamilies: string[]): string[] {
+  if (videoFamilies.length === 0) return [];
+  const marks = videoFamilies.map(() => '?').join(', ');
+  const rows = db
+    .prepare(`SELECT image_path FROM generations WHERE model_family IN (${marks})`)
+    .all(...videoFamilies) as unknown as { image_path: string }[];
+  return rows.map((r) => r.image_path);
+}
+
 export function moveLegacyOutput(
   db: DatabaseSync,
   videoFamilies: string[],

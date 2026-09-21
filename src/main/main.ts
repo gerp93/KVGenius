@@ -29,8 +29,10 @@ import {
   insertGeneration,
   listGenerations,
   countGenerations,
+  listGenerationRefs,
   setGenerationFavorite,
   moveLegacyOutput,
+  listVideoPaths,
   deleteGeneration,
   listSavedPrompts,
   insertSavedPrompt,
@@ -45,6 +47,8 @@ import {
 import { FAMILY_KIND, GenerationKind, GenerationParams } from '../shared/types';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
 import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, handleMediaRequest } from './mediaProtocol';
+import { faststartFile, faststartMp4 } from './mp4Faststart';
+import { uniqueNames, writeZip } from './zipWriter';
 
 // Dev and packaged builds must never share a userData/appData folder, or
 // enforceDevDatabaseIsolation() below can never tell them apart (it compares
@@ -141,6 +145,21 @@ function createWindow(): void {
 // is allowed individually so the Generate page can preview it.
 const pickedSourceImages = new Set<string>();
 
+/** One-off background repair: videos saved before new ones were stored with their index up front
+ * are rewritten in place so the in-app player can open them. Already-fixed files cost only a
+ * header read; failures are skipped and retried on the next launch. */
+async function repairVideoIndexes(): Promise<void> {
+  if (!db) return;
+  for (const videoPath of listVideoPaths(db, videoFamilyList())) {
+    if (!videoPath.toLowerCase().endsWith('.mp4')) continue;
+    try {
+      await faststartFile(videoPath);
+    } catch {
+      // Missing or unreadable file - nothing to repair.
+    }
+  }
+}
+
 function videoFamilyList(): string[] {
   return Object.keys(FAMILY_KIND).filter((family) => FAMILY_KIND[family] === 'video');
 }
@@ -164,7 +183,17 @@ function registerIpcHandlers(): void {
     fs.mkdirSync(outputDir, { recursive: true });
     const filename = `${Date.now()}-${params.seed}${output.extension}`;
     const imagePath = path.join(outputDir, filename);
-    fs.writeFileSync(imagePath, output.bytes);
+    // ComfyUI's MP4s keep their index at the end of the file, which the in-app player can't
+    // handle when served through kvimage:// - store them with the index up front instead.
+    let bytes = output.bytes;
+    if (output.extension.toLowerCase() === '.mp4') {
+      try {
+        bytes = faststartMp4(bytes) ?? bytes;
+      } catch {
+        // Keep the original bytes; playback may fail but the generation is still saved.
+      }
+    }
+    fs.writeFileSync(imagePath, bytes);
 
     const record = insertGeneration(db, params, family, imagePath);
     return { record, imageUrl: imageUrlFor(imagePath) };
@@ -186,6 +215,38 @@ function registerIpcHandlers(): void {
   ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean) => {
     if (!db) throw new Error('Database not initialized');
     return countGenerations(db, videoFamilies, !!favoritesOnly);
+  });
+
+  ipcMain.handle('listGenerationRefs', (_event, kind: GenerationKind, favoritesOnly: boolean) => {
+    if (!db) throw new Error('Database not initialized');
+    return listGenerationRefs(db, videoFamilies, kind === 'video' ? 'video' : 'image', !!favoritesOnly);
+  });
+
+  ipcMain.handle('getFileSize', async (_event, imagePath: string) => {
+    try {
+      return (await fs.promises.stat(imagePath)).size;
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('exportGenerations', async (_event, imagePaths: string[]) => {
+    if (!mainWindow) return { status: 'cancelled' };
+    const stamp = new Date().toISOString().slice(0, 10);
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export to zip',
+      defaultPath: `KVGenius-export-${stamp}.zip`,
+      filters: [{ name: 'Zip archive', extensions: ['zip'] }],
+    });
+    if (result.canceled || !result.filePath) return { status: 'cancelled' };
+
+    const existing = imagePaths.filter((p) => fs.existsSync(p));
+    const names = uniqueNames(existing.map((p) => path.basename(p)));
+    await writeZip(
+      result.filePath,
+      existing.map((sourcePath, i) => ({ sourcePath, name: names[i] }))
+    );
+    return { status: 'saved', path: result.filePath, count: existing.length };
   });
 
   ipcMain.handle('setGenerationFavorite', (_event, id: number, favorite: boolean) => {
@@ -424,6 +485,7 @@ app
     registerIpcHandlers();
     setupApplicationMenu();
     createWindow();
+    void repairVideoIndexes();
     setupAutoUpdater();
 
     app.on('activate', () => {

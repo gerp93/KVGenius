@@ -55,9 +55,15 @@ export default function App() {
         <NavLink to="/" end className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Generate
         </NavLink>
-        <NavLink to="/library" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Library
+        <span className="top-bar__separator" />
+        <span className="top-bar__group-label">Library</span>
+        <NavLink to="/library/output" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
+          Output
         </NavLink>
+        <NavLink to="/library/prompts" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
+          Prompts
+        </NavLink>
+        <span className="top-bar__separator" />
         <NavLink to="/hardpoint" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Hardpoint
         </NavLink>
