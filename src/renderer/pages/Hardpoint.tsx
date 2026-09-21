@@ -73,8 +73,10 @@ export default function HardpointPage() {
       )}
       {reachable === false && (
         <p style={{ color: 'var(--color-accent-red, #c44)', fontSize: 13, marginTop: 12 }}>
-          Hardpoint is not running on {HARDPOINT_API_BASE}. Start it to manage services from this
-          panel.
+          Hardpoint&apos;s embed API is not answering at {HARDPOINT_API_BASE}/api/status.
+          The Hardpoint <em>window</em> can still be open (it talks over IPC); embeds need that
+          loopback HTTP server. Restart Hardpoint, then click Refresh — or open{' '}
+          <code>{HARDPOINT_API_BASE}/api/status</code> in a browser to verify.
         </p>
       )}
       {reachable && (

@@ -1,11 +1,13 @@
 export const HARDPOINT_API_BASE = 'http://127.0.0.1:3921';
 
-/** True when Hardpoint's loopback API answers. */
+/** True when Hardpoint's loopback API answers (used by embeds — not the same as the Hardpoint window being open). */
 export async function isHardpointReachable(): Promise<boolean> {
   try {
     const response = await fetch(`${HARDPOINT_API_BASE}/api/status`, {
       method: 'GET',
       signal: AbortSignal.timeout(2_000),
+      // Avoid cached "down" after Hardpoint just started.
+      cache: 'no-store',
     });
     return response.ok;
   } catch {
