@@ -4,9 +4,9 @@ import QueuePanel from '../components/QueuePanel';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
 import { MAX_BATCH_SIZE, MAX_PENDING_JOBS, useGenerationQueue } from '../hooks/useGenerationQueue';
-import { formatElapsed } from '../utils/format';
+import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
-import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../../shared/types';
+import { FAMILY_KIND, GenerationRecord, TimeEstimate, VideoSourceRequest } from '../../shared/types';
 
 type Mode = 'image' | 'video';
 
@@ -38,12 +38,40 @@ function uniqueRandomSeeds(count: number): number[] {
   return [...seeds];
 }
 
-const ASPECT_RATIO_PRESETS: { label: string; width: number; height: number }[] = [
+interface SizePreset {
+  label: string;
+  width: number;
+  height: number;
+}
+
+// Image sizes are multiples of 32/64; video sizes multiples of 16, which is what Wan needs.
+const IMAGE_SIZE_PRESETS: SizePreset[] = [
   { label: 'Square (1:1)', width: 1024, height: 1024 },
+  { label: 'Square, small (1:1)', width: 768, height: 768 },
+  { label: 'Square, large (1:1)', width: 1280, height: 1280 },
+  { label: 'Portrait (3:4)', width: 896, height: 1152 },
   { label: 'Portrait (2:3)', width: 832, height: 1216 },
+  { label: 'Portrait (4:5)', width: 896, height: 1120 },
   { label: 'Portrait (9:16)', width: 768, height: 1344 },
+  { label: 'Tall (9:21)', width: 640, height: 1536 },
+  { label: 'Landscape (4:3)', width: 1152, height: 896 },
   { label: 'Landscape (3:2)', width: 1216, height: 832 },
+  { label: 'Landscape (5:4)', width: 1120, height: 896 },
   { label: 'Landscape (16:9)', width: 1344, height: 768 },
+  { label: 'Ultrawide (21:9)', width: 1536, height: 640 },
+];
+
+const VIDEO_SIZE_PRESETS: SizePreset[] = [
+  { label: 'Square (1:1)', width: 640, height: 640 },
+  { label: 'Square, small (1:1)', width: 480, height: 480 },
+  { label: 'Portrait (3:4)', width: 480, height: 640 },
+  { label: 'Portrait (2:3)', width: 432, height: 640 },
+  { label: 'Portrait (9:16)', width: 368, height: 640 },
+  { label: '480p portrait (9:16)', width: 480, height: 832 },
+  { label: 'Landscape (4:3)', width: 640, height: 480 },
+  { label: 'Landscape (3:2)', width: 640, height: 432 },
+  { label: 'Landscape (16:9)', width: 640, height: 368 },
+  { label: '480p landscape (16:9)', width: 832, height: 480 },
 ];
 
 export default function Generate({
@@ -65,6 +93,8 @@ export default function Generate({
   const [lengthSeconds, setLengthSeconds] = useState(5);
   const [sourceImagePath, setSourceImagePath] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Picking "Custom size..." from the dropdown reveals the width/height boxes.
+  const [customSize, setCustomSize] = useState(false);
 
   const [batchSize, setBatchSize] = useState(1);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
@@ -79,6 +109,12 @@ export default function Generate({
   const runningJob = queue.jobs.find((j) => j.status === 'running');
   const busy = queue.jobs.some((j) => j.status === 'queued' || j.status === 'running');
   const viewSlots = queue.jobs.filter((j) => j.batchId === queue.viewBatchId);
+
+  // Estimated time for the settings currently in the form, from earlier runs' timings.
+  const [currentEstimate, setCurrentEstimate] = useState<TimeEstimate | null>(null);
+  const finishedRuns = queue.jobs.filter((j) => j.status === 'done').length;
+  // What will run just before a new job: the last thing waiting, or (undefined) whatever ran last.
+  const lastActiveFamily = [...queue.jobs].reverse().find((j) => j.status === 'queued' || j.status === 'running')?.family;
   // Several at once need different seeds, so a locked seed always means exactly one.
   const effectiveBatch = seedLocked ? 1 : batchSize;
 
@@ -99,6 +135,7 @@ export default function Generate({
 
   function handleModeChange(newMode: Mode) {
     setMode(newMode);
+    setCustomSize(false);
     setSourceImagePath(null);
     if (newMode === 'video') {
       setWidth(640);
@@ -158,6 +195,44 @@ export default function Generate({
     onPromptRecalled();
   }, [recallPrompt, onPromptRecalled]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      window.kvgenius
+        .estimateGeneration(
+          FAMILY_FOR_MODE[mode],
+          {
+            prompt: '',
+            width,
+            height,
+            seed: 0,
+            steps,
+            cfg,
+            ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds) } : {}),
+          },
+          lastActiveFamily
+        )
+        .then(setCurrentEstimate)
+        .catch(() => setCurrentEstimate(null));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [mode, width, height, steps, cfg, lengthSeconds, lastActiveFamily, finishedRuns]);
+
+  const sizePresets = mode === 'image' ? IMAGE_SIZE_PRESETS : VIDEO_SIZE_PRESETS;
+  const presetIndex = sizePresets.findIndex((preset) => preset.width === width && preset.height === height);
+  // A size that matches no preset (recalled from the library, from a source image) is shown as custom.
+  const sizeSelectValue = customSize || presetIndex < 0 ? 'custom' : String(presetIndex);
+
+  let estimateText = 'No time estimate yet - it learns from your generations.';
+  if (currentEstimate) {
+    const first = currentEstimate.totalMs;
+    // After the first of a batch the models are loaded, so the rest only take the generating time.
+    const all = first + (effectiveBatch - 1) * currentEstimate.generateMs;
+    estimateText = `Estimated time: ${formatEstimate(effectiveBatch > 1 ? all : first)}${effectiveBatch > 1 ? ` for ${effectiveBatch}` : ''}`;
+    if (currentEstimate.loadMs && currentEstimate.loadMs >= 2000) {
+      estimateText += ` (includes about ${formatDuration(currentEstimate.loadMs)} loading models)`;
+    }
+  }
+
   function handleGenerate() {
     if (!prompt.trim()) {
       setError('Enter a prompt first.');
@@ -202,6 +277,19 @@ export default function Generate({
       queue.updateRecord(record.id, { favorite });
       queue.relocateFile(record.id, record.imagePath, imagePath, window.kvgenius.imageUrlFor(imagePath));
       setSourceImagePath((current) => (current === record.imagePath ? imagePath : current));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleDeleteResult(record: GenerationRecord) {
+    const note = record.favorite ? ' It is marked as a favorite.' : '';
+    if (!window.confirm(`Delete this generation? This removes the file from disk too.${note}`)) return;
+    try {
+      await window.kvgenius.deleteGeneration(record.id, record.imagePath);
+      queue.removeRecord(record.id);
+      // If it was the Source Image for a video, that file is gone.
+      setSourceImagePath((current) => (current === record.imagePath ? null : current));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -288,65 +376,67 @@ export default function Generate({
             style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
           />
 
-          {mode === 'image' && (
-            <div style={{ marginTop: 12 }}>
-              <label className="field-label" htmlFor="aspect-ratio">
-                Aspect Ratio
-              </label>
-              <select
-                id="aspect-ratio"
-                defaultValue=""
-                onChange={(e) => {
-                  const preset = ASPECT_RATIO_PRESETS[Number(e.target.value)];
-                  if (!preset) return;
-                  setWidth(preset.width);
-                  setHeight(preset.height);
-                  e.target.value = '';
-                }}
-                style={{ width: '100%' }}
-              >
-                <option value="" disabled>
-                  Choose a preset...
+          <div style={{ marginTop: 12 }}>
+            <label className="field-label" htmlFor="size-preset">
+              Size
+            </label>
+            <select
+              id="size-preset"
+              value={sizeSelectValue}
+              onChange={(e) => {
+                if (e.target.value === 'custom') {
+                  setCustomSize(true);
+                  return;
+                }
+                const preset = sizePresets[Number(e.target.value)];
+                if (!preset) return;
+                setCustomSize(false);
+                setWidth(preset.width);
+                setHeight(preset.height);
+              }}
+              style={{ width: '100%' }}
+            >
+              {sizePresets.map((preset, i) => (
+                <option key={preset.label} value={i}>
+                  {preset.label} - {preset.width}×{preset.height}
                 </option>
-                {ASPECT_RATIO_PRESETS.map((preset, i) => (
-                  <option key={preset.label} value={i}>
-                    {preset.label} - {preset.width}×{preset.height}
-                  </option>
-                ))}
-              </select>
+              ))}
+              <option value="custom">Custom size...</option>
+            </select>
+          </div>
+
+          {sizeSelectValue === 'custom' && (
+            <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label className="field-label" htmlFor="width">
+                  Width
+                </label>
+                <input
+                  id="width"
+                  type="number"
+                  value={width}
+                  step={mode === 'video' ? 16 : 64}
+                  min={256}
+                  onChange={(e) => setWidth(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label className="field-label" htmlFor="height">
+                  Height
+                </label>
+                <input
+                  id="height"
+                  type="number"
+                  value={height}
+                  step={mode === 'video' ? 16 : 64}
+                  min={256}
+                  onChange={(e) => setHeight(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
             </div>
           )}
-
-          <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <label className="field-label" htmlFor="width">
-                Width
-              </label>
-              <input
-                id="width"
-                type="number"
-                value={width}
-                step={64}
-                min={256}
-                onChange={(e) => setWidth(Number(e.target.value))}
-                style={{ width: '100%' }}
-              />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <label className="field-label" htmlFor="height">
-                Height
-              </label>
-              <input
-                id="height"
-                type="number"
-                value={height}
-                step={64}
-                min={256}
-                onChange={(e) => setHeight(Number(e.target.value))}
-                style={{ width: '100%' }}
-              />
-            </div>
-          </div>
 
           {mode === 'video' && (
             <div style={{ marginTop: 12 }}>
@@ -478,6 +568,8 @@ export default function Generate({
             </button>
           </div>
 
+          <p className="generate-estimate">{estimateText}</p>
+
           {repeatsLastRun && (
             <p className="generate-repeat-hint">
               Nothing has changed since the last run and the seed is locked, so it would make the exact same result.
@@ -492,6 +584,8 @@ export default function Generate({
           <ResultViewer
             slots={viewSlots}
             now={queue.now}
+            progressInfo={queue.progressInfo}
+            onDelete={handleDeleteResult}
             onToggleFavorite={handleToggleFavorite}
             onConvertToVideo={handleConvertToVideo}
             onCancelJob={queue.cancelJob}
@@ -501,6 +595,7 @@ export default function Generate({
         <QueuePanel
           jobs={queue.jobs}
           now={queue.now}
+          progressInfo={queue.progressInfo}
           collapsed={queueCollapsed}
           onToggle={() => setQueueCollapsed((v) => !v)}
           onCancelJob={queue.cancelJob}

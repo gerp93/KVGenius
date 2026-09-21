@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { GenerationParams } from '../shared/types';
+import { GenerationParams, GenerationProgress } from '../shared/types';
+import { ComfyMessage, ProgressTracker, RunTimings } from './progressTracker';
 import { getEffectiveComfyUIHost } from './dbLocation';
 import zImageTurboTemplate from './templates/z-image-turbo.json';
 import wan22I2vTemplate from './templates/wan22-i2v.json';
@@ -179,11 +180,11 @@ async function patchTemplate(
   return workflow;
 }
 
-async function submit(workflow: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+async function submit(workflow: Record<string, unknown>, signal: AbortSignal, clientId: string): Promise<string> {
   const resp = await comfyRequest('/prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt: workflow, client_id: randomUUID() }),
+    body: JSON.stringify({ prompt: workflow, client_id: clientId }),
     signal,
   });
   const data = (await resp.json()) as { prompt_id?: string };
@@ -283,25 +284,103 @@ export interface GenerateOutput {
   /** File extension including the leading dot, taken from ComfyUI's own output filename
    * (e.g. '.png', '.mp4') so the caller doesn't have to guess it per family. */
   extension: string;
+  /** How the run's time split into loading / sampling / finishing (parts null if ComfyUI's live
+   * events were unavailable). */
+  timings: RunTimings;
+}
+
+interface ProgressSocket {
+  /** Resolves once the socket is open (or has failed / timed out - progress is best-effort). */
+  ready: Promise<void>;
+  close: () => void;
+}
+
+/** Opens ComfyUI's websocket for `clientId`, which is where it reports what a job is doing. Only
+ * jobs submitted with the same client id are reported on it, so it must be open before submitting.
+ * Best-effort: the generation itself never depends on it. */
+function openProgressSocket(clientId: string, onMessage: (message: ComfyMessage) => void): ProgressSocket | null {
+  try {
+    const wsBase = getEffectiveComfyUIHost().replace(/^http/i, 'ws');
+    const ws = new WebSocket(`${wsBase}/ws?clientId=${clientId}`);
+    ws.addEventListener('message', (event) => {
+      // Binary frames are image previews; the JSON text frames carry progress.
+      if (typeof event.data !== 'string') return;
+      try {
+        onMessage(JSON.parse(event.data) as ComfyMessage);
+      } catch {
+        // Ignore anything that is not a well-formed message.
+      }
+    });
+    ws.addEventListener('error', () => undefined);
+    const ready = new Promise<void>((resolve) => {
+      const done = () => resolve();
+      ws.addEventListener('open', done);
+      ws.addEventListener('error', done);
+      ws.addEventListener('close', done);
+      setTimeout(done, 2000);
+    });
+    return {
+      ready,
+      close: () => {
+        try {
+          ws.close();
+        } catch {
+          // Already closed.
+        }
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function nodeClassesOf(workflow: Record<string, unknown>): Record<string, string> {
+  const classes: Record<string, string> = {};
+  for (const [id, node] of Object.entries(workflow)) {
+    const cls = (node as { class_type?: unknown }).class_type;
+    if (typeof cls === 'string') classes[id] = cls;
+  }
+  return classes;
 }
 
 /** Submit a generation and return the resulting file's bytes and extension. Only one
- * generation can be in flight at a time - see cancelCurrentGeneration(). */
-export async function generate(family: string, params: GenerationParams): Promise<GenerateOutput> {
+ * generation can be in flight at a time - see cancelCurrentGeneration(). `onProgress` receives
+ * live stage/step updates from ComfyUI while it works. */
+export async function generate(
+  family: string,
+  params: GenerationParams,
+  onProgress?: (progress: GenerationProgress) => void
+): Promise<GenerateOutput> {
+  const startedAt = Date.now();
   const controller = new AbortController();
   currentAbortController = controller;
+  let socket: ProgressSocket | null = null;
   try {
     const template = loadTemplate(family);
     const workflow = await patchTemplate(family, template, params, controller.signal);
-    const promptId = await submit(workflow, controller.signal);
+
+    const tracker = new ProgressTracker(nodeClassesOf(workflow), startedAt);
+    const clientId = randomUUID();
+    socket = openProgressSocket(clientId, (message) => {
+      const progress = tracker.handle(message);
+      if (progress) onProgress?.(progress);
+    });
+    await socket?.ready;
+    onProgress?.(tracker.snapshot());
+
+    const promptId = await submit(workflow, controller.signal, clientId);
     currentPromptId = promptId;
+    const replayed = tracker.setPromptId(promptId);
+    if (replayed) onProgress?.(replayed);
     const entry = await waitForResult(promptId, controller.signal);
+    const timings = tracker.finish();
 
     const file = extractOutputFile(entry, promptId);
     const bytes = await fetchFileBytes(file, controller.signal);
     const extension = path.extname(file.filename) || '.png';
-    return { bytes, extension };
+    return { bytes, extension, timings };
   } finally {
+    socket?.close();
     currentPromptId = null;
     currentAbortController = null;
   }

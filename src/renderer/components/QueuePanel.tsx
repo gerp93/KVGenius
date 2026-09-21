@@ -1,10 +1,13 @@
-import { Job } from '../hooks/useGenerationQueue';
-import { formatElapsed } from '../utils/format';
+import { Job, ProgressInfo } from '../hooks/useGenerationQueue';
+import { formatDuration } from '../utils/format';
+import { describeProgress } from '../utils/progressModel';
 import { framesToSeconds } from '../utils/video';
+import RunProgress from './RunProgress';
 
 interface Props {
   jobs: Job[];
   now: number;
+  progressInfo: ProgressInfo | null;
   collapsed: boolean;
   onToggle: () => void;
   onCancelJob: (id: number) => void;
@@ -22,11 +25,47 @@ function describe(job: Job): string {
 }
 
 /** Right-hand, collapsible list of what is generating and what is waiting, with cancel controls. */
-export default function QueuePanel({ jobs, now, collapsed, onToggle, onCancelJob, onClearQueued, onDismissFailed }: Props) {
+export default function QueuePanel({
+  jobs,
+  now,
+  progressInfo,
+  collapsed,
+  onToggle,
+  onCancelJob,
+  onClearQueued,
+  onDismissFailed,
+}: Props) {
   const running = jobs.find((j) => j.status === 'running');
   const queued = jobs.filter((j) => j.status === 'queued');
   const failed = jobs.filter((j) => j.status === 'failed' && !j.dismissed);
   const pending = queued.length + (running ? 1 : 0);
+
+  // How long everything still to run should take: what is left of the running job plus the
+  // estimates of those waiting. Jobs without an estimate are left out and counted.
+  let queueTotal: { text: string } | null = null;
+  if (pending > 0) {
+    let remaining = 0;
+    let unknown = 0;
+    if (running) {
+      const display = describeProgress({
+        progress: progressInfo?.progress ?? null,
+        estimate: running.estimate ?? null,
+        elapsedMs: now - (running.startedAt ?? now),
+        lastStepAtMs: progressInfo?.lastStepAt != null ? progressInfo.lastStepAt - (running.startedAt ?? now) : null,
+      });
+      if (display.remainingMs !== null) remaining += display.remainingMs;
+      else if (!display.overrunning) unknown++;
+    }
+    for (const job of queued) {
+      if (job.estimate) remaining += job.estimate.totalMs;
+      else unknown++;
+    }
+    if (remaining > 0 || unknown < pending) {
+      queueTotal = {
+        text: `about ${formatDuration(remaining)}${unknown > 0 ? ` (${unknown} without an estimate yet)` : ''}`,
+      };
+    }
+  }
 
   if (collapsed) {
     return (
@@ -58,6 +97,12 @@ export default function QueuePanel({ jobs, now, collapsed, onToggle, onCancelJob
         </div>
         <div className="queue-job__meta">{describe(job)}</div>
         {label && <div className="queue-job__meta">{label}</div>}
+        {job.status === 'queued' && job.estimate && (
+          <div className="queue-job__meta">
+            about {formatDuration(job.estimate.totalMs)}
+            {job.estimate.loadMs ? ` (includes about ${formatDuration(job.estimate.loadMs)} loading models)` : ''}
+          </div>
+        )}
         {job.status === 'failed' && job.error && <div className="queue-job__error">{job.error}</div>}
       </div>
     );
@@ -92,8 +137,7 @@ export default function QueuePanel({ jobs, now, collapsed, onToggle, onCancelJob
                 ✕
               </button>
             )}
-            <div className="progress-bar progress-bar--indeterminate" />
-            <div className="queue-job__meta">{formatElapsed(Math.floor((now - (running.startedAt ?? now)) / 1000))} elapsed</div>
+            <RunProgress compact job={running} progressInfo={progressInfo} now={now} />
           </section>
         )}
 
@@ -117,6 +161,12 @@ export default function QueuePanel({ jobs, now, collapsed, onToggle, onCancelJob
               )
             )}
           </section>
+        )}
+
+        {queueTotal && (
+          <div className="queue-panel__total">
+            Queue total: {queueTotal.text}
+          </div>
         )}
 
         {failed.length > 0 && (

@@ -6,6 +6,7 @@ import LibraryOutput from './pages/LibraryOutput';
 import LibraryPrompts from './pages/LibraryPrompts';
 import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
+import Timing from './pages/Timing';
 import { GenerationRecord, VideoSourceRequest } from '../shared/types';
 
 const CONNECTION_POLL_MS = 15000;
@@ -64,6 +65,11 @@ export default function App() {
           Prompts
         </NavLink>
         <span className="top-bar__separator" />
+        <span className="top-bar__group-label">Stats</span>
+        <NavLink to="/timing" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
+          Timing
+        </NavLink>
+        <span className="top-bar__separator" />
         <NavLink to="/hardpoint" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Hardpoint
         </NavLink>
@@ -101,6 +107,7 @@ export default function App() {
           <Route path="output" element={<LibraryOutput onRecall={setRecallRecord} onImageToVideo={setVideoSource} />} />
           <Route path="prompts" element={<LibraryPrompts onRecallPrompt={setRecallPrompt} />} />
         </Route>
+        <Route path="/timing" element={<Timing />} />
         <Route path="/hardpoint" element={<Hardpoint />} />
         <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
       </Routes>

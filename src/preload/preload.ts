@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { GenerationKind, GenerationParams, KVGeniusAPI } from '../shared/types';
+import { GenerationKind, GenerationParams, GenerationProgress, KVGeniusAPI } from '../shared/types';
 
 // Videos are served by a local HTTP server, everything else by the kvimage:// protocol - the same
 // rule as imageUrlFor() in main.ts (the sandboxed preload can't import it).
@@ -12,7 +12,17 @@ function mediaUrlFor(filePath: string): string {
 }
 
 const api: KVGeniusAPI = {
-  generate: (family: string, params: GenerationParams) => ipcRenderer.invoke('generate', family, params),
+  generate: (family: string, params: GenerationParams, estimate?: { totalMs: number | null; generateMs: number | null } | null) =>
+    ipcRenderer.invoke('generate', family, params, estimate ?? null),
+  estimateGeneration: (family: string, params: GenerationParams, previousFamily?: string | null) =>
+    ipcRenderer.invoke('estimateGeneration', family, params, previousFamily),
+  onGenerationProgress: (callback: (progress: GenerationProgress) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: GenerationProgress) => callback(progress);
+    ipcRenderer.on('generationProgress', listener);
+    return () => ipcRenderer.removeListener('generationProgress', listener);
+  },
+  getTimingStats: () => ipcRenderer.invoke('getTimingStats'),
+  clearTimingStats: () => ipcRenderer.invoke('clearTimingStats'),
   cancelGeneration: () => ipcRenderer.invoke('cancelGeneration'),
   listGenerations: (kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean) =>
     ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly),

@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GenerationRecord } from '../../shared/types';
-import { Job } from '../hooks/useGenerationQueue';
+import { Job, ProgressInfo } from '../hooks/useGenerationQueue';
 import { fitGrid } from '../utils/fitGrid';
-import { formatElapsed } from '../utils/format';
+import { timingSentence } from '../utils/timingText';
+import RunProgress from './RunProgress';
 import GeneratedVideo from './GeneratedVideo';
 import ExpandButton from './Lightbox';
 
@@ -10,6 +11,8 @@ interface Props {
   /** The jobs of the batch being viewed, in order. */
   slots: Job[];
   now: number;
+  progressInfo: ProgressInfo | null;
+  onDelete: (record: GenerationRecord) => void;
   onToggleFavorite: (record: GenerationRecord) => void;
   onConvertToVideo: (record: GenerationRecord) => void;
   onCancelJob: (id: number) => void;
@@ -18,7 +21,7 @@ interface Props {
 const GRID_GAP = 12;
 // Padding of .result-viewer__body, and room left under the picture for its action buttons.
 const BODY_PADDING = 12;
-const ACTIONS_HEIGHT = 50;
+const ACTIONS_HEIGHT = 78;
 
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -39,7 +42,15 @@ function useElementSize<T extends HTMLElement>() {
  * through one at a time (◀ ▶) or laid out as a grid sized to fill the whole area. Results appear
  * as their jobs finish.
  */
-export default function ResultViewer({ slots, now, onToggleFavorite, onConvertToVideo, onCancelJob }: Props) {
+export default function ResultViewer({
+  slots,
+  now,
+  progressInfo,
+  onDelete,
+  onToggleFavorite,
+  onConvertToVideo,
+  onCancelJob,
+}: Props) {
   const [mode, setMode] = useState<'single' | 'grid'>('single');
   const [index, setIndex] = useState(0);
   const [bodyRef, bodySize] = useElementSize<HTMLDivElement>();
@@ -92,8 +103,7 @@ export default function ResultViewer({ slots, now, onToggleFavorite, onConvertTo
     if (job.status === 'running') {
       return (
         <div className="generate-preview__loading">
-          <div className="progress-bar progress-bar--indeterminate" />
-          <span>Generating... {formatElapsed(Math.floor((now - (job.startedAt ?? now)) / 1000))}</span>
+          <RunProgress job={job} progressInfo={progressInfo} now={now} />
           <button type="button" onClick={() => onCancelJob(job.id)}>
             ✕ Cancel
           </button>
@@ -143,7 +153,11 @@ export default function ResultViewer({ slots, now, onToggleFavorite, onConvertTo
               🎬 Convert to Video
             </button>
           )}
+          <button type="button" onClick={() => onDelete(record)} title="Delete this generation and its file">
+            🗑️ Delete
+          </button>
         </div>
+        {record.timing && <div className="result-timing">{timingSentence(record.timing)}</div>}
       </div>
     );
   }
@@ -192,8 +206,7 @@ export default function ResultViewer({ slots, now, onToggleFavorite, onConvertTo
                 </>
               ) : job.status === 'running' ? (
                 <div className="result-tile__status">
-                  <div className="progress-bar progress-bar--indeterminate" />
-                  <span>Generating... {formatElapsed(Math.floor((now - (job.startedAt ?? now)) / 1000))}</span>
+                  <RunProgress compact job={job} progressInfo={progressInfo} now={now} />
                 </div>
               ) : job.status === 'failed' ? (
                 <div className="result-tile__status result-tile__status--failed" title={job.error}>
