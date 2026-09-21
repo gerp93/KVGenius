@@ -8,3 +8,4 @@ empty commit. Add a one-line entry below with the date and why, so the
 commit shows a real diff instead of nothing.
 
 - 2026-09-20 — Electron rewrite scaffolded, replacing the Flet app on `main`
+- 2026-09-21 — packaged Hardpoint embed: probe reachability via main-process IPC
