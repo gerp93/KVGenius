@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell } from 'electron';
 import { DatabaseSync } from 'node:sqlite';
 import * as path from 'path';
 import * as fs from 'fs';
-import { pathToFileURL } from 'url';
+import { Readable } from 'stream';
 import { autoUpdater } from 'electron-updater';
 
 import { setupApplicationMenu, attachContextMenu } from './menu';
@@ -132,19 +132,68 @@ function createWindow(): void {
   });
 }
 
+const MIME_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.mkv': 'video/x-matroska',
+};
+
 function registerImageProtocol(): void {
-  protocol.handle('kvimage', (request) => {
-    const encodedPath = request.url.replace('kvimage://', '');
+  // Served by hand (not net.fetch of a file:// URL) because a <video> element only plays -
+  // and only seeks - if the response has a real video Content-Type, advertises
+  // Accept-Ranges, and answers `Range:` requests with 206 Partial Content.
+  protocol.handle('kvimage', async (request) => {
+    const encodedPath = request.url.replace('kvimage://', '').replace(/#.*$/, '');
     const filePath = decodeURIComponent(encodedPath);
     // Only ever serve files inside the app's own images directory - the renderer passes
     // paths back that originated from the database, but this is cheap insurance against a
     // malformed/crafted kvimage:// URL reaching outside it.
     const imagesDir = path.resolve(getImagesDir());
     const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(imagesDir)) {
+    if (!resolved.startsWith(imagesDir + path.sep)) {
       return new Response('Forbidden', { status: 403 });
     }
-    return net.fetch(pathToFileURL(resolved).toString());
+
+    let size: number;
+    try {
+      size = (await fs.promises.stat(resolved)).size;
+    } catch {
+      return new Response('Not found', { status: 404 });
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': MIME_BY_EXTENSION[path.extname(resolved).toLowerCase()] ?? 'application/octet-stream',
+      'Accept-Ranges': 'bytes',
+    };
+    if (size === 0) return new Response(null, { status: 200, headers });
+
+    let start = 0;
+    let end = size - 1;
+    let status = 200;
+    const match = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get('range') ?? '');
+    if (match && (match[1] !== '' || match[2] !== '')) {
+      if (match[1] === '') {
+        start = Math.max(0, size - Number(match[2]));
+      } else {
+        start = Number(match[1]);
+        if (match[2] !== '') end = Math.min(Number(match[2]), size - 1);
+      }
+      if (start > end) {
+        return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
+      }
+      status = 206;
+      headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
+    }
+    headers['Content-Length'] = String(end - start + 1);
+
+    const body = Readable.toWeb(fs.createReadStream(resolved, { start, end })) as ReadableStream;
+    return new Response(body, { status, headers });
   });
 }
 
