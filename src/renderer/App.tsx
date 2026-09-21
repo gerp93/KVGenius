@@ -4,7 +4,7 @@ import Generate from './pages/Generate';
 import Library from './pages/Library';
 import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
-import { GenerationRecord } from '../shared/types';
+import { GenerationRecord, VideoSourceRequest } from '../shared/types';
 
 const CONNECTION_POLL_MS = 15000;
 
@@ -12,6 +12,7 @@ type ConnectionStatus = 'checking' | 'connected' | 'unreachable';
 
 export default function App() {
   const [recallRecord, setRecallRecord] = useState<GenerationRecord | null>(null);
+  const [videoSource, setVideoSource] = useState<VideoSourceRequest | null>(null);
   const [recallPrompt, setRecallPrompt] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
   const [theme, setThemeState] = useState<string | null>(null);
@@ -82,10 +83,12 @@ export default function App() {
           onRecalled={() => setRecallRecord(null)}
           recallPrompt={recallPrompt}
           onPromptRecalled={() => setRecallPrompt(null)}
+          videoSource={videoSource}
+          onVideoSourceHandled={() => setVideoSource(null)}
         />
       </div>
       <Routes>
-        <Route path="/library" element={<Library onRecall={setRecallRecord} onRecallPrompt={setRecallPrompt} />} />
+        <Route path="/library" element={<Library onRecall={setRecallRecord} onRecallPrompt={setRecallPrompt} onImageToVideo={setVideoSource} />} />
         <Route path="/hardpoint" element={<Hardpoint />} />
         <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
       </Routes>

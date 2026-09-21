@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FAMILY_KIND, GenerationRecord } from '../../shared/types';
+import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../../shared/types';
 
 type Mode = 'image' | 'video';
 
@@ -13,7 +13,12 @@ interface Props {
   onRecalled: () => void;
   recallPrompt: string | null;
   onPromptRecalled: () => void;
+  videoSource: VideoSourceRequest | null;
+  onVideoSourceHandled: () => void;
 }
+
+// Long side of a video generated from an existing image (matches the 640px default).
+const VIDEO_LONG_SIDE = 640;
 
 function randomSeed(): number {
   return Math.floor(Math.random() * 2 ** 32);
@@ -27,7 +32,14 @@ const ASPECT_RATIO_PRESETS: { label: string; width: number; height: number }[] =
   { label: 'Landscape (16:9)', width: 1344, height: 768 },
 ];
 
-export default function Generate({ recallRecord, onRecalled, recallPrompt, onPromptRecalled }: Props) {
+export default function Generate({
+  recallRecord,
+  onRecalled,
+  recallPrompt,
+  onPromptRecalled,
+  videoSource,
+  onVideoSourceHandled,
+}: Props) {
   const [mode, setMode] = useState<Mode>('image');
   const [prompt, setPrompt] = useState('');
   const [width, setWidth] = useState(1024);
@@ -45,6 +57,8 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [resultMode, setResultMode] = useState<Mode>('image');
   const [error, setError] = useState<string | null>(null);
+  // The record currently shown in the preview (image or video) - what "Convert to Video" acts on.
+  const [resultRecord, setResultRecord] = useState<GenerationRecord | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -75,6 +89,25 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
     }
   }
 
+  /** Switch to video mode with `request.imagePath` as the source image. The video size keeps
+   * the image's aspect ratio (long side VIDEO_LONG_SIDE, both sides a multiple of 16 as Wan
+   * needs) rather than the square default handleModeChange would set. */
+  function setUpVideoFromImage(request: VideoSourceRequest) {
+    const scale = VIDEO_LONG_SIDE / Math.max(request.width, request.height);
+    const snap = (n: number) => Math.max(256, Math.round((n * scale) / 16) * 16);
+    setMode('video');
+    setWidth(snap(request.width));
+    setHeight(snap(request.height));
+    setSourceImagePath(request.imagePath);
+    setError(null);
+  }
+
+  useEffect(() => {
+    if (!videoSource) return;
+    setUpVideoFromImage(videoSource);
+    onVideoSourceHandled();
+  }, [videoSource, onVideoSourceHandled]);
+
   async function handleChooseSourceImage() {
     const path = await window.kvgenius.chooseSourceImage();
     if (path) setSourceImagePath(path);
@@ -96,6 +129,7 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
     // resulting video is. A new one has to be chosen before this can be re-run.
     setSourceImagePath(null);
     setImageUrl(window.kvgenius.imageUrlFor(recallRecord.imagePath));
+    setResultRecord(recallRecord);
     setResultMode(recalledMode);
     onRecalled();
   }, [recallRecord, onRecalled]);
@@ -132,6 +166,7 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
         ...(mode === 'video' ? { length, sourceImagePath: sourceImagePath ?? undefined } : {}),
       });
       setImageUrl(result.imageUrl);
+      setResultRecord(result.record);
       setResultMode(generatedMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -184,7 +219,7 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
             <div style={{ marginBottom: 12 }}>
               <label className="field-label">Source Image</label>
               <button type="button" onClick={handleChooseSourceImage} style={{ width: '100%' }}>
-                {sourceImagePath ? sourceImagePath.split('/').pop() : 'Choose Source Image...'}
+                {sourceImagePath ? sourceImagePath.split(/[\/]/).pop() : 'Choose Source Image...'}
               </button>
             </div>
           )}
@@ -383,7 +418,24 @@ export default function Generate({ recallRecord, onRecalled, recallPrompt, onPro
           ) : imageUrl && resultMode === 'video' ? (
             <video src={imageUrl} controls style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8 }} />
           ) : imageUrl ? (
-            <img src={imageUrl} alt="Generated" style={{ maxWidth: '100%', borderRadius: 8 }} />
+            <div className="generate-preview__result">
+              <img src={imageUrl} alt="Generated" style={{ maxWidth: '100%', minHeight: 0, flex: '0 1 auto', objectFit: 'contain', borderRadius: 8 }} />
+              {resultRecord && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setUpVideoFromImage({
+                      imagePath: resultRecord.imagePath,
+                      width: resultRecord.width,
+                      height: resultRecord.height,
+                    })
+                  }
+                  title="Set up video mode with this image as the source"
+                >
+                  🎬 Convert to Video
+                </button>
+              )}
+            </div>
           ) : (
             <div className="generate-preview__placeholder">No image yet</div>
           )}

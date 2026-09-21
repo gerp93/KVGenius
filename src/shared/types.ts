@@ -27,6 +27,14 @@ export interface GenerationRecord {
   createdAt: string;
 }
 
+/** A request to open the Generate tab in video mode with an existing image as the source. */
+export interface VideoSourceRequest {
+  imagePath: string;
+  /** The image's own dimensions, used to pick a video size that keeps its aspect ratio. */
+  width: number;
+  height: number;
+}
+
 /** Which model families produce a video vs a still image - drives whether the
  * renderer shows an <img> or a <video> for a given record's output/result. */
 export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
