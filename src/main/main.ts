@@ -32,7 +32,6 @@ import {
   listGenerationRefs,
   setGenerationFavorite,
   moveLegacyOutput,
-  listVideoPaths,
   deleteGeneration,
   listSavedPrompts,
   insertSavedPrompt,
@@ -46,9 +45,11 @@ import {
 } from './comfyui';
 import { FAMILY_KIND, GenerationKind, GenerationParams } from '../shared/types';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
-import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, handleMediaRequest } from './mediaProtocol';
-import { faststartFile, faststartMp4 } from './mp4Faststart';
+import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaRequest } from './mediaProtocol';
+import { MediaServer, startMediaServer } from './mediaServer';
+import { faststartMp4 } from './mp4Faststart';
 import { uniqueNames, writeZip } from './zipWriter';
+import { diagnoseVideo } from './videoDiagnostics';
 
 // Dev and packaged builds must never share a userData/appData folder, or
 // enforceDevDatabaseIsolation() below can never tell them apart (it compares
@@ -145,21 +146,6 @@ function createWindow(): void {
 // is allowed individually so the Generate page can preview it.
 const pickedSourceImages = new Set<string>();
 
-/** One-off background repair: videos saved before new ones were stored with their index up front
- * are rewritten in place so the in-app player can open them. Already-fixed files cost only a
- * header read; failures are skipped and retried on the next launch. */
-async function repairVideoIndexes(): Promise<void> {
-  if (!db) return;
-  for (const videoPath of listVideoPaths(db, videoFamilyList())) {
-    if (!videoPath.toLowerCase().endsWith('.mp4')) continue;
-    try {
-      await faststartFile(videoPath);
-    } catch {
-      // Missing or unreadable file - nothing to repair.
-    }
-  }
-}
-
 function videoFamilyList(): string[] {
   return Object.keys(FAMILY_KIND).filter((family) => FAMILY_KIND[family] === 'video');
 }
@@ -168,7 +154,14 @@ function registerImageProtocol(): void {
   protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, [getImagesDir(), getVideosDir(), getLegacyOutputDir()], pickedSourceImages));
 }
 
+let mediaServer: MediaServer | null = null;
+
+/** Images load through the kvimage:// protocol; videos through the local HTTP media server (see
+ * mediaServer.ts for why). The preload script builds URLs with the same rule. */
 function imageUrlFor(imagePath: string): string {
+  if (mediaServer && VIDEO_EXTENSIONS.includes(path.extname(imagePath).toLowerCase())) {
+    return `${mediaServer.base}/${encodeURIComponent(imagePath)}`;
+  }
   return `kvimage://${encodeURIComponent(imagePath)}`;
 }
 
@@ -281,6 +274,8 @@ function registerIpcHandlers(): void {
   ipcMain.handle('revealGenerationInFileManager', (_event, imagePath: string) => {
     shell.showItemInFolder(imagePath);
   });
+
+  ipcMain.handle('diagnoseVideo', (_event, imagePath: string) => diagnoseVideo(imagePath));
 
   ipcMain.handle('openGenerationExternally', async (_event, imagePath: string) => {
     const err = await shell.openPath(imagePath);
@@ -475,17 +470,24 @@ function checkForUpdatesNow(): Promise<UpdateCheckResult> {
 
 app
   .whenReady()
-  .then(() => {
+  .then(async () => {
     migrateLegacyDefaultDbLocation();
     enforceDevDatabaseIsolation();
     db = initDatabase(getEffectiveDbPath());
     moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), getImagesDir(), getVideosDir());
 
     registerImageProtocol();
+    mediaServer = await startMediaServer(
+      () => [getImagesDir(), getVideosDir(), getLegacyOutputDir()],
+      pickedSourceImages
+    );
+    // The preload script asks for this synchronously while the window is loading.
+    ipcMain.on('getMediaBase', (event) => {
+      event.returnValue = mediaServer?.base ?? '';
+    });
     registerIpcHandlers();
     setupApplicationMenu();
     createWindow();
-    void repairVideoIndexes();
     setupAutoUpdater();
 
     app.on('activate', () => {
@@ -503,6 +505,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  mediaServer?.close();
   db?.close();
   db = null;
 });

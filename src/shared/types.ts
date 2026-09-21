@@ -116,6 +116,8 @@ export interface KVGeniusAPI {
   deleteGeneration: (id: number, imagePath: string) => Promise<void>;
   /** Reveals the generation's output file in the system file manager. */
   revealGenerationInFileManager: (imagePath: string) => Promise<void>;
+  /** Explains why a video will not play (file layout, codec) and tries to repair it. */
+  diagnoseVideo: (imagePath: string) => Promise<{ lines: string[]; repaired: boolean }>;
   /** Opens the output file in the system's default app (e.g. a video player). */
   openGenerationExternally: (imagePath: string) => Promise<void>;
   /** Opens a native save dialog and copies the output file to the chosen location.

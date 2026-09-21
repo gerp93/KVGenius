@@ -33,7 +33,9 @@ function readBoxes(buf: Buffer, from: number, to: number): Box[] | null {
     boxes.push({ type, start: offset, size });
     offset += size;
   }
-  return offset === to ? boxes : null;
+  if (offset === to) return boxes;
+  // Some writers pad the end of the file with zero bytes; that is not part of any box.
+  return buf.subarray(offset, to).every((byte) => byte === 0) ? boxes : null;
 }
 
 /** Adds `delta` to every stco/co64 chunk offset under `moov` (in place). Returns false if an
