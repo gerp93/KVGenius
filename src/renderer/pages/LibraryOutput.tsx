@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
 import GeneratedVideo from '../components/GeneratedVideo';
 import ExpandButton from '../components/Lightbox';
+import PromptModal from '../components/PromptModal';
 import { formatBytes, formatDifference, formatDuration } from '../utils/format';
 import { justifyRows } from '../utils/justifiedRows';
 
@@ -36,6 +37,9 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [infoSize, setInfoSize] = useState<number | null>(null);
+  // Save the details panel's prompt to the prompt library (opens the name + tags modal).
+  const [promptToSave, setPromptToSave] = useState<GenerationRecord | null>(null);
+  const [existingTags, setExistingTags] = useState<string[]>([]);
   const [infoId, setInfoId] = useState<number | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
 
@@ -225,6 +229,24 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
       toggleSelected(record);
       anchorId.current = record.id;
     }
+  }
+
+  async function openSavePrompt(record: GenerationRecord) {
+    try {
+      // Tags already in use, offered as suggestions in the modal.
+      const saved = await window.kvgenius.listSavedPrompts();
+      setExistingTags([...new Set(saved.flatMap((sp) => sp.tags))]);
+    } catch {
+      setExistingTags([]);
+    }
+    setPromptToSave(record);
+  }
+
+  async function handleSavePrompt(name: string, tags: string[]) {
+    if (!promptToSave) return;
+    await window.kvgenius.savePrompt(name, promptToSave.prompt, tags);
+    setPromptToSave(null);
+    setNotice(`Saved "${name}" - find it under Library > Prompts.`);
   }
 
   function handleRecreate(record: GenerationRecord) {
@@ -521,7 +543,14 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             </button>
           </div>
 
-          <div className="field-label">Prompt</div>
+          <div className="library-panel__prompt-header">
+            <span className="field-label" style={{ margin: 0 }}>
+              Prompt
+            </span>
+            <button type="button" onClick={() => openSavePrompt(infoRecord)} title="Save this prompt to the prompt library">
+              💾 Save prompt
+            </button>
+          </div>
           <p className="library-panel__prompt">{infoRecord.prompt}</p>
 
           <dl className="library-panel__meta">
@@ -578,6 +607,17 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             <dd>{infoRecord.imagePath.split(/[\\/]/).pop()}</dd>
           </dl>
         </aside>
+      )}
+
+      {promptToSave && (
+        <PromptModal
+          title="Save prompt"
+          submitLabel="Save prompt"
+          prompt={promptToSave.prompt}
+          existingTags={existingTags}
+          onSave={handleSavePrompt}
+          onClose={() => setPromptToSave(null)}
+        />
       )}
     </div>
   );

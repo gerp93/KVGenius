@@ -1405,3 +1405,17 @@ textarea:disabled {
   font-weight: 600;
   color: var(--color-text-muted);
 }
+
+.library-panel__prompt-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.library-panel__prompt-header button {
+  min-height: 28px;
+  padding: 2px 10px;
+  font-size: 13px;
+}
