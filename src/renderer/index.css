@@ -242,7 +242,13 @@ input:focus {
 }
 
 .library-card__select input {
-  cursor: pointer;
+  /* Purely a state indicator - the whole card is the click target in select mode. */
+  pointer-events: none;
+}
+
+.library-card--selected {
+  border-color: var(--color-accent-red);
+  box-shadow: 0 0 0 2px var(--color-accent-red);
 }
 
 .library-card__actions {
