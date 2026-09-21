@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
 import * as path from 'path';
-import { GenerationParams, GenerationRecord, SavedPrompt } from '../shared/types';
+import { GenerationKind, GenerationParams, GenerationRecord, SavedPrompt } from '../shared/types';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS generations (
   length INTEGER,
   model_family TEXT NOT NULL,
   image_path TEXT NOT NULL,
+  favorite INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 
@@ -41,6 +42,9 @@ function migrateSchema(db: DatabaseSync): void {
   if (!columns.some((c) => c.name === 'length')) {
     db.exec('ALTER TABLE generations ADD COLUMN length INTEGER;');
   }
+  if (!columns.some((c) => c.name === 'favorite')) {
+    db.exec('ALTER TABLE generations ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;');
+  }
 }
 
 export function initDatabase(dbPath: string): DatabaseSync {
@@ -64,6 +68,7 @@ interface GenerationRow {
   length: number | null;
   model_family: string;
   image_path: string;
+  favorite: number;
   created_at: string;
 }
 
@@ -80,6 +85,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     length: row.length,
     modelFamily: row.model_family,
     imagePath: row.image_path,
+    favorite: row.favorite === 1,
     createdAt: row.created_at,
   };
 }
@@ -120,13 +126,56 @@ export function insertGeneration(
     length,
     modelFamily,
     imagePath,
+    favorite: false,
     createdAt,
   };
 }
 
-export function listGenerations(db: DatabaseSync): GenerationRecord[] {
-  const rows = db.prepare('SELECT * FROM generations ORDER BY id DESC').all() as unknown as GenerationRow[];
+/** SQL condition selecting the image or video half of the table. Families aren't a column of
+ * their own kind (FAMILY_KIND lives in shared code), so callers pass the video family list;
+ * anything not in it - including a family this build doesn't know - counts as an image. */
+function kindCondition(videoFamilies: string[], kind: GenerationKind): { sql: string; params: string[] } {
+  if (videoFamilies.length === 0) return { sql: kind === 'video' ? '0' : '1', params: [] };
+  const marks = videoFamilies.map(() => '?').join(', ');
+  return { sql: `model_family ${kind === 'video' ? 'IN' : 'NOT IN'} (${marks})`, params: videoFamilies };
+}
+
+export function listGenerations(
+  db: DatabaseSync,
+  videoFamilies: string[],
+  kind: GenerationKind,
+  limit: number,
+  beforeId: number | null,
+  favoritesOnly: boolean
+): GenerationRecord[] {
+  const condition = kindCondition(videoFamilies, kind);
+  const cursor = (beforeId === null ? '' : 'AND id < ? ') + (favoritesOnly ? 'AND favorite = 1' : '');
+  const params: (string | number)[] = [...condition.params];
+  if (beforeId !== null) params.push(beforeId);
+  params.push(limit);
+  const rows = db
+    .prepare(`SELECT * FROM generations WHERE ${condition.sql} ${cursor} ORDER BY id DESC LIMIT ?`)
+    .all(...params) as unknown as GenerationRow[];
   return rows.map(rowToRecord);
+}
+
+export function countGenerations(
+  db: DatabaseSync,
+  videoFamilies: string[],
+  favoritesOnly: boolean
+): Record<GenerationKind, number> {
+  const count = (kind: GenerationKind): number => {
+    const condition = kindCondition(videoFamilies, kind);
+    const row = db
+      .prepare(`SELECT COUNT(*) AS n FROM generations WHERE ${condition.sql} ${favoritesOnly ? 'AND favorite = 1' : ''}`)
+      .get(...condition.params) as unknown as { n: number };
+    return row.n;
+  };
+  return { image: count('image'), video: count('video') };
+}
+
+export function setGenerationFavorite(db: DatabaseSync, id: number, favorite: boolean): void {
+  db.prepare('UPDATE generations SET favorite = ? WHERE id = ?').run(favorite ? 1 : 0, id);
 }
 
 export function deleteGeneration(db: DatabaseSync, id: number): void {

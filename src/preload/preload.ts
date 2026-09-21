@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { GenerationParams, KVGeniusAPI } from '../shared/types';
+import { GenerationKind, GenerationParams, KVGeniusAPI } from '../shared/types';
 
 const api: KVGeniusAPI = {
   generate: (family: string, params: GenerationParams) => ipcRenderer.invoke('generate', family, params),
   cancelGeneration: () => ipcRenderer.invoke('cancelGeneration'),
-  listGenerations: () => ipcRenderer.invoke('listGenerations'),
+  listGenerations: (kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean) =>
+    ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly),
+  countGenerations: (favoritesOnly: boolean) => ipcRenderer.invoke('countGenerations', favoritesOnly),
+  setGenerationFavorite: (id: number, favorite: boolean) => ipcRenderer.invoke('setGenerationFavorite', id, favorite),
   imageUrlFor: (imagePath: string) => `kvimage://${encodeURIComponent(imagePath)}`,
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),
   deleteGeneration: (id: number, imagePath: string) => ipcRenderer.invoke('deleteGeneration', id, imagePath),

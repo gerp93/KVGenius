@@ -196,6 +196,17 @@ export default function Generate({
     }
   }
 
+  async function handleToggleFavorite() {
+    if (!resultRecord) return;
+    const favorite = !resultRecord.favorite;
+    try {
+      await window.kvgenius.setGenerationFavorite(resultRecord.id, favorite);
+      setResultRecord({ ...resultRecord, favorite });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function handleSavePrompt() {
     if (!prompt.trim()) return;
     try {
@@ -429,25 +440,38 @@ export default function Generate({
                 ✕ Cancel
               </button>
             </div>
-          ) : imageUrl && resultMode === 'video' ? (
-            <video src={imageUrl} controls style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8 }} />
           ) : imageUrl ? (
             <div className="generate-preview__result">
-              <img src={imageUrl} alt="Generated" style={{ maxWidth: '100%', minHeight: 0, flex: '0 1 auto', objectFit: 'contain', borderRadius: 8 }} />
+              {resultMode === 'video' ? (
+                <video src={imageUrl} controls style={{ maxWidth: '100%', minHeight: 0, flex: '0 1 auto', borderRadius: 8 }} />
+              ) : (
+                <img src={imageUrl} alt="Generated" style={{ maxWidth: '100%', minHeight: 0, flex: '0 1 auto', objectFit: 'contain', borderRadius: 8 }} />
+              )}
               {resultRecord && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setUpVideoFromImage({
-                      imagePath: resultRecord.imagePath,
-                      width: resultRecord.width,
-                      height: resultRecord.height,
-                    })
-                  }
-                  title="Set up video mode with this image as the source"
-                >
-                  🎬 Convert to Video
-                </button>
+                <div className="button-row">
+                  <button
+                    type="button"
+                    onClick={handleToggleFavorite}
+                    title={resultRecord.favorite ? 'Remove from favorites' : 'Save to favorites'}
+                  >
+                    {resultRecord.favorite ? '★ Favorited' : '☆ Favorite'}
+                  </button>
+                  {resultMode === 'image' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setUpVideoFromImage({
+                          imagePath: resultRecord.imagePath,
+                          width: resultRecord.width,
+                          height: resultRecord.height,
+                        })
+                      }
+                      title="Set up video mode with this image as the source"
+                    >
+                      🎬 Convert to Video
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ) : (

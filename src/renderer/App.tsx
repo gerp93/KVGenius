@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, NavLink, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, NavLink, Link, Navigate, useLocation } from 'react-router-dom';
 import Generate from './pages/Generate';
-import Library from './pages/Library';
+import LibraryLayout from './pages/LibraryLayout';
+import LibraryOutput from './pages/LibraryOutput';
+import LibraryPrompts from './pages/LibraryPrompts';
 import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
 import { GenerationRecord, VideoSourceRequest } from '../shared/types';
@@ -88,7 +90,11 @@ export default function App() {
         />
       </div>
       <Routes>
-        <Route path="/library" element={<Library onRecall={setRecallRecord} onRecallPrompt={setRecallPrompt} onImageToVideo={setVideoSource} />} />
+        <Route path="/library" element={<LibraryLayout />}>
+          <Route index element={<Navigate to="output" replace />} />
+          <Route path="output" element={<LibraryOutput onRecall={setRecallRecord} onImageToVideo={setVideoSource} />} />
+          <Route path="prompts" element={<LibraryPrompts onRecallPrompt={setRecallPrompt} />} />
+        </Route>
         <Route path="/hardpoint" element={<Hardpoint />} />
         <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
       </Routes>

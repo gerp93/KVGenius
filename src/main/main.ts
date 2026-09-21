@@ -27,6 +27,8 @@ import {
   initDatabase,
   insertGeneration,
   listGenerations,
+  countGenerations,
+  setGenerationFavorite,
   deleteGeneration,
   listSavedPrompts,
   insertSavedPrompt,
@@ -38,7 +40,7 @@ import {
   cancelCurrentGeneration,
   DEFAULT_COMFYUI_HOST,
 } from './comfyui';
-import { GenerationParams } from '../shared/types';
+import { FAMILY_KIND, GenerationKind, GenerationParams } from '../shared/types';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
 
 // Dev and packaged builds must never share a userData/appData folder, or
@@ -219,9 +221,25 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('cancelGeneration', () => cancelCurrentGeneration());
 
-  ipcMain.handle('listGenerations', () => {
+  const videoFamilies = Object.keys(FAMILY_KIND).filter((family) => FAMILY_KIND[family] === 'video');
+
+  ipcMain.handle(
+    'listGenerations',
+    (_event, kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean) => {
+      if (!db) throw new Error('Database not initialized');
+      const safeLimit = Math.min(Math.max(Math.floor(limit) || 0, 1), 200);
+      return listGenerations(db, videoFamilies, kind === 'video' ? 'video' : 'image', safeLimit, beforeId, !!favoritesOnly);
+    }
+  );
+
+  ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean) => {
     if (!db) throw new Error('Database not initialized');
-    return listGenerations(db);
+    return countGenerations(db, videoFamilies, !!favoritesOnly);
+  });
+
+  ipcMain.handle('setGenerationFavorite', (_event, id: number, favorite: boolean) => {
+    if (!db) throw new Error('Database not initialized');
+    setGenerationFavorite(db, id, !!favorite);
   });
 
   ipcMain.handle('imageUrlFor', (_event, imagePath: string) => imageUrlFor(imagePath));
