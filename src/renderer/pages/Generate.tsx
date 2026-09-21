@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import GeneratedVideo from '../components/GeneratedVideo';
 import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../../shared/types';
 
 type Mode = 'image' | 'video';
@@ -242,9 +243,23 @@ export default function Generate({
           {mode === 'video' && (
             <div style={{ marginBottom: 12 }}>
               <label className="field-label">Source Image</label>
-              <button type="button" onClick={handleChooseSourceImage} style={{ width: '100%' }}>
-                {sourceImagePath ? sourceImagePath.split(/[\/]/).pop() : 'Choose Source Image...'}
+              <button
+                type="button"
+                className="source-image-button"
+                onClick={handleChooseSourceImage}
+                title={sourceImagePath ?? undefined}
+              >
+                <span className="source-image-button__name">
+                  {sourceImagePath ? sourceImagePath.split(/[\\/]/).pop() : 'Choose Source Image...'}
+                </span>
               </button>
+              {sourceImagePath && (
+                <img
+                  className="source-image-preview"
+                  src={window.kvgenius.imageUrlFor(sourceImagePath)}
+                  alt="Source image"
+                />
+              )}
             </div>
           )}
 
@@ -443,7 +458,11 @@ export default function Generate({
           ) : imageUrl ? (
             <div className="generate-preview__result">
               {resultMode === 'video' ? (
-                <video src={imageUrl} controls style={{ maxWidth: '100%', minHeight: 0, flex: '0 1 auto', borderRadius: 8 }} />
+                <GeneratedVideo
+                  src={imageUrl}
+                  filePath={resultRecord?.imagePath ?? ''}
+                  style={{ maxWidth: '100%', minHeight: 0, borderRadius: 8 }}
+                />
               ) : (
                 <img src={imageUrl} alt="Generated" style={{ maxWidth: '100%', minHeight: 0, flex: '0 1 auto', objectFit: 'contain', borderRadius: 8 }} />
               )}
