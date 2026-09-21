@@ -84,7 +84,7 @@ export default function HardpointPage() {
           className="hardpoint-frame"
           title="Hardpoint"
           src={`${HARDPOINT_API_BASE}/`}
-          allow="clipboard-read; clipboard-write"
+          allow="local-network-access; clipboard-read; clipboard-write"
         />
       )}
     </div>

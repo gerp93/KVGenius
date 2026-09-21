@@ -9,3 +9,4 @@ commit shows a real diff instead of nothing.
 
 - 2026-09-20 — Electron rewrite scaffolded, replacing the Flet app on `main`
 - 2026-09-21 — packaged Hardpoint embed: probe reachability via main-process IPC
+- 2026-09-21 — allow Hardpoint loopback in renderer frame-src (was 'none', blank embed)

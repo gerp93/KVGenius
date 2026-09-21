@@ -8,6 +8,10 @@ import path from 'path';
  * `img-src`/`media-src` allow the `kvimage:` scheme generated images are served over (see the
  * protocol.handle registration in main.ts) - the renderer never talks to ComfyUI directly,
  * that all happens in the main process, so `connect-src` stays 'self' only.
+ *
+ * `frame-src` allows Hardpoint's loopback UI only (`:3921` packaged; `:5174` when Hardpoint
+ * is in Vite dev and redirects). `frame-src 'none'` blanked the Hardpoint tab iframe in
+ * packaged builds even when Hardpoint itself was reachable.
  */
 const CSP = [
   "default-src 'self'",
@@ -17,7 +21,7 @@ const CSP = [
   "font-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",
-  "frame-src 'none'",
+  "frame-src http://127.0.0.1:3921 http://localhost:3921 http://127.0.0.1:5174 http://localhost:5174",
   "base-uri 'none'",
   "form-action 'none'",
 ].join('; ');
