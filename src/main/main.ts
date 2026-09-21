@@ -35,6 +35,7 @@ import {
   deleteGeneration,
   listSavedPrompts,
   insertSavedPrompt,
+  updateSavedPrompt,
   deleteSavedPrompt,
 } from './db';
 import {
@@ -298,9 +299,14 @@ function registerIpcHandlers(): void {
     return listSavedPrompts(db);
   });
 
-  ipcMain.handle('savePrompt', (_event, name: string | null, prompt: string) => {
+  ipcMain.handle('savePrompt', (_event, name: string, prompt: string, tags: string[]) => {
     if (!db) throw new Error('Database not initialized');
-    return insertSavedPrompt(db, name, prompt);
+    return insertSavedPrompt(db, name, prompt, tags);
+  });
+
+  ipcMain.handle('updateSavedPrompt', (_event, id: number, name: string, tags: string[]) => {
+    if (!db) throw new Error('Database not initialized');
+    return updateSavedPrompt(db, id, name, tags);
   });
 
   ipcMain.handle('deleteSavedPrompt', (_event, id: number) => {

@@ -4,7 +4,8 @@ interface Props {
   src: string;
   /** Local file behind `src`, used to diagnose/repair it and by the "open in default player" fallback. */
   filePath: string;
-  /** Muted first-frame preview for a grid card: no controls, clicks pass through. */
+  /** Muted looping preview for a grid card: no controls, clicks pass through. It plays only while
+   * it is on screen, so a long list of videos does not all decode at once. */
   thumbnail?: boolean;
   style?: CSSProperties;
 }
@@ -26,6 +27,7 @@ export default function GeneratedVideo({ src, filePath, thumbnail, style }: Prop
   const [details, setDetails] = useState<string[] | null>(null);
   const [reloads, setReloads] = useState(0);
   const diagnosedFor = useRef<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     setError(null);
@@ -33,6 +35,23 @@ export default function GeneratedVideo({ src, filePath, thumbnail, style }: Prop
     setReloads(0);
     diagnosedFor.current = null;
   }, [src]);
+
+  // Thumbnails loop while visible and rest on their first frame while scrolled out of view.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!thumbnail || !el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) el.play().catch(() => undefined);
+          else el.pause();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [thumbnail, reloads, src]);
 
   function handleError(e: React.SyntheticEvent<HTMLVideoElement>) {
     const mediaError = e.currentTarget.error;
@@ -58,11 +77,13 @@ export default function GeneratedVideo({ src, filePath, thumbnail, style }: Prop
   const url = `${src}${reloads > 0 ? `?r=${reloads}` : ''}`;
   const video = (
     <video
+      ref={videoRef}
       key={url}
       src={thumbnail ? `${url}#t=0.1` : url}
       preload="metadata"
       controls={!thumbnail}
       muted={thumbnail}
+      loop={thumbnail}
       playsInline
       style={style}
       onError={handleError}

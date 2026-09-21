@@ -56,9 +56,11 @@ export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
 
 export interface SavedPrompt {
   id: number;
+  /** Prompts saved before names were required have none. */
   name: string | null;
   prompt: string;
   negativePrompt: string | null;
+  tags: string[];
   createdAt: string;
 }
 
@@ -125,7 +127,9 @@ export interface KVGeniusAPI {
   saveGenerationAs: (imagePath: string) => Promise<boolean>;
 
   listSavedPrompts: () => Promise<SavedPrompt[]>;
-  savePrompt: (name: string | null, prompt: string) => Promise<SavedPrompt>;
+  /** Saves a prompt under a required name, with optional tags. */
+  savePrompt: (name: string, prompt: string, tags: string[]) => Promise<SavedPrompt>;
+  updateSavedPrompt: (id: number, name: string, tags: string[]) => Promise<SavedPrompt>;
   deleteSavedPrompt: (id: number) => Promise<void>;
 
   getComfyUIHost: () => Promise<ComfyUIHostInfo>;

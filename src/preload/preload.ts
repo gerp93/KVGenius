@@ -30,7 +30,8 @@ const api: KVGeniusAPI = {
   saveGenerationAs: (imagePath: string) => ipcRenderer.invoke('saveGenerationAs', imagePath),
 
   listSavedPrompts: () => ipcRenderer.invoke('listSavedPrompts'),
-  savePrompt: (name: string | null, prompt: string) => ipcRenderer.invoke('savePrompt', name, prompt),
+  savePrompt: (name: string, prompt: string, tags: string[]) => ipcRenderer.invoke('savePrompt', name, prompt, tags),
+  updateSavedPrompt: (id: number, name: string, tags: string[]) => ipcRenderer.invoke('updateSavedPrompt', id, name, tags),
   deleteSavedPrompt: (id: number) => ipcRenderer.invoke('deleteSavedPrompt', id),
 
   getComfyUIHost: () => ipcRenderer.invoke('getComfyUIHost'),
