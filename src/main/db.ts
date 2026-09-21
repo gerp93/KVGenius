@@ -240,8 +240,23 @@ export function moveLegacyOutput(
   return moved;
 }
 
-export function setGenerationFavorite(db: DatabaseSync, id: number, favorite: boolean): void {
-  db.prepare('UPDATE generations SET favorite = ? WHERE id = ?').run(favorite ? 1 : 0, id);
+/** Sets the favorite flag, and the file path too when its file was moved along with it. */
+export function setGenerationFavorite(db: DatabaseSync, id: number, favorite: boolean, newImagePath?: string): void {
+  if (newImagePath === undefined) {
+    db.prepare('UPDATE generations SET favorite = ? WHERE id = ?').run(favorite ? 1 : 0, id);
+  } else {
+    db.prepare('UPDATE generations SET favorite = ?, image_path = ? WHERE id = ?').run(favorite ? 1 : 0, newImagePath, id);
+  }
+}
+
+export function getGenerationById(db: DatabaseSync, id: number): GenerationRecord | null {
+  const row = db.prepare('SELECT * FROM generations WHERE id = ?').get(id) as unknown as GenerationRow | undefined;
+  return row ? rowToRecord(row) : null;
+}
+
+export function listFavoriteIds(db: DatabaseSync): number[] {
+  const rows = db.prepare('SELECT id FROM generations WHERE favorite = 1').all() as unknown as { id: number }[];
+  return rows.map((r) => r.id);
 }
 
 export function deleteGeneration(db: DatabaseSync, id: number): void {

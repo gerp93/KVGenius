@@ -197,8 +197,11 @@ export default function Generate({
   async function handleToggleFavorite(record: GenerationRecord) {
     const favorite = !record.favorite;
     try {
-      await window.kvgenius.setGenerationFavorite(record.id, favorite);
+      // Favoriting moves the file into the favorites folder (and back), so its path can change.
+      const { imagePath } = await window.kvgenius.setGenerationFavorite(record.id, favorite);
       queue.updateRecord(record.id, { favorite });
+      queue.relocateFile(record.id, record.imagePath, imagePath, window.kvgenius.imageUrlFor(imagePath));
+      setSourceImagePath((current) => (current === record.imagePath ? imagePath : current));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }

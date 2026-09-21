@@ -109,7 +109,9 @@ export interface KVGeniusAPI {
   getFileSize: (imagePath: string) => Promise<number | null>;
   /** Asks where to save, then writes the given output files into a zip archive there. */
   exportGenerations: (imagePaths: string[]) => Promise<ExportResult>;
-  setGenerationFavorite: (id: number, favorite: boolean) => Promise<void>;
+  /** Favoriting moves the output file into a `favorites` subfolder (and unfavoriting moves it back),
+   * so this returns the file's - possibly new - path. */
+  setGenerationFavorite: (id: number, favorite: boolean) => Promise<{ imagePath: string }>;
   imageUrlFor: (imagePath: string) => string;
   /** Opens a native file dialog for picking a video mode's source image.
    * Resolves the chosen local path, or null if cancelled. */

@@ -45,6 +45,8 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   // Bumped on every tab change so a page that finishes loading for the tab we just left is
   // discarded instead of being appended to the new tab's list.
   const requestToken = useRef(0);
+  // The card a Shift-click range starts from: the last one clicked in select mode.
+  const anchorId = useRef<number | null>(null);
   const loadingRef = useRef(false);
 
   const loadPage = useCallback(async (kind: GenerationKind, beforeId: number | null, favorites: boolean, token: number) => {
@@ -73,6 +75,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     setRecords([]);
     setHasMore(true);
     setSelection(new Map());
+    anchorId.current = null;
     setInfoId(null);
     void loadPage(tab, null, favoritesOnly, token);
   }, [tab, favoritesOnly, loadPage]);
@@ -152,10 +155,31 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     });
   }
 
+  /** Shift-click: selects every card from the last one clicked to this one, in the order they are
+   * shown. Cards already selected stay selected; nothing is deselected. */
+  function selectRangeTo(record: GenerationRecord) {
+    const from = records.findIndex((r) => r.id === anchorId.current);
+    const to = records.findIndex((r) => r.id === record.id);
+    if (from < 0 || to < 0) {
+      toggleSelected(record);
+      anchorId.current = record.id;
+      return;
+    }
+    const [lo, hi] = from < to ? [from, to] : [to, from];
+    setSelection((prev) => {
+      const next = new Map(prev);
+      for (const r of records.slice(lo, hi + 1)) {
+        next.set(r.id, { id: r.id, imagePath: r.imagePath, favorite: r.favorite });
+      }
+      return next;
+    });
+  }
+
   function exitSelectMode() {
     setSelecting(false);
     setSelection(new Map());
     setNotice(null);
+    anchorId.current = null;
   }
 
   /** Selects every generation matching the current tab and filter - not just the loaded ones. */
@@ -188,10 +212,19 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     }
   }
 
-  function handleCardClick(record: GenerationRecord) {
-    // In select mode a card only toggles its selection; otherwise it opens the info panel.
-    if (selecting) toggleSelected(record);
-    else setInfoId(record.id);
+  function handleCardClick(record: GenerationRecord, event: React.MouseEvent) {
+    if (!selecting) {
+      setInfoId(record.id);
+      return;
+    }
+    // Select mode: a click toggles that card (so Ctrl/Cmd-click works the same), and Shift-click
+    // selects the whole run from the last card clicked. The last plain click is the range's anchor.
+    if (event.shiftKey && anchorId.current !== null) {
+      selectRangeTo(record);
+    } else {
+      toggleSelected(record);
+      anchorId.current = record.id;
+    }
   }
 
   function handleRecreate(record: GenerationRecord) {
@@ -213,8 +246,10 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
 
   async function handleToggleFavorite(record: GenerationRecord) {
     const favorite = !record.favorite;
+    let imagePath: string;
     try {
-      await window.kvgenius.setGenerationFavorite(record.id, favorite);
+      // Favoriting moves the file into the favorites folder (and back), so its path can change.
+      ({ imagePath } = await window.kvgenius.setGenerationFavorite(record.id, favorite));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return;
@@ -223,8 +258,12 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
       // Un-favoriting from the favorites view: it no longer belongs in this list.
       forgetIds([record.id], kindOf(record));
     } else {
-      setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, favorite } : r)));
+      setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, favorite, imagePath } : r)));
     }
+    setSelection((prev) => {
+      const ref = prev.get(record.id);
+      return ref ? new Map(prev).set(record.id, { ...ref, imagePath, favorite }) : prev;
+    });
   }
 
   async function handleDelete(record: GenerationRecord) {
@@ -287,7 +326,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             <input type="checkbox" checked={selection.has(record.id)} readOnly tabIndex={-1} />
           </span>
         )}
-        <div onClick={() => handleCardClick(record)} style={{ cursor: 'pointer' }}>
+        <div onClick={(e) => handleCardClick(record, e)} style={{ cursor: 'pointer' }}>
           <div className="library-card__media" style={{ height }}>
             {isVideo ? (
               <>
@@ -349,6 +388,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
         <div className="library-toolbar">
           {selecting ? (
             <>
+              <span className="library-toolbar__hint">Click to select, Shift-click for a range</span>
               <button
                 type="button"
                 onClick={handleSelectAll}
@@ -420,7 +460,8 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
           </p>
         )}
 
-        <div className="library-rows" ref={gridRef}>
+        {/* user-select is off in select mode so Shift-click picks a range instead of highlighting text */}
+        <div className={`library-rows${selecting ? ' library-rows--selecting' : ''}`} ref={gridRef}>
           {rows.map((row) => (
             <div key={records[row.items[0].index].id} className="library-row">
               {row.items.map(({ index, width }) => renderCard(records[index], width, row.height))}
