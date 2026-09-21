@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FAMILY_KIND, GenerationRecord, SavedPrompt } from '../../shared/types';
+import { FAMILY_KIND, GenerationRecord, SavedPrompt, VideoSourceRequest } from '../../shared/types';
 
 type Tab = 'image' | 'video';
 
 interface Props {
   onRecall: (record: GenerationRecord) => void;
   onRecallPrompt: (prompt: string) => void;
+  onImageToVideo: (request: VideoSourceRequest) => void;
 }
 
-export default function Library({ onRecall, onRecallPrompt }: Props) {
+export default function Library({ onRecall, onRecallPrompt, onImageToVideo }: Props) {
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
@@ -46,6 +47,11 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
       return;
     }
     onRecall(record);
+    navigate('/');
+  }
+
+  function handleImageToVideo(record: GenerationRecord) {
+    onImageToVideo({ imagePath: record.imagePath, width: record.width, height: record.height });
     navigate('/');
   }
 
@@ -209,7 +215,12 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
             </div>
             {!selecting && (
               <div className="library-card__actions">
-                <button type="button" onClick={() => handleSaveAs(record)} title="Save As...">
+                {FAMILY_KIND[record.modelFamily] !== 'video' && (
+                <button type="button" onClick={() => handleImageToVideo(record)} title="Create video from image">
+                  🎬
+                </button>
+              )}
+              <button type="button" onClick={() => handleSaveAs(record)} title="Save As...">
                   💾
                 </button>
                 <button type="button" onClick={() => handleReveal(record)} title="Show in File Manager">
