@@ -1211,3 +1211,14 @@ textarea:disabled {
   font-size: 12px;
   color: var(--color-text-muted);
 }
+
+.library-rows--selecting {
+  user-select: none;
+}
+
+.library-toolbar__hint {
+  align-self: center;
+  margin-right: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}

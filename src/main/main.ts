@@ -30,7 +30,6 @@ import {
   listGenerations,
   countGenerations,
   listGenerationRefs,
-  setGenerationFavorite,
   moveLegacyOutput,
   deleteGeneration,
   listSavedPrompts,
@@ -49,6 +48,7 @@ import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
 import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaRequest } from './mediaProtocol';
 import { MediaServer, startMediaServer } from './mediaServer';
 import { faststartMp4 } from './mp4Faststart';
+import { applyFavorite, syncFavoriteFiles } from './favorites';
 import { uniqueNames, writeZip } from './zipWriter';
 import { diagnoseVideo } from './videoDiagnostics';
 
@@ -146,6 +146,10 @@ function createWindow(): void {
 // Source images picked with the native file dialog live outside the images directory; each one
 // is allowed individually so the Generate page can preview it.
 const pickedSourceImages = new Set<string>();
+
+function outputDirs() {
+  return { images: getImagesDir(), videos: getVideosDir(), legacy: getLegacyOutputDir() };
+}
 
 function videoFamilyList(): string[] {
   return Object.keys(FAMILY_KIND).filter((family) => FAMILY_KIND[family] === 'video');
@@ -245,7 +249,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('setGenerationFavorite', (_event, id: number, favorite: boolean) => {
     if (!db) throw new Error('Database not initialized');
-    setGenerationFavorite(db, id, !!favorite);
+    return applyFavorite(db, id, !!favorite, outputDirs(), videoFamilies);
   });
 
   ipcMain.handle('imageUrlFor', (_event, imagePath: string) => imageUrlFor(imagePath));
@@ -481,6 +485,8 @@ app
     enforceDevDatabaseIsolation();
     db = initDatabase(getEffectiveDbPath());
     moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), getImagesDir(), getVideosDir());
+    // Favorited before the favorites folder existed: move those files into it.
+    syncFavoriteFiles(db, outputDirs(), videoFamilyList());
 
     registerImageProtocol();
     mediaServer = await startMediaServer(

@@ -181,6 +181,24 @@ export function useGenerationQueue() {
     );
   }, []);
 
+  /** A file was moved on disk (favorited / unfavorited): repoint everything that referred to the
+   * old path - the finished result's record and URL, and any job that uses it as a source image. */
+  const relocateFile = useCallback((recordId: number, oldPath: string, newPath: string, newUrl: string) => {
+    if (oldPath === newPath) return;
+    setJobs((prev) =>
+      prev.map((j) => {
+        let next = j;
+        if (next.record?.id === recordId) {
+          next = { ...next, record: { ...next.record, imagePath: newPath }, imageUrl: newUrl };
+        }
+        if (next.params.sourceImagePath === oldPath) {
+          next = { ...next, params: { ...next.params, sourceImagePath: newPath } };
+        }
+        return next;
+      })
+    );
+  }, []);
+
   // If every job of the viewed batch was cancelled away, fall back to the latest batch that still
   // has something to show instead of leaving the viewer empty.
   const shownBatchId = jobs.some((j) => j.batchId === viewBatchId)
@@ -199,5 +217,6 @@ export function useGenerationQueue() {
     dismissFailed,
     showRecord,
     updateRecord,
+    relocateFile,
   };
 }
