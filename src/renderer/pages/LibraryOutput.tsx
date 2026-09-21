@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
 import GeneratedVideo from '../components/GeneratedVideo';
 import ExpandButton from '../components/Lightbox';
-import { formatBytes } from '../utils/format';
+import { formatBytes, formatDifference, formatDuration } from '../utils/format';
 import { justifyRows } from '../utils/justifiedRows';
 
 const PAGE_SIZE = 60;
@@ -551,6 +551,25 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
                 <dd>{infoRecord.steps}</dd>
                 <dt>CFG</dt>
                 <dd>{infoRecord.cfg}</dd>
+              </>
+            )}
+            {infoRecord.timing && (
+              <>
+                <dt>Estimated</dt>
+                <dd>{infoRecord.timing.estimateMs === null ? 'no estimate yet' : formatDuration(infoRecord.timing.estimateMs)}</dd>
+                <dt>Took</dt>
+                <dd>
+                  {formatDuration(infoRecord.timing.actualMs)}
+                  {infoRecord.timing.loadMs !== null && infoRecord.timing.loadMs >= 2000
+                    ? ` (${formatDuration(infoRecord.timing.loadMs)} loading models)`
+                    : ''}
+                </dd>
+                {infoRecord.timing.estimateMs !== null && (
+                  <>
+                    <dt>Difference</dt>
+                    <dd>{formatDifference(infoRecord.timing.estimateMs, infoRecord.timing.actualMs)}</dd>
+                  </>
+                )}
               </>
             )}
             <dt>Created</dt>

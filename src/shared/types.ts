@@ -26,6 +26,91 @@ export interface GenerationRecord {
   imagePath: string;
   favorite: boolean;
   createdAt: string;
+  /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
+   * null for generations made before timing was tracked. */
+  timing: TimingInfo | null;
+}
+
+/** The estimate shown for a run and how long it actually took, in milliseconds. */
+export interface TimingInfo {
+  estimateMs: number | null;
+  /** Estimate excluding model loading - comparable across cold and warm runs. */
+  estimateGenerateMs: number | null;
+  actualMs: number;
+  generateMs: number | null;
+  loadMs: number | null;
+}
+
+/** A prediction of how long a run will take, built from the timings of earlier runs. */
+export interface TimeEstimate {
+  /** 'exact': the same settings were run before; 'scaled': extrapolated from similar settings. */
+  basis: 'exact' | 'scaled';
+  samples: number;
+  /** Expected model-load time; null when there is no history for this cold/warm situation. */
+  loadMs: number | null;
+  samplingMs: number;
+  /** Decode + save after sampling. */
+  finishMs: number;
+  /** Typical time of one sampling step. */
+  paceMs: number;
+  /** sampling + finish. */
+  generateMs: number;
+  /** generate + load (when known). */
+  totalMs: number;
+}
+
+export type GenerationPhase =
+  | 'starting'
+  | 'loading'
+  | 'encoding'
+  | 'preparing'
+  | 'sampling'
+  | 'decoding'
+  | 'saving'
+  | 'working';
+
+/** Live progress of the running generation, pushed from the main process while ComfyUI works. */
+export interface GenerationProgress {
+  phase: GenerationPhase;
+  /** Step within the current sampler (1-based), 0 before the first step reports. */
+  step: number;
+  stepMax: number;
+  /** Which sampler pass is running (1-based) and how many the workflow has (video has two). */
+  stage: number;
+  stageCount: number;
+  /** Sampling steps finished across all passes so far, and the total once every pass has reported. */
+  stepsDone: number;
+  stepsTotal: number | null;
+  /** Milliseconds since the run started when the first sampling step reported (null before). */
+  firstStepAtMs: number | null;
+  /** Milliseconds since the run started. */
+  elapsedMs: number;
+}
+
+/** One row of the timing-accuracy data. Deliberately holds nothing about the content - no prompt,
+ * seed, image or file path - only timings and the settings that drive them. */
+export interface TimingStatRow {
+  id: number;
+  createdAt: string;
+  family: string;
+  kind: GenerationKind;
+  width: number;
+  height: number;
+  steps: number;
+  cfg: number;
+  /** Video frames (null for images). */
+  length: number | null;
+  /** Whether the previous run used the same model family (models likely still loaded). */
+  warm: boolean;
+  estimateMs: number | null;
+  estimateGenerateMs: number | null;
+  actualMs: number;
+  loadMs: number | null;
+  generateMs: number | null;
+  samplingMs: number | null;
+  finishMs: number | null;
+  samplerSteps: number | null;
+  paceMs: number | null;
 }
 
 export type GenerationKind = 'image' | 'video';
@@ -88,7 +173,26 @@ export interface UpdateCheckResult {
 
 /** Contract exposed on window.kvgenius by the preload script. */
 export interface KVGeniusAPI {
-  generate: (family: string, params: GenerationParams) => Promise<GenerateResult>;
+  /** `estimate` is what was shown for this run; it is stored with the actual timing so the
+   * accuracy of the estimates can be checked later. */
+  generate: (
+    family: string,
+    params: GenerationParams,
+    estimate?: { totalMs: number | null; generateMs: number | null } | null
+  ) => Promise<GenerateResult>;
+  /** Predicts how long a run will take from earlier runs' timings; null until there is history.
+   * `previousFamily` is the family that will run just before it (null = none), which decides
+   * whether the models are expected to be loaded already; omit it to use the last run. */
+  estimateGeneration: (
+    family: string,
+    params: GenerationParams,
+    previousFamily?: string | null
+  ) => Promise<TimeEstimate | null>;
+  /** Live stage/step updates for the generation in progress. Returns an unsubscribe function. */
+  onGenerationProgress: (callback: (progress: GenerationProgress) => void) => () => void;
+  /** Every recorded timing (estimate vs actual), newest first. Holds no prompt or image data. */
+  getTimingStats: () => Promise<TimingStatRow[]>;
+  clearTimingStats: () => Promise<void>;
   /** Interrupts the in-flight generation on ComfyUI's side (not just gives up waiting for it
    * client-side) and unblocks the pending generate() call. Safe to call with nothing in flight. */
   cancelGeneration: () => Promise<void>;

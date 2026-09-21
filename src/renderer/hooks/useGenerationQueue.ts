@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { GenerationParams, GenerationRecord } from '../../shared/types';
+import { GenerationParams, GenerationProgress, GenerationRecord, TimeEstimate } from '../../shared/types';
 
 export type JobKind = 'image' | 'video';
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';
@@ -12,12 +12,20 @@ export interface Job {
   kind: JobKind;
   params: GenerationParams;
   status: JobStatus;
+  /** Predicted duration from earlier runs; undefined = not asked yet, null = no history to go on. */
+  estimate?: TimeEstimate | null;
   startedAt?: number;
   record?: GenerationRecord;
   imageUrl?: string;
   error?: string;
   /** A failed job the user has cleared from the queue panel (it stays a slot in the viewer). */
   dismissed?: boolean;
+}
+
+/** Live progress of the running job, plus when (local clock) the last sampling step reported. */
+export interface ProgressInfo {
+  progress: GenerationProgress;
+  lastStepAt: number | null;
 }
 
 export interface NewJob {
@@ -52,6 +60,9 @@ export function useGenerationQueue() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [viewBatchId, setViewBatchId] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [progressInfo, setProgressInfo] = useState<ProgressInfo | null>(null);
+  // Bumped whenever a run finishes: the estimates for what is still waiting can use its timings.
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const jobsRef = useRef<Job[]>([]);
   const nextIdRef = useRef(1);
@@ -75,6 +86,23 @@ export function useGenerationQueue() {
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
   }, []);
 
+  // Live stage/step updates from ComfyUI for the running job.
+  useEffect(
+    () =>
+      window.kvgenius.onGenerationProgress((progress) => {
+        const at = Date.now();
+        setProgressInfo((prev) => ({
+          progress,
+          // When a sampling step last completed - used to time the stretch since it.
+          lastStepAt:
+            progress.phase === 'sampling' && (!prev || prev.progress.stepsDone !== progress.stepsDone || prev.lastStepAt === null)
+              ? at
+              : (prev?.lastStepAt ?? null),
+        }));
+      }),
+    []
+  );
+
   // Runner: whenever nothing is running and something is queued, start the next job.
   useEffect(() => {
     if (runningRef.current) return;
@@ -84,14 +112,35 @@ export function useGenerationQueue() {
     runningRef.current = true;
     cancelRequestedRef.current = false;
     patchJob(next.id, { status: 'running', startedAt: Date.now() });
+    setProgressInfo(null);
     // If the batch being viewed has nothing left to do, follow the queue onto this job's batch.
     setViewBatchId((current) =>
       current === null || !jobsRef.current.some((j) => j.batchId === current && isActive(j)) ? next.batchId : current
     );
 
-    window.kvgenius.generate(next.family, next.params).then(
+    // The estimate on screen for this job is what gets stored next to its actual time; if none has
+    // arrived yet (a job started at once), ask for one first so the run is not left without.
+    const start = async () => {
+      let estimate = next.estimate;
+      if (estimate === undefined) {
+        try {
+          estimate = await window.kvgenius.estimateGeneration(next.family, next.params);
+        } catch {
+          estimate = null;
+        }
+      }
+      return window.kvgenius.generate(
+        next.family,
+        next.params,
+        estimate ? { totalMs: estimate.totalMs, generateMs: estimate.generateMs } : null
+      );
+    };
+
+    start().then(
       (result) => {
         runningRef.current = false;
+        setProgressInfo(null);
+        setHistoryVersion((v) => v + 1);
         setJobs((prev) => {
           const updated = prev.map((j) =>
             j.id === next.id ? { ...j, status: 'done' as const, record: result.record, imageUrl: result.imageUrl } : j
@@ -102,6 +151,7 @@ export function useGenerationQueue() {
       },
       (err) => {
         runningRef.current = false;
+        setProgressInfo(null);
         if (cancelRequestedRef.current) {
           // Cancelled on purpose: the job just disappears.
           setJobs((prev) => prev.filter((j) => j.id !== next.id));
@@ -111,6 +161,31 @@ export function useGenerationQueue() {
       }
     );
   }, [jobs, patchJob]);
+
+  // Keep every waiting/running job's estimate current. A job's estimate depends on the family that
+  // runs just before it (same family = models already loaded), so each is asked about in queue order.
+  const activeKey = jobs
+    .filter(isActive)
+    .map((j) => `${j.id}:${j.status}`)
+    .join(',');
+  useEffect(() => {
+    const active = jobsRef.current.filter(isActive);
+    if (active.length === 0) return;
+    let cancelled = false;
+    active.forEach((job, index) => {
+      // The first job follows whatever ran last (the main process knows); later ones follow the job ahead.
+      const before = index === 0 ? undefined : active[index - 1].family;
+      window.kvgenius
+        .estimateGeneration(job.family, job.params, before)
+        .catch(() => null)
+        .then((estimate) => {
+          if (!cancelled) patchJob(job.id, { estimate });
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeKey, historyVersion, patchJob]);
 
   /** Adds jobs as one batch. Returns how many fit under MAX_PENDING_JOBS. */
   const enqueue = useCallback((items: NewJob[]): number => {
@@ -175,6 +250,11 @@ export function useGenerationQueue() {
     setViewBatchId(batchId);
   }, []);
 
+  /** A generation was deleted: drop its result from the viewer. */
+  const removeRecord = useCallback((recordId: number) => {
+    setJobs((prev) => prev.filter((j) => j.record?.id !== recordId));
+  }, []);
+
   const updateRecord = useCallback((recordId: number, patch: Partial<GenerationRecord>) => {
     setJobs((prev) =>
       prev.map((j) => (j.record?.id === recordId ? { ...j, record: { ...j.record, ...patch } as GenerationRecord } : j))
@@ -210,6 +290,7 @@ export function useGenerationQueue() {
   return {
     jobs,
     now,
+    progressInfo,
     viewBatchId: shownBatchId,
     enqueue,
     cancelJob,
@@ -217,6 +298,7 @@ export function useGenerationQueue() {
     dismissFailed,
     showRecord,
     updateRecord,
+    removeRecord,
     relocateFile,
   };
 }

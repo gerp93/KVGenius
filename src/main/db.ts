@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, SavedPrompt } from '../shared/types';
 import { normalizeName, normalizeTags } from '../shared/promptTags';
+import { TIMING_SCHEMA } from './timingStats';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS generations (
   model_family TEXT NOT NULL,
   image_path TEXT NOT NULL,
   favorite INTEGER NOT NULL DEFAULT 0,
+  timing_id INTEGER,
   created_at TEXT NOT NULL
 );
 
@@ -47,6 +49,9 @@ function migrateSchema(db: DatabaseSync): void {
   if (!columns.some((c) => c.name === 'favorite')) {
     db.exec('ALTER TABLE generations ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;');
   }
+  if (!columns.some((c) => c.name === 'timing_id')) {
+    db.exec('ALTER TABLE generations ADD COLUMN timing_id INTEGER;');
+  }
   const promptColumns = db.prepare('PRAGMA table_info(saved_prompts)').all() as unknown as ColumnInfo[];
   if (!promptColumns.some((c) => c.name === 'tags')) {
     db.exec("ALTER TABLE saved_prompts ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';");
@@ -58,6 +63,7 @@ export function initDatabase(dbPath: string): DatabaseSync {
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  db.exec(TIMING_SCHEMA);
   migrateSchema(db);
   return db;
 }
@@ -76,7 +82,18 @@ interface GenerationRow {
   image_path: string;
   favorite: number;
   created_at: string;
+  // Joined from timing_stats (null when the generation has no recorded timing).
+  t_estimate_ms?: number | null;
+  t_estimate_generate_ms?: number | null;
+  t_actual_ms?: number | null;
+  t_generate_ms?: number | null;
+  t_load_ms?: number | null;
 }
+
+/** A generation plus its timing (joined from the separate timing_stats table). */
+const GENERATION_SELECT = `SELECT g.*, t.estimate_ms AS t_estimate_ms, t.estimate_generate_ms AS t_estimate_generate_ms,
+  t.actual_ms AS t_actual_ms, t.generate_ms AS t_generate_ms, t.load_ms AS t_load_ms
+  FROM generations g LEFT JOIN timing_stats t ON t.id = g.timing_id`;
 
 function rowToRecord(row: GenerationRow): GenerationRecord {
   return {
@@ -93,6 +110,16 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     imagePath: row.image_path,
     favorite: row.favorite === 1,
     createdAt: row.created_at,
+    timing:
+      row.t_actual_ms == null
+        ? null
+        : {
+            estimateMs: row.t_estimate_ms ?? null,
+            estimateGenerateMs: row.t_estimate_generate_ms ?? null,
+            actualMs: row.t_actual_ms,
+            generateMs: row.t_generate_ms ?? null,
+            loadMs: row.t_load_ms ?? null,
+          },
   };
 }
 
@@ -100,13 +127,14 @@ export function insertGeneration(
   db: DatabaseSync,
   params: GenerationParams,
   modelFamily: string,
-  imagePath: string
+  imagePath: string,
+  timingId: number | null = null
 ): GenerationRecord {
   const createdAt = new Date().toISOString();
   const length = params.length ?? null;
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, timing_id, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -118,6 +146,7 @@ export function insertGeneration(
     length,
     modelFamily,
     imagePath,
+    timingId,
     createdAt
   );
   return {
@@ -134,6 +163,7 @@ export function insertGeneration(
     imagePath,
     favorite: false,
     createdAt,
+    timing: null,
   };
 }
 
@@ -155,12 +185,12 @@ export function listGenerations(
   favoritesOnly: boolean
 ): GenerationRecord[] {
   const condition = kindCondition(videoFamilies, kind);
-  const cursor = (beforeId === null ? '' : 'AND id < ? ') + (favoritesOnly ? 'AND favorite = 1' : '');
+  const cursor = (beforeId === null ? '' : 'AND g.id < ? ') + (favoritesOnly ? 'AND favorite = 1' : '');
   const params: (string | number)[] = [...condition.params];
   if (beforeId !== null) params.push(beforeId);
   params.push(limit);
   const rows = db
-    .prepare(`SELECT * FROM generations WHERE ${condition.sql} ${cursor} ORDER BY id DESC LIMIT ?`)
+    .prepare(`${GENERATION_SELECT} WHERE ${condition.sql} ${cursor} ORDER BY g.id DESC LIMIT ?`)
     .all(...params) as unknown as GenerationRow[];
   return rows.map(rowToRecord);
 }
@@ -250,7 +280,7 @@ export function setGenerationFavorite(db: DatabaseSync, id: number, favorite: bo
 }
 
 export function getGenerationById(db: DatabaseSync, id: number): GenerationRecord | null {
-  const row = db.prepare('SELECT * FROM generations WHERE id = ?').get(id) as unknown as GenerationRow | undefined;
+  const row = db.prepare(`${GENERATION_SELECT} WHERE g.id = ?`).get(id) as unknown as GenerationRow | undefined;
   return row ? rowToRecord(row) : null;
 }
 

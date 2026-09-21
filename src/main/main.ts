@@ -27,6 +27,7 @@ import {
 import {
   initDatabase,
   insertGeneration,
+  getGenerationById,
   listGenerations,
   countGenerations,
   listGenerationRefs,
@@ -44,6 +45,8 @@ import {
   DEFAULT_COMFYUI_HOST,
 } from './comfyui';
 import { FAMILY_KIND, GenerationKind, GenerationParams } from '../shared/types';
+import { estimateRun } from '../shared/estimator';
+import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
 import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaRequest } from './mediaProtocol';
 import { MediaServer, startMediaServer } from './mediaServer';
@@ -170,11 +173,26 @@ function imageUrlFor(imagePath: string): string {
   return `kvimage://${encodeURIComponent(imagePath)}`;
 }
 
+// The model family of the last generation that finished. ComfyUI keeps a family's models loaded
+// until something else needs the memory, so the next run of the same family starts "warm".
+let lastRunFamily: string | null = null;
+
 function registerIpcHandlers(): void {
-  ipcMain.handle('generate', async (_event, family: string, params: GenerationParams) => {
+  ipcMain.handle(
+    'generate',
+    async (
+      _event,
+      family: string,
+      params: GenerationParams,
+      estimate: { totalMs: number | null; generateMs: number | null } | null
+    ) => {
     if (!db) throw new Error('Database not initialized');
 
-    const output = await comfyGenerate(family, params);
+    const warm = lastRunFamily === family;
+    const output = await comfyGenerate(family, params, (progress) => {
+      mainWindow?.webContents.send('generationProgress', progress);
+    });
+    lastRunFamily = family;
 
     // Images and videos are saved to separate folders under KVGenius_Data/output.
     const outputDir = FAMILY_KIND[family] === 'video' ? getVideosDir() : getImagesDir();
@@ -193,8 +211,60 @@ function registerIpcHandlers(): void {
     }
     fs.writeFileSync(imagePath, bytes);
 
-    const record = insertGeneration(db, params, family, imagePath);
+    // How long it took vs what was predicted goes in its own table (timing_stats), holding only
+    // timings and settings - never the prompt or image - so it outlives the generation.
+    const t = output.timings;
+    const timingId = insertTiming(db, {
+      family,
+      kind: FAMILY_KIND[family] === 'video' ? 'video' : 'image',
+      width: params.width,
+      height: params.height,
+      steps: params.steps,
+      cfg: params.cfg,
+      length: params.length ?? null,
+      warm,
+      estimateMs: estimate?.totalMs ?? null,
+      estimateGenerateMs: estimate?.generateMs ?? null,
+      actualMs: t.totalMs,
+      loadMs: t.loadMs,
+      generateMs: t.loadMs === null ? t.totalMs : t.totalMs - t.loadMs,
+      samplingMs: t.samplingMs,
+      finishMs: t.finishMs,
+      samplerSteps: t.samplerSteps,
+      paceMs: t.paceMs,
+    });
+    const inserted = insertGeneration(db, params, family, imagePath, timingId);
+    const record = getGenerationById(db, inserted.id) ?? inserted;
     return { record, imageUrl: imageUrlFor(imagePath) };
+    }
+  );
+
+  ipcMain.handle(
+    'estimateGeneration',
+    (_event, family: string, params: GenerationParams, previousFamily?: string | null) => {
+      if (!db) return null;
+      const before = previousFamily === undefined ? lastRunFamily : previousFamily;
+      return estimateRun(listTimingRows(db, 200), {
+        family,
+        kind: FAMILY_KIND[family] === 'video' ? 'video' : 'image',
+        width: params.width,
+        height: params.height,
+        steps: params.steps,
+        cfg: params.cfg,
+        lengthFrames: params.length ?? null,
+        warm: before === family,
+      });
+    }
+  );
+
+  ipcMain.handle('getTimingStats', () => {
+    if (!db) throw new Error('Database not initialized');
+    return listTimingRows(db);
+  });
+
+  ipcMain.handle('clearTimingStats', () => {
+    if (!db) throw new Error('Database not initialized');
+    clearTimingStats(db);
   });
 
   ipcMain.handle('cancelGeneration', () => cancelCurrentGeneration());
