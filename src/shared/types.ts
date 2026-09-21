@@ -24,8 +24,11 @@ export interface GenerationRecord {
   length: number | null;
   modelFamily: string;
   imagePath: string;
+  favorite: boolean;
   createdAt: string;
 }
+
+export type GenerationKind = 'image' | 'video';
 
 /** A request to open the Generate tab in video mode with an existing image as the source. */
 export interface VideoSourceRequest {
@@ -78,7 +81,18 @@ export interface KVGeniusAPI {
   /** Interrupts the in-flight generation on ComfyUI's side (not just gives up waiting for it
    * client-side) and unblocks the pending generate() call. Safe to call with nothing in flight. */
   cancelGeneration: () => Promise<void>;
-  listGenerations: () => Promise<GenerationRecord[]>;
+  /** One page of generations of the given kind, newest first: up to `limit` records with an id
+   * below `beforeId` (null = start from the newest). Cursor-based so deletes between pages
+   * can't skip or repeat rows. */
+  listGenerations: (
+    kind: GenerationKind,
+    limit: number,
+    beforeId: number | null,
+    favoritesOnly: boolean
+  ) => Promise<GenerationRecord[]>;
+  /** Totals per kind, restricted to favorites when `favoritesOnly`. */
+  countGenerations: (favoritesOnly: boolean) => Promise<Record<GenerationKind, number>>;
+  setGenerationFavorite: (id: number, favorite: boolean) => Promise<void>;
   imageUrlFor: (imagePath: string) => string;
   /** Opens a native file dialog for picking a video mode's source image.
    * Resolves the chosen local path, or null if cancelled. */
