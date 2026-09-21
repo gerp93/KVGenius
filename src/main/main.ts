@@ -2,7 +2,6 @@ import { app, BrowserWindow, ipcMain, dialog, protocol, shell } from 'electron';
 import { DatabaseSync } from 'node:sqlite';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Readable } from 'stream';
 import { autoUpdater } from 'electron-updater';
 
 import { setupApplicationMenu, attachContextMenu } from './menu';
@@ -14,6 +13,8 @@ import {
   resetToDefaultDbPath,
   revealDbInFileManager,
   getImagesDir,
+  getVideosDir,
+  getLegacyOutputDir,
   dbPathInsideFolder,
   enforceDevDatabaseIsolation,
   migrateLegacyDefaultDbLocation,
@@ -29,6 +30,7 @@ import {
   listGenerations,
   countGenerations,
   setGenerationFavorite,
+  moveLegacyOutput,
   deleteGeneration,
   listSavedPrompts,
   insertSavedPrompt,
@@ -42,6 +44,7 @@ import {
 } from './comfyui';
 import { FAMILY_KIND, GenerationKind, GenerationParams } from '../shared/types';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
+import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, handleMediaRequest } from './mediaProtocol';
 
 // Dev and packaged builds must never share a userData/appData folder, or
 // enforceDevDatabaseIsolation() below can never tell them apart (it compares
@@ -56,7 +59,7 @@ app.setName(app.isPackaged ? 'kvgenius' : 'kvgenius-dev');
 // window (loads Vite's `http://localhost:5173`). A custom scheme carries no such restriction
 // and behaves identically in dev and packaged builds. Must be registered before app is ready.
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'kvimage', privileges: { secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+  { scheme: MEDIA_SCHEME, privileges: MEDIA_SCHEME_PRIVILEGES },
 ]);
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -134,69 +137,16 @@ function createWindow(): void {
   });
 }
 
-const MIME_BY_EXTENSION: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-  '.mov': 'video/quicktime',
-  '.mkv': 'video/x-matroska',
-};
+// Source images picked with the native file dialog live outside the images directory; each one
+// is allowed individually so the Generate page can preview it.
+const pickedSourceImages = new Set<string>();
+
+function videoFamilyList(): string[] {
+  return Object.keys(FAMILY_KIND).filter((family) => FAMILY_KIND[family] === 'video');
+}
 
 function registerImageProtocol(): void {
-  // Served by hand (not net.fetch of a file:// URL) because a <video> element only plays -
-  // and only seeks - if the response has a real video Content-Type, advertises
-  // Accept-Ranges, and answers `Range:` requests with 206 Partial Content.
-  protocol.handle('kvimage', async (request) => {
-    const encodedPath = request.url.replace('kvimage://', '').replace(/#.*$/, '');
-    const filePath = decodeURIComponent(encodedPath);
-    // Only ever serve files inside the app's own images directory - the renderer passes
-    // paths back that originated from the database, but this is cheap insurance against a
-    // malformed/crafted kvimage:// URL reaching outside it.
-    const imagesDir = path.resolve(getImagesDir());
-    const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(imagesDir + path.sep)) {
-      return new Response('Forbidden', { status: 403 });
-    }
-
-    let size: number;
-    try {
-      size = (await fs.promises.stat(resolved)).size;
-    } catch {
-      return new Response('Not found', { status: 404 });
-    }
-
-    const headers: Record<string, string> = {
-      'Content-Type': MIME_BY_EXTENSION[path.extname(resolved).toLowerCase()] ?? 'application/octet-stream',
-      'Accept-Ranges': 'bytes',
-    };
-    if (size === 0) return new Response(null, { status: 200, headers });
-
-    let start = 0;
-    let end = size - 1;
-    let status = 200;
-    const match = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get('range') ?? '');
-    if (match && (match[1] !== '' || match[2] !== '')) {
-      if (match[1] === '') {
-        start = Math.max(0, size - Number(match[2]));
-      } else {
-        start = Number(match[1]);
-        if (match[2] !== '') end = Math.min(Number(match[2]), size - 1);
-      }
-      if (start > end) {
-        return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
-      }
-      status = 206;
-      headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
-    }
-    headers['Content-Length'] = String(end - start + 1);
-
-    const body = Readable.toWeb(fs.createReadStream(resolved, { start, end })) as ReadableStream;
-    return new Response(body, { status, headers });
-  });
+  protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, [getImagesDir(), getVideosDir(), getLegacyOutputDir()], pickedSourceImages));
 }
 
 function imageUrlFor(imagePath: string): string {
@@ -209,10 +159,11 @@ function registerIpcHandlers(): void {
 
     const output = await comfyGenerate(family, params);
 
-    const imagesDir = getImagesDir();
-    fs.mkdirSync(imagesDir, { recursive: true });
+    // Images and videos are saved to separate folders under KVGenius_Data/output.
+    const outputDir = FAMILY_KIND[family] === 'video' ? getVideosDir() : getImagesDir();
+    fs.mkdirSync(outputDir, { recursive: true });
     const filename = `${Date.now()}-${params.seed}${output.extension}`;
-    const imagePath = path.join(imagesDir, filename);
+    const imagePath = path.join(outputDir, filename);
     fs.writeFileSync(imagePath, output.bytes);
 
     const record = insertGeneration(db, params, family, imagePath);
@@ -221,7 +172,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('cancelGeneration', () => cancelCurrentGeneration());
 
-  const videoFamilies = Object.keys(FAMILY_KIND).filter((family) => FAMILY_KIND[family] === 'video');
+  const videoFamilies = videoFamilyList();
 
   ipcMain.handle(
     'listGenerations',
@@ -252,6 +203,7 @@ function registerIpcHandlers(): void {
       properties: ['openFile'],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
+    pickedSourceImages.add(path.resolve(result.filePaths[0]));
     return result.filePaths[0];
   });
 
@@ -267,6 +219,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('revealGenerationInFileManager', (_event, imagePath: string) => {
     shell.showItemInFolder(imagePath);
+  });
+
+  ipcMain.handle('openGenerationExternally', async (_event, imagePath: string) => {
+    const err = await shell.openPath(imagePath);
+    if (err) throw new Error(err);
   });
 
   ipcMain.handle('saveGenerationAs', async (_event, imagePath: string) => {
@@ -461,6 +418,7 @@ app
     migrateLegacyDefaultDbLocation();
     enforceDevDatabaseIsolation();
     db = initDatabase(getEffectiveDbPath());
+    moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), getImagesDir(), getVideosDir());
 
     registerImageProtocol();
     registerIpcHandlers();

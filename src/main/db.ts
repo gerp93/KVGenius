@@ -174,6 +174,51 @@ export function countGenerations(
   return { image: count('image'), video: count('video') };
 }
 
+/**
+ * One-time tidy-up for output saved before images and videos got their own folders: any file
+ * that still sits directly in `legacyDir` is moved into `imagesDir` or `videosDir` (by its row's
+ * model family) and its row's path updated. Each file is moved (a same-volume rename) before its
+ * row is touched, and moved back if the row update fails, so a row never points at a file that
+ * isn't there. Files that are missing, already elsewhere (e.g. under a previously relocated
+ * database), or would collide with an existing file are left alone. Returns how many were moved.
+ */
+export function moveLegacyOutput(
+  db: DatabaseSync,
+  videoFamilies: string[],
+  legacyDir: string,
+  imagesDir: string,
+  videosDir: string
+): number {
+  const rows = db.prepare('SELECT id, model_family, image_path FROM generations').all() as unknown as {
+    id: number;
+    model_family: string;
+    image_path: string;
+  }[];
+
+  const sourceDir = path.resolve(legacyDir);
+  let moved = 0;
+  for (const row of rows) {
+    const from = path.resolve(row.image_path);
+    if (path.dirname(from) !== sourceDir || !fs.existsSync(from)) continue;
+    const targetDir = videoFamilies.includes(row.model_family) ? videosDir : imagesDir;
+    const to = path.join(targetDir, path.basename(from));
+    if (fs.existsSync(to)) continue;
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.renameSync(from, to);
+    } catch {
+      continue;
+    }
+    try {
+      db.prepare('UPDATE generations SET image_path = ? WHERE id = ?').run(to, row.id);
+      moved++;
+    } catch {
+      fs.renameSync(to, from);
+    }
+  }
+  return moved;
+}
+
 export function setGenerationFavorite(db: DatabaseSync, id: number, favorite: boolean): void {
   db.prepare('UPDATE generations SET favorite = ? WHERE id = ?').run(favorite ? 1 : 0, id);
 }

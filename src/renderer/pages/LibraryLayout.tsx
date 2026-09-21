@@ -4,7 +4,7 @@ import { NavLink, Outlet } from 'react-router-dom';
  * This div is the scroll container (`.page`) that Output's infinite scroll observes. */
 export default function LibraryLayout() {
   return (
-    <div className="page">
+    <div className="page library-page">
       <div className="button-row library-tabs">
         <NavLink
           to="/library/output"
@@ -19,7 +19,9 @@ export default function LibraryLayout() {
           📝 Prompts
         </NavLink>
       </div>
-      <Outlet />
+      <div className="library-page__body">
+        <Outlet />
+      </div>
     </div>
   );
 }

@@ -101,6 +101,8 @@ export interface KVGeniusAPI {
   deleteGeneration: (id: number, imagePath: string) => Promise<void>;
   /** Reveals the generation's output file in the system file manager. */
   revealGenerationInFileManager: (imagePath: string) => Promise<void>;
+  /** Opens the output file in the system's default app (e.g. a video player). */
+  openGenerationExternally: (imagePath: string) => Promise<void>;
   /** Opens a native save dialog and copies the output file to the chosen location.
    * Resolves true if saved, false if the dialog was cancelled. */
   saveGenerationAs: (imagePath: string) => Promise<boolean>;

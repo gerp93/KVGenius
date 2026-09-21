@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, VideoSourceRequest } from '../../shared/types';
+import GeneratedVideo from '../components/GeneratedVideo';
 import { justifyRows } from '../utils/justifiedRows';
 
 const PAGE_SIZE = 60;
@@ -83,7 +84,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   }, [records, tab, favoritesOnly, loadPage]);
 
   // Infinite scroll: load the next page when the sentinel below the grid gets near the visible
-  // area of the scrolling `.page`. The observer is rebuilt after every load so it re-reports
+  // area of the scrolling grid column. The observer is rebuilt after every load so it re-reports
   // "still visible" and keeps filling a tall window without needing a scroll event.
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -92,7 +93,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) loadMore();
       },
-      { root: sentinel.closest('.page'), rootMargin: '0px 0px 800px 0px' }
+      { root: sentinel.closest('.library-output__main'), rootMargin: '0px 0px 800px 0px' }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -240,9 +241,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
           <div className="library-card__media" style={{ height }}>
             {isVideo ? (
               <>
-                {/* First frame as the thumbnail: the #t fragment seeks just past 0 so the browser
-                    paints a frame instead of a blank box. */}
-                <video src={`${url}#t=0.1`} preload="metadata" muted playsInline />
+                <GeneratedVideo src={url} filePath={record.imagePath} thumbnail />
                 <span className="library-card__play-badge">▶</span>
               </>
             ) : (
@@ -296,20 +295,61 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
       <div className="library-output__main">
         {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
 
-        <div className="button-row" style={{ marginBottom: 12 }}>
-          <button type="button" className={tab === 'image' ? 'primary' : undefined} onClick={() => handleTabChange('image')}>
+        <div className="library-toolbar">
+          {selecting ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set(records.map((r) => r.id)))}
+                disabled={selectedIds.size === records.length}
+              >
+                {hasMore ? 'Select All Loaded' : 'Select All'}
+              </button>
+              <button type="button" onClick={() => setSelectedIds(new Set())} disabled={selectedIds.size === 0}>
+                Clear Selection
+              </button>
+              <button type="button" onClick={handleDeleteSelected} disabled={selectedIds.size === 0}>
+                Delete Selected ({selectedIds.size})
+              </button>
+              <button type="button" onClick={exitSelectMode}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={favoritesOnly ? 'primary' : undefined}
+                onClick={() => setFavoritesOnly((v) => !v)}
+                title="Show only favorites"
+              >
+                {favoritesOnly ? '★' : '☆'} Favorites
+              </button>
+              <button type="button" onClick={() => setSelecting(true)} disabled={records.length === 0}>
+                Select Multiple
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="tab-strip" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'image'}
+            className={`tab-strip__tab${tab === 'image' ? ' active' : ''}`}
+            onClick={() => handleTabChange('image')}
+          >
             🖼️ Images ({counts.image})
-          </button>
-          <button type="button" className={tab === 'video' ? 'primary' : undefined} onClick={() => handleTabChange('video')}>
-            🎬 Videos ({counts.video})
           </button>
           <button
             type="button"
-            className={favoritesOnly ? 'primary' : undefined}
-            onClick={() => setFavoritesOnly((v) => !v)}
-            title="Show only favorites"
+            role="tab"
+            aria-selected={tab === 'video'}
+            className={`tab-strip__tab${tab === 'video' ? ' active' : ''}`}
+            onClick={() => handleTabChange('video')}
           >
-            {favoritesOnly ? '★' : '☆'} Favorites
+            🎬 Videos ({counts.video})
           </button>
         </div>
 
@@ -321,35 +361,6 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
                 ? 'No videos yet - go make something.'
                 : 'No images yet - go make something.'}
           </p>
-        )}
-
-        {records.length > 0 && !selecting && (
-          <div className="button-row" style={{ marginBottom: 12 }}>
-            <button type="button" onClick={() => setSelecting(true)}>
-              Delete Multiple
-            </button>
-          </div>
-        )}
-
-        {records.length > 0 && selecting && (
-          <div className="button-row" style={{ marginBottom: 12 }}>
-            <button
-              type="button"
-              onClick={() => setSelectedIds(new Set(records.map((r) => r.id)))}
-              disabled={selectedIds.size === records.length}
-            >
-              {hasMore ? 'Select All Loaded' : 'Select All'}
-            </button>
-            <button type="button" onClick={() => setSelectedIds(new Set())} disabled={selectedIds.size === 0}>
-              Clear Selection
-            </button>
-            <button type="button" onClick={handleDeleteSelected} disabled={selectedIds.size === 0}>
-              Delete Selected ({selectedIds.size})
-            </button>
-            <button type="button" onClick={exitSelectMode}>
-              Cancel
-            </button>
-          </div>
         )}
 
         <div className="library-rows" ref={gridRef}>
@@ -380,14 +391,14 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
           </div>
           <div className="library-panel__media">
             {kindOf(infoRecord) === 'video' ? (
-              <video src={window.kvgenius.imageUrlFor(infoRecord.imagePath)} controls preload="metadata" />
+              <GeneratedVideo src={window.kvgenius.imageUrlFor(infoRecord.imagePath)} filePath={infoRecord.imagePath} />
             ) : (
               <img src={window.kvgenius.imageUrlFor(infoRecord.imagePath)} alt={infoRecord.prompt} />
             )}
           </div>
 
           <button type="button" className="primary" onClick={() => handleRecreate(infoRecord)} style={{ width: '100%' }}>
-            ↺ Recreate in Generate
+            ↺ Re-rack
           </button>
           <div className="library-panel__actions">
             {kindOf(infoRecord) === 'image' && (

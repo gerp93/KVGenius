@@ -189,8 +189,23 @@ export function resetComfyUIHost(): void {
   writeConfig(config);
 }
 
-/** Default folder generated images are saved into, next to the database. */
+/** Parent of all generated output, next to the database: KVGenius_Data/output. */
+function getOutputDir(): string {
+  return path.join(path.dirname(getEffectiveDbPath()), 'output');
+}
+
+/** Where generated images are saved: KVGenius_Data/output/images. */
 export function getImagesDir(): string {
+  return path.join(getOutputDir(), 'images');
+}
+
+/** Where generated videos are saved: KVGenius_Data/output/videos. */
+export function getVideosDir(): string {
+  return path.join(getOutputDir(), 'videos');
+}
+
+/** Before output was grouped under `output/`, both kinds were saved in KVGenius_Data/images. */
+export function getLegacyOutputDir(): string {
   return path.join(path.dirname(getEffectiveDbPath()), 'images');
 }
 

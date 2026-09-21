@@ -12,6 +12,7 @@ const api: KVGeniusAPI = {
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),
   deleteGeneration: (id: number, imagePath: string) => ipcRenderer.invoke('deleteGeneration', id, imagePath),
   revealGenerationInFileManager: (imagePath: string) => ipcRenderer.invoke('revealGenerationInFileManager', imagePath),
+  openGenerationExternally: (imagePath: string) => ipcRenderer.invoke('openGenerationExternally', imagePath),
   saveGenerationAs: (imagePath: string) => ipcRenderer.invoke('saveGenerationAs', imagePath),
 
   listSavedPrompts: () => ipcRenderer.invoke('listSavedPrompts'),
