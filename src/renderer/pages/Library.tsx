@@ -14,6 +14,7 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selecting, setSelecting] = useState(false);
   const [tab, setTab] = useState<Tab>('image');
   const navigate = useNavigate();
 
@@ -38,7 +39,12 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
     setSelectedIds(new Set());
   }
 
-  function handleClick(record: GenerationRecord) {
+  function handleCardClick(record: GenerationRecord) {
+    // In select mode a card only toggles its selection - it never navigates away.
+    if (selecting) {
+      toggleSelected(record.id);
+      return;
+    }
     onRecall(record);
     navigate('/');
   }
@@ -74,6 +80,11 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
     setSelectedIds(new Set());
   }
 
+  function exitSelectMode() {
+    setSelecting(false);
+    setSelectedIds(new Set());
+  }
+
   async function handleDelete(record: GenerationRecord) {
     if (!window.confirm('Delete this generation? This removes the file from disk too.')) return;
     try {
@@ -99,7 +110,7 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
       await Promise.all(toDelete.map((r) => window.kvgenius.deleteGeneration(r.id, r.imagePath)));
       const deletedIds = new Set(toDelete.map((r) => r.id));
       setRecords((prev) => prev.filter((r) => !deletedIds.has(r.id)));
-      setSelectedIds(new Set());
+      exitSelectMode();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -140,7 +151,15 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
         </p>
       )}
 
-      {visibleRecords.length > 0 && (
+      {visibleRecords.length > 0 && !selecting && (
+        <div className="button-row" style={{ marginBottom: 12 }}>
+          <button type="button" onClick={() => setSelecting(true)}>
+            Delete Multiple
+          </button>
+        </div>
+      )}
+
+      {visibleRecords.length > 0 && selecting && (
         <div className="button-row" style={{ marginBottom: 12 }}>
           <button type="button" onClick={selectAll} disabled={selectedIds.size === visibleRecords.length}>
             Select All
@@ -151,20 +170,24 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
           <button type="button" onClick={handleDeleteSelected} disabled={selectedIds.size === 0}>
             Delete Selected ({selectedIds.size})
           </button>
+          <button type="button" onClick={exitSelectMode}>
+            Cancel
+          </button>
         </div>
       )}
 
       <div className="library-grid">
         {visibleRecords.map((record) => (
-          <div key={record.id} className="library-card">
-            <label className="library-card__select" onClick={(e) => e.stopPropagation()}>
-              <input
-                type="checkbox"
-                checked={selectedIds.has(record.id)}
-                onChange={() => toggleSelected(record.id)}
-              />
-            </label>
-            <div onClick={() => handleClick(record)} style={{ cursor: 'pointer' }}>
+          <div
+            key={record.id}
+            className={`library-card${selecting && selectedIds.has(record.id) ? ' library-card--selected' : ''}`}
+          >
+            {selecting && (
+              <span className="library-card__select">
+                <input type="checkbox" checked={selectedIds.has(record.id)} readOnly tabIndex={-1} />
+              </span>
+            )}
+            <div onClick={() => handleCardClick(record)} style={{ cursor: 'pointer' }}>
               {FAMILY_KIND[record.modelFamily] === 'video' ? (
                 <div className="library-card__video">
                   {/* First frame as the thumbnail: the #t fragment seeks just past 0 so the
@@ -184,17 +207,19 @@ export default function Library({ onRecall, onRecallPrompt }: Props) {
                 {record.prompt}
               </div>
             </div>
-            <div className="library-card__actions">
-              <button type="button" onClick={() => handleSaveAs(record)} title="Save As...">
-                💾
-              </button>
-              <button type="button" onClick={() => handleReveal(record)} title="Show in File Manager">
-                📂
-              </button>
-              <button type="button" onClick={() => handleDelete(record)} title="Delete">
-                🗑️
-              </button>
-            </div>
+            {!selecting && (
+              <div className="library-card__actions">
+                <button type="button" onClick={() => handleSaveAs(record)} title="Save As...">
+                  💾
+                </button>
+                <button type="button" onClick={() => handleReveal(record)} title="Show in File Manager">
+                  📂
+                </button>
+                <button type="button" onClick={() => handleDelete(record)} title="Delete">
+                  🗑️
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
