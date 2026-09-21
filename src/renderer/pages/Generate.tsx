@@ -17,6 +17,19 @@ interface Props {
   onVideoSourceHandled: () => void;
 }
 
+// wan22-i2v renders at 16fps (CreateVideo node in its template) and needs a frame count of
+// 4n+1, so a duration in seconds snaps to quarter-seconds (81 frames = 5s).
+const VIDEO_FPS = 16;
+
+function secondsToFrames(seconds: number): number {
+  const clamped = Math.min(12, Math.max(1, seconds || 0));
+  return 4 * Math.round(clamped * (VIDEO_FPS / 4)) + 1;
+}
+
+function framesToSeconds(frames: number): number {
+  return Math.round(((frames - 1) / VIDEO_FPS) * 4) / 4;
+}
+
 // Long side of a video generated from an existing image (matches the 640px default).
 const VIDEO_LONG_SIDE = 640;
 
@@ -48,7 +61,7 @@ export default function Generate({
   const [seedLocked, setSeedLocked] = useState(false);
   const [steps, setSteps] = useState(8);
   const [cfg, setCfg] = useState(1);
-  const [length, setLength] = useState(81);
+  const [lengthSeconds, setLengthSeconds] = useState(5);
   const [sourceImagePath, setSourceImagePath] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -124,7 +137,7 @@ export default function Generate({
     setSeedLocked(true);
     setSteps(recallRecord.steps);
     setCfg(recallRecord.cfg);
-    setLength(recallRecord.length ?? 81);
+    setLengthSeconds(recallRecord.length ? framesToSeconds(recallRecord.length) : 5);
     // The source image used for a past video generation isn't retained - only the
     // resulting video is. A new one has to be chosen before this can be re-run.
     setSourceImagePath(null);
@@ -163,7 +176,7 @@ export default function Generate({
         seed: usedSeed,
         steps,
         cfg,
-        ...(mode === 'video' ? { length, sourceImagePath: sourceImagePath ?? undefined } : {}),
+        ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
       });
       setImageUrl(result.imageUrl);
       setResultRecord(result.record);
@@ -298,19 +311,20 @@ export default function Generate({
           {mode === 'video' && (
             <div style={{ marginTop: 12 }}>
               <label className="field-label" htmlFor="length">
-                Length (frames)
+                Length (seconds)
               </label>
               <input
                 id="length"
                 type="number"
-                value={length}
+                value={lengthSeconds}
                 min={1}
-                max={200}
-                onChange={(e) => setLength(Number(e.target.value))}
+                max={12}
+                step={0.5}
+                onChange={(e) => setLengthSeconds(Number(e.target.value))}
                 style={{ width: 160 }}
               />
               <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
-                81 frames @ 16fps ≈ 5s (this template's default).
+                {secondsToFrames(lengthSeconds)} frames @ {VIDEO_FPS}fps. Default is 5s; longer clips take much longer to render.
               </p>
             </div>
           )}
