@@ -55,13 +55,22 @@ export function describeProgress({ progress, estimate, elapsedMs, lastStepAtMs }
   }
 
   const sampled = phase === 'sampling' || phase === 'decoding' || phase === 'saving';
-  const overrunning = !!estimate && elapsedMs > estimate.totalMs * 1.25 + 3000;
 
-  // Before the first step the wait is model loading / setup: no percentage, only a rough time left.
+  // Before the first step the wait is model loading / GPU setup: one-time pre-work with no
+  // reliable duration of its own (a cold model can take anywhere from seconds to minutes,
+  // depending on disk cache state that has nothing to do with the generation itself). It is
+  // never flagged as "running long", and any time left shown here is against the load estimate
+  // specifically - not the combined total, which would otherwise flag a normal cold load as
+  // overrunning whenever there is no load history yet (load history defaults to unknown, not 0).
   if (!sampled || !total || total <= 0) {
-    const remaining = estimate && elapsedMs < estimate.totalMs ? estimate.totalMs - elapsedMs : null;
-    return { label, determinate: false, fraction: 0, remainingMs: remaining, overrunning };
+    const remaining = estimate?.loadMs && elapsedMs < estimate.loadMs ? estimate.loadMs - elapsedMs : null;
+    return { label, determinate: false, fraction: 0, remainingMs: remaining, overrunning: false };
   }
+
+  // Once sampling has started, "running long" is judged only on the generating portion (time
+  // since the first step) against the generate-only estimate - loading is excluded on both sides.
+  const generateElapsedMs = progress?.firstStepAtMs != null ? Math.max(0, elapsedMs - progress.firstStepAtMs) : 0;
+  const overrunning = !!estimate && generateElapsedMs > estimate.generateMs * 1.25 + 3000;
 
   const sinceStep = lastStepAtMs === null ? 0 : Math.max(0, elapsedMs - lastStepAtMs);
   const stepsLeft = Math.max(0, total - done);
