@@ -1,7 +1,9 @@
-import { Job, ProgressInfo } from '../hooks/useGenerationQueue';
+import { GenerationRecord } from '../../shared/types';
+import { Job, JobKind, ProgressInfo } from '../hooks/useGenerationQueue';
 import { formatDuration } from '../utils/format';
 import { describeProgress } from '../utils/progressModel';
 import { framesToSeconds } from '../utils/video';
+import GeneratedVideo from './GeneratedVideo';
 import RunProgress from './RunProgress';
 
 interface Props {
@@ -13,6 +15,17 @@ interface Props {
   onCancelJob: (id: number) => void;
   onClearQueued: () => void;
   onDismissFailed: (id: number) => void;
+  onToggleFavorite: (record: GenerationRecord) => void;
+}
+
+/** Most recently completed jobs shown full-width in the queue itself, so a result is visible
+ * right where it just finished without switching over to the result viewer. */
+const MAX_COMPLETED_SHOWN = 5;
+
+type DoneJob = Job & { record: GenerationRecord; imageUrl: string; kind: JobKind };
+
+function isDone(job: Job): job is DoneJob {
+  return job.status === 'done' && !!job.record && !!job.imageUrl;
 }
 
 function describe(job: Job): string {
@@ -34,11 +47,17 @@ export default function QueuePanel({
   onCancelJob,
   onClearQueued,
   onDismissFailed,
+  onToggleFavorite,
 }: Props) {
   const running = jobs.find((j) => j.status === 'running');
   const queued = jobs.filter((j) => j.status === 'queued');
   const failed = jobs.filter((j) => j.status === 'failed' && !j.dismissed);
   const pending = queued.length + (running ? 1 : 0);
+
+  // jobs is oldest-first (push order), so the most recently finished are at the end.
+  const allDone = jobs.filter(isDone);
+  const done = allDone.slice(-MAX_COMPLETED_SHOWN).reverse();
+  const olderDoneCount = allDone.length - done.length;
 
   // How long everything still to run should take: what is left of the running job plus the
   // estimates of those waiting. Jobs without an estimate are left out and counted.
@@ -121,11 +140,44 @@ export default function QueuePanel({
       </div>
 
       <div className="queue-panel__body">
-        {!running && queued.length === 0 && failed.length === 0 && (
+        {!running && queued.length === 0 && failed.length === 0 && done.length === 0 && (
           <p className="queue-panel__empty">
             Nothing queued. While something is generating, use "Queue Another" - or set a batch size to queue several
             at once.
           </p>
+        )}
+
+        {done.length > 0 && (
+          <section>
+            <div className="queue-panel__section-title">Recently completed</div>
+            {done.map((job) => (
+              <div key={job.id} className="queue-done">
+                <div className="queue-done__media">
+                  {job.kind === 'video' ? (
+                    <GeneratedVideo src={job.imageUrl} filePath={job.record.imagePath} thumbnail />
+                  ) : (
+                    <img src={job.imageUrl} alt={job.record.prompt} />
+                  )}
+                  <button
+                    type="button"
+                    className={`library-card__fav${job.record.favorite ? ' library-card__fav--on' : ''}`}
+                    onClick={() => onToggleFavorite(job.record)}
+                    title={job.record.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                  >
+                    {job.record.favorite ? '★' : '☆'}
+                  </button>
+                </div>
+                <div className="queue-done__caption" title={job.params.prompt}>
+                  {job.params.prompt}
+                </div>
+              </div>
+            ))}
+            {olderDoneCount > 0 && (
+              <div className="queue-panel__hint">
+                +{olderDoneCount} more this session - see Library &gt; Output
+              </div>
+            )}
+          </section>
         )}
 
         {running && (

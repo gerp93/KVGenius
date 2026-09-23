@@ -1,3 +1,5 @@
+import type { PromptSlot } from './promptSlots';
+
 export interface GenerationParams {
   prompt: string;
   width: number;
@@ -237,6 +239,10 @@ export interface KVGeniusAPI {
   savePrompt: (name: string, prompt: string, tags: string[]) => Promise<SavedPrompt>;
   updateSavedPrompt: (id: number, name: string, tags: string[]) => Promise<SavedPrompt>;
   deleteSavedPrompt: (id: number) => Promise<void>;
+
+  /** The Generate page's prompt "tabs" (whole form per tab), persisted across restarts. */
+  getPromptSlots: () => Promise<{ slots: PromptSlot[]; activeId: string | null }>;
+  savePromptSlots: (slots: PromptSlot[], activeId: string) => Promise<void>;
 
   getComfyUIHost: () => Promise<ComfyUIHostInfo>;
   setComfyUIHost: (host: string) => Promise<void>;

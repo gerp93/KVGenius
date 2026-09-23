@@ -2,11 +2,14 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { app, shell, dialog } from 'electron';
 import { DEFAULT_COMFYUI_HOST } from './comfyui';
+import { PromptSlot, sanitizeSlots } from '../shared/promptSlots';
 
 interface AppConfig {
   dbPath?: string;
   comfyuiHost?: string;
   theme?: string;
+  promptSlots?: PromptSlot[];
+  activePromptSlotId?: string;
 }
 
 export const DEFAULT_THEME = 'neon';
@@ -215,4 +218,17 @@ export function getEffectiveTheme(): string {
 
 export function setTheme(themeId: string): void {
   writeConfig({ ...readConfig(), theme: themeId.trim() });
+}
+
+/** The Generate page's saved prompt "tabs" - always at least one, even on a fresh install. */
+export function getPromptSlots(): PromptSlot[] {
+  return sanitizeSlots(readConfig().promptSlots);
+}
+
+export function getActivePromptSlotId(): string | null {
+  return readConfig().activePromptSlotId ?? null;
+}
+
+export function savePromptSlots(slots: PromptSlot[], activeId: string): void {
+  writeConfig({ ...readConfig(), promptSlots: sanitizeSlots(slots), activePromptSlotId: activeId });
 }
