@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
 import GeneratedVideo from '../components/GeneratedVideo';
-import ExpandButton from '../components/Lightbox';
+import GalleryLightbox from '../components/GalleryLightbox';
 import PromptModal from '../components/PromptModal';
 import { formatBytes, formatDifference, formatDuration } from '../utils/format';
 import { justifyRows } from '../utils/justifiedRows';
@@ -42,6 +42,8 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   const [existingTags, setExistingTags] = useState<string[]>([]);
   const [infoId, setInfoId] = useState<number | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
+  // Index into `records` of the image/video open in the full-window gallery viewer, if any.
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const navigate = useNavigate();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -81,6 +83,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     setSelection(new Map());
     anchorId.current = null;
     setInfoId(null);
+    setLightboxIndex(null);
     void loadPage(tab, null, favoritesOnly, token);
   }, [tab, favoritesOnly, loadPage]);
 
@@ -264,6 +267,9 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     setRecords((prev) => prev.filter((r) => !gone.has(r.id)));
     setCounts((prev) => ({ ...prev, [kind]: Math.max(0, prev[kind] - ids.length) }));
     setInfoId((prev) => (prev !== null && gone.has(prev) ? null : prev));
+    // The gallery viewer was showing one of these by index - close it rather than have it land
+    // on a now-shifted, unrelated item.
+    setLightboxIndex((prev) => (prev !== null && gone.has(records[prev]?.id) ? null : prev));
   }
 
   async function handleToggleFavorite(record: GenerationRecord) {
@@ -332,7 +338,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     }
   }
 
-  function renderCard(record: GenerationRecord, width: number, height: number) {
+  function renderCard(record: GenerationRecord, index: number, width: number, height: number) {
     const url = window.kvgenius.imageUrlFor(record.imagePath);
     const isVideo = kindOf(record) === 'video';
     const selected = selecting && selection.has(record.id);
@@ -358,7 +364,19 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             ) : (
               <img src={url} alt={record.prompt} loading="lazy" decoding="async" />
             )}
-            {!selecting && <ExpandButton src={url} kind={isVideo ? 'video' : 'image'} filePath={record.imagePath} alt={record.prompt} />}
+            {!selecting && (
+              <button
+                type="button"
+                className="expand-button"
+                title="Expand"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex(index);
+                }}
+              >
+                ⤢
+              </button>
+            )}
             {!selecting && (
               <button
                 type="button"
@@ -486,7 +504,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
         <div className={`library-rows${selecting ? ' library-rows--selecting' : ''}`} ref={gridRef}>
           {rows.map((row) => (
             <div key={records[row.items[0].index].id} className="library-row">
-              {row.items.map(({ index, width }) => renderCard(records[index], width, row.height))}
+              {row.items.map(({ index, width }) => renderCard(records[index], index, width, row.height))}
             </div>
           ))}
         </div>
@@ -510,12 +528,14 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             </span>
           </div>
           <div className="library-panel__media">
-            <ExpandButton
-              src={window.kvgenius.imageUrlFor(infoRecord.imagePath)}
-              kind={kindOf(infoRecord) === 'video' ? 'video' : 'image'}
-              filePath={infoRecord.imagePath}
-              alt={infoRecord.prompt}
-            />
+            <button
+              type="button"
+              className="expand-button"
+              title="Expand"
+              onClick={() => setLightboxIndex(records.findIndex((r) => r.id === infoRecord.id))}
+            >
+              ⤢
+            </button>
             {kindOf(infoRecord) === 'video' ? (
               <GeneratedVideo src={window.kvgenius.imageUrlFor(infoRecord.imagePath)} filePath={infoRecord.imagePath} />
             ) : (
@@ -617,6 +637,20 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
           existingTags={existingTags}
           onSave={handleSavePrompt}
           onClose={() => setPromptToSave(null)}
+        />
+      )}
+
+      {lightboxIndex !== null && records[lightboxIndex] && (
+        <GalleryLightbox
+          src={window.kvgenius.imageUrlFor(records[lightboxIndex].imagePath)}
+          kind={kindOf(records[lightboxIndex])}
+          filePath={records[lightboxIndex].imagePath}
+          alt={records[lightboxIndex].prompt}
+          hasPrev={lightboxIndex > 0}
+          hasNext={lightboxIndex < records.length - 1}
+          onPrev={() => setLightboxIndex((i) => (i !== null ? Math.max(0, i - 1) : i))}
+          onNext={() => setLightboxIndex((i) => (i !== null ? Math.min(records.length - 1, i + 1) : i))}
+          onClose={() => setLightboxIndex(null)}
         />
       )}
     </div>

@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PromptModal from '../components/PromptModal';
 import QueuePanel from '../components/QueuePanel';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
 import { MAX_BATCH_SIZE, MAX_PENDING_JOBS, useGenerationQueue } from '../hooks/useGenerationQueue';
+import { usePromptSlots } from '../hooks/usePromptSlots';
+import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
 import { FAMILY_KIND, GenerationRecord, TimeEstimate, VideoSourceRequest } from '../../shared/types';
@@ -82,21 +84,63 @@ export default function Generate({
   videoSource,
   onVideoSourceHandled,
 }: Props) {
-  const [mode, setMode] = useState<Mode>('image');
-  const [prompt, setPrompt] = useState('');
-  const [width, setWidth] = useState(1024);
-  const [height, setHeight] = useState(1024);
-  const [seed, setSeed] = useState<number>(randomSeed());
-  const [seedLocked, setSeedLocked] = useState(false);
-  const [steps, setSteps] = useState(8);
-  const [cfg, setCfg] = useState(1);
-  const [lengthSeconds, setLengthSeconds] = useState(5);
-  const [sourceImagePath, setSourceImagePath] = useState<string | null>(null);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  // Picking "Custom size..." from the dropdown reveals the width/height boxes.
-  const [customSize, setCustomSize] = useState(false);
+  // The left-hand form is one of several independent "tabs" (prompt + every setting below it),
+  // switchable and persisted across restarts - see usePromptSlots for the field definitions.
+  const slotState = usePromptSlots();
+  const {
+    slots,
+    activeSlotId,
+    switchTo: switchSlot,
+    addSlot,
+    closeSlot,
+    renameSlot,
+    labelFor: slotLabelFor,
+    mode,
+    setMode,
+    prompt,
+    setPrompt,
+    width,
+    setWidth,
+    height,
+    setHeight,
+    seed,
+    setSeed,
+    seedLocked,
+    setSeedLocked,
+    steps,
+    setSteps,
+    cfg,
+    setCfg,
+    lengthSeconds,
+    setLengthSeconds,
+    sourceImagePath,
+    setSourceImagePath,
+    advancedOpen,
+    setAdvancedOpen,
+    customSize,
+    setCustomSize,
+    batchSize,
+    setBatchSize,
+    lastRunSignature,
+    setLastRunSignature,
+  } = slotState;
+  const [renamingSlotId, setRenamingSlotId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const skipRenameBlur = useRef(false);
 
-  const [batchSize, setBatchSize] = useState(1);
+  function startRenameSlot(slot: (typeof slots)[number]) {
+    setRenamingSlotId(slot.id);
+    setRenameDraft(slotLabelFor(slot));
+  }
+  function commitRenameSlot() {
+    if (renamingSlotId) renameSlot(renamingSlotId, renameDraft);
+    setRenamingSlotId(null);
+  }
+  function cancelRenameSlot() {
+    skipRenameBlur.current = true;
+    setRenamingSlotId(null);
+  }
+
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -130,7 +174,6 @@ export default function Generate({
       mode === 'image' ? [steps, cfg] : [secondsToFrames(lengthSeconds), sourceImagePath],
     ]);
   }
-  const [lastRunSignature, setLastRunSignature] = useState<string | null>(null);
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
 
   function handleModeChange(newMode: Mode) {
@@ -321,7 +364,75 @@ export default function Generate({
   return (
     <div className="page generate-page">
       <div className={`generate-layout${queueCollapsed ? ' generate-layout--queue-collapsed' : ''}`}>
-        <div className="generate-form">
+        <div className="generate-sidebar-group">
+          <div className="prompt-slots-rail" role="tablist">
+            <div className="prompt-slots-rail__list">
+              {slots.map((slot) => (
+                <div
+                  key={slot.id}
+                  className={`prompt-slot-row${slot.id === activeSlotId ? ' prompt-slot-row--active' : ''}`}
+                >
+                  {renamingSlotId === slot.id ? (
+                    <input
+                      autoFocus
+                      className="prompt-slot-row__rename"
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitRenameSlot();
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          cancelRenameSlot();
+                        }
+                      }}
+                      onBlur={() => {
+                        if (skipRenameBlur.current) {
+                          skipRenameBlur.current = false;
+                          return;
+                        }
+                        commitRenameSlot();
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={slot.id === activeSlotId}
+                      className="prompt-slot-row__label"
+                      onClick={() => switchSlot(slot.id)}
+                      onDoubleClick={() => startRenameSlot(slot)}
+                      title={`${slotLabelFor(slot)} (double-click to rename)`}
+                    >
+                      {slotLabelFor(slot)}
+                    </button>
+                  )}
+                  {slots.length > 1 && (
+                    <button
+                      type="button"
+                      className="prompt-slot-row__close"
+                      onClick={() => closeSlot(slot.id)}
+                      title="Close this tab"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="prompt-slot-row__add"
+              onClick={addSlot}
+              disabled={slots.length >= MAX_PROMPT_SLOTS}
+              title={slots.length >= MAX_PROMPT_SLOTS ? `Up to ${MAX_PROMPT_SLOTS} tabs` : 'New prompt tab'}
+            >
+              ＋ New
+            </button>
+          </div>
+
+          <div className="generate-form">
           <div className="button-row--even" style={{ marginBottom: 12 }}>
             <button
               type="button"
@@ -578,6 +689,7 @@ export default function Generate({
           )}
           {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
           {saveStatus && <p style={{ color: 'var(--color-accent-green)' }}>{saveStatus}</p>}
+          </div>
         </div>
 
         <div className="generate-preview">
@@ -601,6 +713,7 @@ export default function Generate({
           onCancelJob={queue.cancelJob}
           onClearQueued={queue.clearQueued}
           onDismissFailed={queue.dismissFailed}
+          onToggleFavorite={handleToggleFavorite}
         />
       </div>
 

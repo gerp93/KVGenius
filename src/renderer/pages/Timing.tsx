@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { TimingStatRow } from '../../shared/types';
 import {
   AccuracySummary,
@@ -16,13 +16,20 @@ import { formatDuration } from '../utils/format';
 const pct = (n: number) => `${Math.round(n)}%`;
 const signedPct = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${Math.abs(Math.round(n))}%`;
 
+/** A signed percentage, with negative values in the app's "negative" color (the same red used
+ * for errors and "slower than estimated" elsewhere on this page) so a run of - and + numbers in
+ * a table is easy to scan at a glance. */
+function Signed({ value }: { value: number }) {
+  return <span className={value < 0 ? 'timing-negative' : undefined}>{signedPct(value)}</span>;
+}
+
 /** "usually 8% slower than estimated" - the direction of the average miss in words. */
 function biasWords(biasPct: number): string {
   if (Math.abs(biasPct) < 2) return 'no consistent lean';
   return `usually ${Math.abs(Math.round(biasPct))}% ${biasPct > 0 ? 'slower' : 'faster'} than estimated`;
 }
 
-function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function StatCard({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
     <div className="timing-card">
       <div className="timing-card__label">{label}</div>
@@ -162,7 +169,7 @@ export default function Timing() {
             <StatCard label="Runs compared" value={String(summary.runs)} hint={`of ${rows?.length ?? 0} recorded`} />
             <StatCard label="Typical miss" value={pct(summary.medianAbsPct)} hint="median, either direction" />
             <StatCard label="Average miss" value={pct(summary.meanAbsPct)} hint="pulled up by outliers" />
-            <StatCard label="Lean" value={signedPct(summary.biasPct)} hint={biasWords(summary.biasPct)} />
+            <StatCard label="Lean" value={<Signed value={summary.biasPct} />} hint={biasWords(summary.biasPct)} />
             <StatCard label="Within 10%" value={pct(summary.within10Pct * 100)} hint="of runs" />
             <StatCard label="Within 25%" value={pct(summary.within25Pct * 100)} hint="of runs" />
             <StatCard
@@ -206,7 +213,7 @@ export default function Timing() {
                   <td>{g.runs}</td>
                   <td>{g.summary ? formatDuration(g.summary.avgEstimateMs) : '-'}</td>
                   <td>{g.summary ? formatDuration(g.summary.avgActualMs) : '-'}</td>
-                  <td>{g.summary ? signedPct(g.summary.biasPct) : '-'}</td>
+                  <td>{g.summary ? <Signed value={g.summary.biasPct} /> : '-'}</td>
                   <td>{g.summary ? pct(g.summary.medianAbsPct) : '-'}</td>
                 </tr>
               ))}
@@ -269,7 +276,7 @@ export default function Timing() {
                     <td>{settingsLabel(r)}</td>
                     <td>{pair ? formatDuration(pair.estimate) : 'none yet'}</td>
                     <td>{formatDuration(metric === 'total' ? r.actualMs : (r.generateMs ?? r.actualMs))}</td>
-                    <td>{pair ? signedPct(diffPct(pair.estimate, pair.actual)) : '-'}</td>
+                    <td>{pair ? <Signed value={diffPct(pair.estimate, pair.actual)} /> : '-'}</td>
                     <td>{r.loadMs === null ? '-' : formatDuration(r.loadMs)}</td>
                   </tr>
                 );

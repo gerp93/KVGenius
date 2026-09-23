@@ -23,7 +23,11 @@ import {
   resetComfyUIHost,
   getEffectiveTheme,
   setTheme,
+  getPromptSlots,
+  getActivePromptSlotId,
+  savePromptSlots,
 } from './dbLocation';
+import { PromptSlot } from '../shared/promptSlots';
 import {
   initDatabase,
   insertGeneration,
@@ -386,6 +390,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle('deleteSavedPrompt', (_event, id: number) => {
     if (!db) throw new Error('Database not initialized');
     deleteSavedPrompt(db, id);
+  });
+
+  ipcMain.handle('getPromptSlots', () => ({
+    slots: getPromptSlots(),
+    activeId: getActivePromptSlotId(),
+  }));
+
+  ipcMain.handle('savePromptSlots', (_event, slots: PromptSlot[], activeId: string) => {
+    savePromptSlots(slots, activeId);
   });
 
   ipcMain.handle('getComfyUIHost', () => ({
