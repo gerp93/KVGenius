@@ -3,6 +3,7 @@ import { Job, JobKind, ProgressInfo } from '../hooks/useGenerationQueue';
 import { formatDuration } from '../utils/format';
 import { describeProgress } from '../utils/progressModel';
 import { framesToSeconds } from '../utils/video';
+import ExpandButton from './Lightbox';
 import GeneratedVideo from './GeneratedVideo';
 import RunProgress from './RunProgress';
 
@@ -147,39 +148,6 @@ export default function QueuePanel({
           </p>
         )}
 
-        {done.length > 0 && (
-          <section>
-            <div className="queue-panel__section-title">Recently completed</div>
-            {done.map((job) => (
-              <div key={job.id} className="queue-done">
-                <div className="queue-done__media">
-                  {job.kind === 'video' ? (
-                    <GeneratedVideo src={job.imageUrl} filePath={job.record.imagePath} thumbnail />
-                  ) : (
-                    <img src={job.imageUrl} alt={job.record.prompt} />
-                  )}
-                  <button
-                    type="button"
-                    className={`library-card__fav${job.record.favorite ? ' library-card__fav--on' : ''}`}
-                    onClick={() => onToggleFavorite(job.record)}
-                    title={job.record.favorite ? 'Remove from favorites' : 'Add to favorites'}
-                  >
-                    {job.record.favorite ? '★' : '☆'}
-                  </button>
-                </div>
-                <div className="queue-done__caption" title={job.params.prompt}>
-                  {job.params.prompt}
-                </div>
-              </div>
-            ))}
-            {olderDoneCount > 0 && (
-              <div className="queue-panel__hint">
-                +{olderDoneCount} more this session - see Library &gt; Output
-              </div>
-            )}
-          </section>
-        )}
-
         {running && (
           <section>
             <div className="queue-panel__section-title">Generating now</div>
@@ -219,6 +187,40 @@ export default function QueuePanel({
           <div className="queue-panel__total">
             Queue total: {queueTotal.text}
           </div>
+        )}
+
+        {done.length > 0 && (
+          <section>
+            <div className="queue-panel__section-title">Recently completed</div>
+            {done.map((job) => (
+              <div key={job.id} className="queue-done">
+                <div className="queue-done__media">
+                  {job.kind === 'video' ? (
+                    <GeneratedVideo src={job.imageUrl} filePath={job.record.imagePath} thumbnail />
+                  ) : (
+                    <img src={job.imageUrl} alt={job.record.prompt} />
+                  )}
+                  <ExpandButton src={job.imageUrl} kind={job.kind} filePath={job.record.imagePath} alt={job.record.prompt} />
+                  <button
+                    type="button"
+                    className={`library-card__fav${job.record.favorite ? ' library-card__fav--on' : ''}`}
+                    onClick={() => onToggleFavorite(job.record)}
+                    title={job.record.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                  >
+                    {job.record.favorite ? '★' : '☆'}
+                  </button>
+                </div>
+                <div className="queue-done__caption" title={job.params.prompt}>
+                  {job.params.prompt}
+                </div>
+              </div>
+            ))}
+            {olderDoneCount > 0 && (
+              <div className="queue-panel__hint">
+                +{olderDoneCount} more this session - see Library &gt; Output
+              </div>
+            )}
+          </section>
         )}
 
         {failed.length > 0 && (

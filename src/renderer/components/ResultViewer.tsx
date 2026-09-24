@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GenerationRecord } from '../../shared/types';
-import { Job, ProgressInfo } from '../hooks/useGenerationQueue';
+import { Job, JobKind, ProgressInfo } from '../hooks/useGenerationQueue';
 import { fitGrid } from '../utils/fitGrid';
 import { timingSentence } from '../utils/timingText';
 import RunProgress from './RunProgress';
@@ -55,6 +55,12 @@ export default function ResultViewer({
   const [index, setIndex] = useState(0);
   const [bodyRef, bodySize] = useElementSize<HTMLDivElement>();
 
+  // The last completed result actually shown, kept around so it stays on screen (full size)
+  // while the next one generates instead of being replaced by a bare loading screen.
+  const lastGoodRef = useRef<{ record: GenerationRecord; imageUrl: string; kind: JobKind; aspect: number } | null>(
+    null
+  );
+
   const lastDone = slots.reduce((last, job, i) => (job.status === 'done' ? i : last), -1);
   const batchKey = slots.length > 0 ? slots[0].batchId : null;
   const followRef = useRef(true);
@@ -74,6 +80,24 @@ export default function ResultViewer({
   const current = slots[Math.min(index, slots.length - 1)];
   const currentIndex = current ? slots.indexOf(current) : 0;
   const multiple = slots.length > 1;
+
+  useEffect(() => {
+    if (current?.status === 'done' && current.record && current.imageUrl) {
+      lastGoodRef.current = {
+        record: current.record,
+        imageUrl: current.imageUrl,
+        kind: current.kind,
+        aspect: current.params.width / Math.max(current.params.height, 1),
+      };
+    }
+  }, [current]);
+
+  /** Deleting the currently-shown result must also drop it as the "keep showing while the next
+   * one generates" fallback, or a later run would briefly show the just-deleted (now-missing) file. */
+  function handleDelete(record: GenerationRecord) {
+    if (lastGoodRef.current?.record.id === record.id) lastGoodRef.current = null;
+    onDelete(record);
+  }
 
   function goTo(i: number) {
     const next = Math.max(0, Math.min(slots.length - 1, i));
@@ -99,6 +123,38 @@ export default function ResultViewer({
     );
   }
 
+  /** The status strip shown over the bottom of a still-in-progress job's fallback image. */
+  function renderStatusOverlay(job: Job) {
+    if (job.status === 'running') {
+      return (
+        <div className="result-media__overlay">
+          <RunProgress compact job={job} progressInfo={progressInfo} now={now} />
+          <button type="button" onClick={() => onCancelJob(job.id)}>
+            ✕ Cancel
+          </button>
+        </div>
+      );
+    }
+    if (job.status === 'queued') {
+      return (
+        <div className="result-media__overlay">
+          <span className="result-media__overlay-text">Waiting in the queue...</span>
+          <button type="button" onClick={() => onCancelJob(job.id)}>
+            ✕ Cancel
+          </button>
+        </div>
+      );
+    }
+    if (job.status === 'failed') {
+      return (
+        <div className="result-media__overlay result-media__overlay--failed">
+          <span className="result-media__overlay-text">⚠ This generation failed: {job.error}</span>
+        </div>
+      );
+    }
+    return null;
+  }
+
   function renderPending(job: Job) {
     if (job.status === 'running') {
       return (
@@ -117,47 +173,80 @@ export default function ResultViewer({
   }
 
   function renderSingle() {
-    if (current.status !== 'done' || !current.record) return renderPending(current);
-    const record = current.record;
-    // Size the picture to the largest box of its own aspect ratio that fits, so the expand button
-    // sits on the real corner of the picture rather than on a letterboxed container.
-    const availableWidth = Math.max(0, bodySize.width - BODY_PADDING * 2);
-    const availableHeight = Math.max(0, bodySize.height - BODY_PADDING * 2 - ACTIONS_HEIGHT);
-    const mediaWidth = Math.floor(Math.min(availableWidth, availableHeight * aspect));
-    const mediaHeight = Math.floor(mediaWidth / aspect);
-    return (
-      <div className="generate-preview__result">
-        <div className="result-media" style={{ width: mediaWidth, height: mediaHeight }}>
-          <ExpandButton
-            src={current.imageUrl ?? ''}
-            kind={current.kind}
-            filePath={record.imagePath}
-            alt={record.prompt}
-          />
-          {renderMedia(current, false)}
-        </div>
-        <div className="button-row">
-          <button
-            type="button"
-            onClick={() => onToggleFavorite(record)}
-            title={record.favorite ? 'Remove from favorites' : 'Save to favorites'}
-          >
-            {record.favorite ? '★ Favorited' : '☆ Favorite'}
-          </button>
-          {current.kind === 'image' && (
+    if (current.status === 'done' && current.record) {
+      const record = current.record;
+      // Size the picture to the largest box of its own aspect ratio that fits, so the expand
+      // button sits on the real corner of the picture rather than on a letterboxed container.
+      const availableWidth = Math.max(0, bodySize.width - BODY_PADDING * 2);
+      const availableHeight = Math.max(0, bodySize.height - BODY_PADDING * 2 - ACTIONS_HEIGHT);
+      const mediaWidth = Math.floor(Math.min(availableWidth, availableHeight * aspect));
+      const mediaHeight = Math.floor(mediaWidth / aspect);
+      return (
+        <div className="generate-preview__result">
+          <div className="result-media" style={{ width: mediaWidth, height: mediaHeight }}>
+            <ExpandButton
+              src={current.imageUrl ?? ''}
+              kind={current.kind}
+              filePath={record.imagePath}
+              alt={record.prompt}
+            />
+            {renderMedia(current, false)}
+          </div>
+          <div className="button-row">
             <button
               type="button"
-              onClick={() => onConvertToVideo(record)}
-              title="Set up video mode with this image as the source"
+              onClick={() => onToggleFavorite(record)}
+              title={record.favorite ? 'Remove from favorites' : 'Save to favorites'}
             >
-              🎬 Convert to Video
+              {record.favorite ? '★ Favorited' : '☆ Favorite'}
             </button>
-          )}
-          <button type="button" onClick={() => onDelete(record)} title="Delete this generation and its file">
-            🗑️ Delete
-          </button>
+            {current.kind === 'image' && (
+              <button
+                type="button"
+                onClick={() => onConvertToVideo(record)}
+                title="Set up video mode with this image as the source"
+              >
+                🎬 Convert to Video
+              </button>
+            )}
+            <button type="button" onClick={() => handleDelete(record)} title="Delete this generation and its file">
+              🗑️ Delete
+            </button>
+          </div>
+          {record.timing && <div className="result-timing">{timingSentence(record.timing)}</div>}
         </div>
-        {record.timing && <div className="result-timing">{timingSentence(record.timing)}</div>}
+      );
+    }
+
+    // Not done yet: keep showing the last completed result at full size (no room reserved for the
+    // action row below it, so the picture gets the whole area) with the new job's status
+    // overlaid on its bottom edge, instead of blanking the screen while the next one generates.
+    const fallback = lastGoodRef.current;
+    if (!fallback) return renderPending(current);
+    const availableWidth = Math.max(0, bodySize.width - BODY_PADDING * 2);
+    const availableHeight = Math.max(0, bodySize.height - BODY_PADDING * 2);
+    const mediaWidth = Math.floor(Math.min(availableWidth, availableHeight * fallback.aspect));
+    const mediaHeight = Math.floor(mediaWidth / fallback.aspect);
+    return (
+      <div className="generate-preview__result generate-preview__result--pending">
+        <div className="result-media" style={{ width: mediaWidth, height: mediaHeight }}>
+          <ExpandButton
+            src={fallback.imageUrl}
+            kind={fallback.kind}
+            filePath={fallback.record.imagePath}
+            alt={fallback.record.prompt}
+          />
+          {fallback.kind === 'video' ? (
+            <GeneratedVideo
+              src={fallback.imageUrl}
+              filePath={fallback.record.imagePath}
+              style={{ width: '100%', height: '100%', borderRadius: 8 }}
+            />
+          ) : (
+            <img src={fallback.imageUrl} alt="Generated" />
+          )}
+          {renderStatusOverlay(current)}
+        </div>
       </div>
     );
   }
