@@ -304,6 +304,47 @@ input:focus {
   height: 100%;
 }
 
+/* The previous result stays visible (full size) while the next one generates; this overlays its
+   status on the bottom edge of that image instead of replacing it with a blank loading screen. */
+.result-media__overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.55) 70%, transparent);
+}
+
+.result-media__overlay .run-progress {
+  flex: 1;
+  min-width: 0;
+}
+
+.result-media__overlay .run-progress__label,
+.result-media__overlay .run-progress__meta,
+.result-media__overlay-text {
+  color: #fff;
+}
+
+.result-media__overlay-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.result-media__overlay button {
+  flex: none;
+}
+
+.result-media__overlay--failed {
+  background: linear-gradient(to top, rgba(80, 0, 0, 0.85), rgba(80, 0, 0, 0.6) 70%, transparent);
+}
+
 .result-failed {
   max-width: 420px;
   text-align: center;
