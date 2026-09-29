@@ -21,6 +21,14 @@ The previous Flet/Python implementation of this app is preserved on the
 [`legacy-flet-app`](https://github.com/gerp93/KVGenius/tree/legacy-flet-app)
 branch for reference.
 
+## Using KVGenius from other apps (MCP)
+
+Turn on **Settings → Other Apps (MCP)** and paste the config it shows into an MCP client
+such as Claude Desktop. The client can then queue image and video generations, browse the
+library, and stitch clips into a video with a backing track. See
+[docs/mcp-plan.md](docs/mcp-plan.md). KVGenius must be open. Stitching needs ffmpeg (a copy
+is bundled; you can point Settings at your own).
+
 ## Development
 
 ```bash

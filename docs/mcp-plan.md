@@ -1,7 +1,7 @@
 # MCP integration plan
 
-Status: **plan only, nothing built.** Written from a design conversation; revisit
-before starting work.
+Status: **phases 1-4 implemented** (see "As built" below); phase 5 is future
+work. Written from a design conversation, then built.
 
 ## Goal
 
@@ -129,13 +129,15 @@ output name.
 
 ### ffmpeg
 
-No ffmpeg usage exists in the repo today. Decide before implementing: bundle a
-binary vs. detect a system install vs. a Settings path override. Bundling is the
-friendlier default but builds can carry GPL obligations depending on
-configuration, so check the licensing/packaging convention in KVG_Standards
-first (see open items).
+Decided: look in three places, in order - a path chosen in Settings, the copy
+bundled through the `ffmpeg-static` / `ffprobe-static` optional dependencies,
+then PATH. Note those packages ship GPL-licensed binaries; the app is AGPL-3.0,
+which is compatible, but check KVG_Standards' licensing guidance before a release
+(see open items).
 
 ## Phasing
+
+Status: 1-4 done. 5 not started.
 
 1. **Queue + service layer.** Persisted job queue, extracted service layer,
    renderer uses it. Independently valuable (closes the TODO item).
@@ -168,12 +170,60 @@ first (see open items).
 
 ## Open items
 
-- **KVG_Standards check not done.** It was out of reach when this was written.
-  Before building, check it for an existing MCP/local-API convention and for
-  ffmpeg bundling/licensing guidance, and reconcile this plan with it.
-- ffmpeg: bundle vs. detect vs. override (above).
-- Job persistence across app restart: how much to promise in v1.
-- Whether the shim is a flag on the main binary or a separate entry point
-  (affects packaging).
-- Default queue concurrency and whether ComfyUI's own queue should be used
-  instead of ours.
+- **KVG_Standards check not done.** It was out of reach when this was written and
+  built. Check it for an existing MCP/local-API convention and for ffmpeg
+  bundling/licensing guidance, and reconcile this design with it.
+- **Not verified in a packaged build or with real Claude Desktop.** Everything was
+  exercised in dev Electron with a mock ComfyUI (see "Verification"). Still to try:
+  the packaged app's asar/unpacked ffmpeg paths, and launching the shim from a real
+  Claude Desktop config (`ELECTRON_RUN_AS_NODE`) on Windows/macOS.
+- Imported and assembled items are visible to MCP clients (`list_library`) but not
+  yet in the app's own Library page (see `TODO.md`).
+- Job persistence across app restart: interrupted jobs are marked, not re-run.
+
+## As built (phases 2-4)
+
+**Files**
+
+| File | Role |
+|---|---|
+| `src/shared/tools.ts` | Tool definitions (JSON Schema), used by both the API and the shim |
+| `src/main/apiService.ts` | Runs the tools: validation, job submission, library, probing, assembly |
+| `src/main/localApi.ts` | Loopback HTTP API: `GET /v1/health`, `GET /v1/tools`, `POST /v1/tools/<name>` |
+| `src/main/library.ts` | `imports` table; presents generated (`gen-N`) and imported/assembled (`imp-N`) files as items |
+| `src/main/mediaTools.ts` | ffmpeg discovery, probing, preview frames, and `planAssemble` (pure command builder) |
+| `src/main/assembly.ts` | Background assembly runs (`assemblies` table) |
+| `src/mcp/mcpProtocol.ts`, `src/mcp/shim.ts` | MCP stdio server; forwards to the API |
+
+**How a client connects.** Settings -> "Other Apps (MCP)" turns the API on (off by
+default) and shows a ready-to-paste `mcpServers` entry: it runs the app's own
+binary with `ELECTRON_RUN_AS_NODE=1` on `dist/main/mcp/shim.js`, with
+`KVGENIUS_API_FILE` pointing at `mcp-api.json` in the app's data folder. While the
+API is on, the app writes its port and token there (mode 0600); the shim reads it
+per call, so restarting the app needs no client reconfiguration. The token never
+appears in the client config or the UI. Default port 47615, falling back to a
+free one. Any other local client can use the HTTP API directly with the same file.
+
+**Deviations from the plan**
+
+- Assembly runs are their own background tasks (`get_assembly`), not rows in the
+  job queue: they are CPU work and should not wait behind GPU jobs, and it keeps
+  the queue generation-only. `cancel_job` also accepts `assembly_id`.
+- Items are addressed as `gen-<id>` / `imp-<id>` strings rather than bare
+  integers, because generated and imported files live in different tables.
+- Imported files are referenced in place, never copied.
+- `generate_video` takes `seconds` (snapped to quarter seconds) instead of frames.
+
+**Security posture.** Loopback bind; bearer token (constant-time compare); any
+request with an `Origin` header or a non-loopback `Host` is refused; 1 MB body
+limit; off by default. A client holding the token can import and preview any
+image/audio/video file on the machine by path - that is the feature, and the
+toggle plus the token are the consent point.
+
+**Verification.** `npm test` (56 tests: queue, tool logic against a real ffmpeg,
+assembly planning, API auth/errors, MCP protocol, and the compiled shim run as a
+subprocess) plus a manual end-to-end run: dev Electron under Xvfb with a mock
+ComfyUI, driven through the real shim over stdio - import, three video jobs run
+serially, previews, crossfade stitch with a track held to the audio length,
+cancel, the UI's own `generate` IPC sharing the queue, and the Settings toggle
+closing and reopening the port.

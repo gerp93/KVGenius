@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.main.json",
   "compilerOptions": { "outDir": "dist-test", "noEmit": false },
-  "exclude": [],
-  "include": ["src/shared/**/*", "src/main/jobStore.ts", "src/main/jobQueue.ts", "src/main/jobQueue.test.ts"]
+  "include": ["src/shared/**/*", "src/**/*.test.ts", "src/mcp/shim.ts"],
+  "exclude": []
 }

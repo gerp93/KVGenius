@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DbInfo, UpdateCheckResult } from '../../shared/types';
+import { DbInfo, McpInfo, UpdateCheckResult } from '../../shared/types';
 import { THEME_NAMES, themeDisplayName } from '../../shared/themes';
 
 type ConnectionStatus = 'unknown' | 'checking' | 'connected' | 'unreachable';
@@ -16,6 +16,8 @@ export default function Settings({ theme, onThemeChange }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>('unknown');
   const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
+  const [mcp, setMcp] = useState<McpInfo | null>(null);
+  const [snippetCopied, setSnippetCopied] = useState(false);
 
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckResult['status'] | 'idle' | 'checking'>('idle');
@@ -32,6 +34,7 @@ export default function Settings({ theme, onThemeChange }: Props) {
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
 
     window.kvgenius.getDbInfo().then(setDbInfo);
+    window.kvgenius.getMcpInfo().then(setMcp);
     window.kvgenius.getAppVersion().then(setAppVersion);
   }, []);
 
@@ -45,6 +48,31 @@ export default function Settings({ theme, onThemeChange }: Props) {
     } else if (result.status === 'error') {
       setUpdateMessage(result.message ?? 'Something went wrong.');
     }
+  }
+
+  async function handleToggleMcp(enabled: boolean) {
+    setError(null);
+    try {
+      setMcp(await window.kvgenius.setMcpEnabled(enabled));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleCopySnippet() {
+    if (!mcp) return;
+    await navigator.clipboard.writeText(mcp.configSnippet);
+    setSnippetCopied(true);
+    setTimeout(() => setSnippetCopied(false), 2000);
+  }
+
+  async function handleChooseFfmpeg() {
+    const next = await window.kvgenius.chooseFfmpegPath();
+    if (next) setMcp(next);
+  }
+
+  async function handleResetFfmpeg() {
+    setMcp(await window.kvgenius.resetFfmpegPath());
   }
 
   async function checkConnection() {
@@ -223,6 +251,57 @@ export default function Settings({ theme, onThemeChange }: Props) {
           files together. Changing the database location restarts KVGenius (a running database
           connection can't be repointed at a new file).
         </p>
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h3>Other Apps (MCP)</h3>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+          Lets an MCP client such as Claude Desktop queue generations, look through your library and
+          stitch videos, using this app. It only listens on this computer and needs a private key
+          that only apps you configure below have. KVGenius must be open for it to work.
+        </p>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={mcp?.enabled ?? false}
+            disabled={!mcp}
+            onChange={(e) => handleToggleMcp(e.target.checked)}
+          />
+          Allow other apps to control KVGenius (MCP)
+        </label>
+        {mcp?.enabled && (
+          <>
+            <p style={{ color: mcp.running ? 'var(--color-accent-green)' : 'var(--color-accent-red)', fontWeight: 600 }}>
+              {mcp.running ? `Running on 127.0.0.1:${mcp.port}` : 'Not running - see the error above, or restart KVGenius.'}
+            </p>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+              Add this to your MCP client's configuration (for Claude Desktop: Settings → Developer → Edit
+              Config), then restart the client.
+            </p>
+            <pre style={{ maxWidth: 640, overflow: 'auto', fontSize: 12, userSelect: 'text' }}>{mcp.configSnippet}</pre>
+            <button type="button" onClick={handleCopySnippet}>
+              {snippetCopied ? 'Copied' : 'Copy'}
+            </button>
+          </>
+        )}
+        <h4 style={{ marginTop: 20 }}>ffmpeg</h4>
+        <p style={{ color: mcp?.ffmpeg.available ? 'var(--color-text-muted)' : 'var(--color-accent-red)', fontSize: 12, wordBreak: 'break-all' }}>
+          {mcp
+            ? mcp.ffmpeg.available
+              ? `Using ${mcp.ffmpeg.path}${mcp.ffmpeg.override ? ' (chosen here)' : ''}.`
+              : 'Not found. Stitching clips into a video and video previews need ffmpeg (with ffprobe next to it).'
+            : '...'}
+        </p>
+        <div className="button-row">
+          <button type="button" onClick={handleChooseFfmpeg}>
+            Choose ffmpeg...
+          </button>
+          {mcp?.ffmpeg.override && (
+            <button type="button" onClick={handleResetFfmpeg}>
+              Reset to Default
+            </button>
+          )}
+        </div>
       </section>
 
       <section style={{ marginBottom: 32 }}>

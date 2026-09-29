@@ -21,6 +21,11 @@ and this repo's `REPO_SCOPE.md` entry for that). Just what's not built yet.
   time; the main-process queue already serializes and persists everything, the UI just does not
   read from it yet.
 
+- Show imported and assembled files (the `imports` table, see `docs/mcp-plan.md`) in the
+  Library page. Today only MCP clients can list them; generated results already appear.
+- Try the MCP integration from a real Claude Desktop config and from a packaged build
+  (asar-unpacked ffmpeg, `ELECTRON_RUN_AS_NODE` launch) on each OS.
+
 ## Needs real-world verification
 
 - Video mode (Wan2.2 I2V, `wan22-i2v` family) was verified via a mock

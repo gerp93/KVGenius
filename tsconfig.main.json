@@ -19,7 +19,8 @@
   "include": [
     "src/main/**/*",
     "src/preload/**/*",
-    "src/shared/**/*"
+    "src/shared/**/*",
+    "src/mcp/**/*"
   ],
   "exclude": [
     "src/**/*.test.ts"

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, protocol, shell } from 'electron';
 import { DatabaseSync } from 'node:sqlite';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -26,6 +26,11 @@ import {
   getPromptSlots,
   getActivePromptSlotId,
   savePromptSlots,
+  getApiEnabled,
+  setApiEnabled,
+  getApiToken,
+  getFfmpegOverride,
+  setFfmpegOverride,
 } from './dbLocation';
 import { PromptSlot } from '../shared/promptSlots';
 import {
@@ -50,7 +55,11 @@ import {
 } from './comfyui';
 import { JobQueue } from './jobQueue';
 import { createGenerationRunner, getLastRunFamily } from './generationService';
-import { FAMILY_KIND, GenerationKind, GenerationParams } from '../shared/types';
+import { AssemblyManager } from './assembly';
+import { ApiService } from './apiService';
+import { LocalApi, removeDiscoveryFile, startLocalApi, writeDiscoveryFile } from './localApi';
+import { FfmpegPaths, findFfmpeg } from './mediaTools';
+import { FAMILY_KIND, GenerationKind, GenerationParams, McpInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
@@ -118,6 +127,9 @@ process.on('uncaughtException', (error) => {
 let mainWindow: BrowserWindow | null = null;
 let db: DatabaseSync | null = null;
 let jobQueue: JobQueue | null = null;
+let assemblies: AssemblyManager | null = null;
+let apiService: ApiService | null = null;
+let localApi: LocalApi | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -177,6 +189,94 @@ function imageUrlFor(imagePath: string): string {
     return `${mediaServer.base}/${encodeURIComponent(imagePath)}`;
   }
   return `kvimage://${encodeURIComponent(imagePath)}`;
+}
+
+// ffmpeg is looked up by spawning it, so remember the answer. A miss is only remembered briefly, so
+// installing ffmpeg (or fixing the path in Settings) is noticed without restarting the app.
+let ffmpegCache: { override: string | null; at: number; paths: FfmpegPaths | null } | null = null;
+
+function getFfmpeg(): FfmpegPaths | null {
+  const override = getFfmpegOverride();
+  const fresh =
+    ffmpegCache && ffmpegCache.override === override && (ffmpegCache.paths !== null || Date.now() - ffmpegCache.at < 5000);
+  if (!fresh) ffmpegCache = { override, at: Date.now(), paths: findFfmpeg(override) };
+  return ffmpegCache?.paths ?? null;
+}
+
+function discoveryFilePath(): string {
+  return path.join(app.getPath('userData'), 'mcp-api.json');
+}
+
+/** Turns the local control API on: the tool service, the HTTP server, and the discovery file the
+ * MCP stdio shim reads to find it. No-op if it is already running. */
+async function startApi(): Promise<void> {
+  if (localApi || !db || !jobQueue) return;
+  if (!assemblies) {
+    assemblies = new AssemblyManager(db, {
+      ffmpeg: getFfmpeg,
+      outputDir: getVideosDir,
+      tempDir: () => path.join(app.getPath('temp'), 'kvgenius-assembly'),
+    });
+  }
+  if (!apiService) {
+    apiService = new ApiService({
+      db,
+      queue: jobQueue,
+      assemblies,
+      ffmpeg: getFfmpeg,
+      comfyAvailable: comfyIsAvailable,
+      imageSize: (file) => {
+        const size = nativeImage.createFromPath(file).getSize();
+        return size.width > 0 && size.height > 0 ? size : null;
+      },
+      imagePreviewFallback: async (file) => {
+        const image = nativeImage.createFromPath(file);
+        if (image.isEmpty()) return null;
+        const { width } = image.getSize();
+        return (width > 512 ? image.resize({ width: 512 }) : image).toJPEG(80);
+      },
+    });
+  }
+  const service = apiService;
+  const token = getApiToken();
+  localApi = await startLocalApi({
+    token,
+    preferredPort: 47615,
+    version: app.getVersion(),
+    handler: (tool, args) => service.callTool(tool, args),
+  });
+  writeDiscoveryFile(discoveryFilePath(), { port: localApi.port, token, pid: process.pid, version: app.getVersion() });
+}
+
+async function stopApi(): Promise<void> {
+  const api = localApi;
+  localApi = null;
+  removeDiscoveryFile(discoveryFilePath());
+  await api?.close();
+}
+
+function mcpInfo(): McpInfo {
+  const ff = getFfmpeg();
+  const snippet = {
+    mcpServers: {
+      kvgenius: {
+        command: process.execPath,
+        args: [path.join(__dirname, '..', 'mcp', 'shim.js')],
+        env: {
+          ELECTRON_RUN_AS_NODE: '1',
+          KVGENIUS_API_FILE: discoveryFilePath(),
+          KVGENIUS_VERSION: app.getVersion(),
+        },
+      },
+    },
+  };
+  return {
+    enabled: getApiEnabled(),
+    running: localApi !== null,
+    port: localApi?.port ?? null,
+    configSnippet: JSON.stringify(snippet, null, 2),
+    ffmpeg: { available: ff !== null, path: ff?.ffmpeg ?? null, override: getFfmpegOverride() },
+  };
 }
 
 function registerIpcHandlers(): void {
@@ -439,6 +539,33 @@ function registerIpcHandlers(): void {
     app.exit();
   });
 
+  ipcMain.handle('getMcpInfo', () => mcpInfo());
+
+  ipcMain.handle('setMcpEnabled', async (_event, enabled: boolean) => {
+    setApiEnabled(!!enabled);
+    if (enabled) await startApi();
+    else await stopApi();
+    return mcpInfo();
+  });
+
+  ipcMain.handle('chooseFfmpegPath', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose the ffmpeg program (ffprobe should sit next to it)',
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    setFfmpegOverride(result.filePaths[0]);
+    ffmpegCache = null;
+    return mcpInfo();
+  });
+
+  ipcMain.handle('resetFfmpegPath', () => {
+    setFfmpegOverride(null);
+    ffmpegCache = null;
+    return mcpInfo();
+  });
+
   ipcMain.handle('getAppVersion', () => app.getVersion());
   ipcMain.handle('checkForUpdates', () => checkForUpdatesNow());
   ipcMain.handle('openHardpoint', () => openHardpoint());
@@ -537,6 +664,10 @@ app
     jobQueue.onProgress((_jobId, progress) => {
       mainWindow?.webContents.send('generationProgress', progress);
     });
+    if (getApiEnabled()) {
+      // A failure to start the API (say, a locked-down loopback) must not stop the app itself.
+      await startApi().catch((error) => logStartupFailure('startApi', error));
+    }
     moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), getImagesDir(), getVideosDir());
     // Favorited before the favorites folder existed: move those files into it.
     syncFavoriteFiles(db, outputDirs(), videoFamilyList());
@@ -570,6 +701,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  removeDiscoveryFile(discoveryFilePath());
+  void localApi?.close();
+  localApi = null;
   mediaServer?.close();
   jobQueue = null;
   db?.close();

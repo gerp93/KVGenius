@@ -173,6 +173,16 @@ export interface UpdateCheckResult {
   message?: string;
 }
 
+/** State of the local control API that MCP clients use, and of ffmpeg (needed for stitching videos). */
+export interface McpInfo {
+  enabled: boolean;
+  running: boolean;
+  port: number | null;
+  /** Ready-to-paste `mcpServers` entry for an MCP client's config (e.g. Claude Desktop). */
+  configSnippet: string;
+  ffmpeg: { available: boolean; path: string | null; override: string | null };
+}
+
 /** Contract exposed on window.kvgenius by the preload script. */
 export interface KVGeniusAPI {
   /** `estimate` is what was shown for this run; it is stored with the actual timing so the
@@ -259,6 +269,13 @@ export interface KVGeniusAPI {
   chooseExistingDb: () => Promise<string | null>;
   chooseNewDbLocation: () => Promise<string | null>;
   resetDbToDefault: () => Promise<void>;
+
+  getMcpInfo: () => Promise<McpInfo>;
+  /** Turns the local control API on or off (off by default). */
+  setMcpEnabled: (enabled: boolean) => Promise<McpInfo>;
+  /** Asks for an ffmpeg binary; resolves the new state, or null if the dialog was cancelled. */
+  chooseFfmpegPath: () => Promise<McpInfo | null>;
+  resetFfmpegPath: () => Promise<McpInfo>;
 
   getAppVersion: () => Promise<string>;
   checkForUpdates: () => Promise<UpdateCheckResult>;

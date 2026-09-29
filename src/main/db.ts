@@ -5,6 +5,8 @@ import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, Save
 import { normalizeName, normalizeTags } from '../shared/promptTags';
 import { TIMING_SCHEMA } from './timingStats';
 import { JOBS_SCHEMA } from './jobStore';
+import { IMPORTS_SCHEMA } from './library';
+import { ASSEMBLIES_SCHEMA } from './assembly';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -66,6 +68,8 @@ export function initDatabase(dbPath: string): DatabaseSync {
   db.exec(SCHEMA);
   db.exec(TIMING_SCHEMA);
   db.exec(JOBS_SCHEMA);
+  db.exec(IMPORTS_SCHEMA);
+  db.exec(ASSEMBLIES_SCHEMA);
   migrateSchema(db);
   return db;
 }
