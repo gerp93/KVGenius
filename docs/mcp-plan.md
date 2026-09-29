@@ -61,10 +61,15 @@ stdio shim  ── forwards ──►  local HTTP API (127.0.0.1, token)   ◄�
 
 ## Prerequisite: real job queue
 
-Today `generate()` is one blocking IPC call and `comfyui.ts` tracks a single
-`currentPromptId` / abort controller (this is the "Job queue" item in
-`TODO.md`). MCP needs this to exist first, because video jobs take minutes and a
-batch may be 15 of them.
+**Phase 1 status: implemented** (`jobStore.ts`, `jobQueue.ts`,
+`generationService.ts`, `src/shared/jobs.ts`; tests via `npm test`). The
+Generate page already had a queue, but it lived in the renderer, invisible to
+anything else, and `comfyui.ts` tracks a single in-flight prompt. Now the
+`generate` IPC handler submits to a persisted main-process queue and waits, so
+UI and future MCP jobs share one line for the GPU. The renderer's own queue UI
+is unchanged; moving it onto the main-process queue (so it can show MCP jobs)
+is left for later. Jobs left queued/running at shutdown become `interrupted` on
+next start and are not re-run.
 
 Requirements:
 

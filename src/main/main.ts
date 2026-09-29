@@ -43,18 +43,19 @@ import {
   deleteSavedPrompt,
 } from './db';
 import {
-  generate as comfyGenerate,
   isAvailable as comfyIsAvailable,
   cancelCurrentGeneration,
+  GenerationCancelledError,
   DEFAULT_COMFYUI_HOST,
 } from './comfyui';
+import { JobQueue } from './jobQueue';
+import { createGenerationRunner, getLastRunFamily } from './generationService';
 import { FAMILY_KIND, GenerationKind, GenerationParams } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
 import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaRequest } from './mediaProtocol';
 import { MediaServer, startMediaServer } from './mediaServer';
-import { faststartMp4 } from './mp4Faststart';
 import { applyFavorite, syncFavoriteFiles } from './favorites';
 import { uniqueNames, writeZip } from './zipWriter';
 import { diagnoseVideo } from './videoDiagnostics';
@@ -116,6 +117,7 @@ process.on('uncaughtException', (error) => {
 
 let mainWindow: BrowserWindow | null = null;
 let db: DatabaseSync | null = null;
+let jobQueue: JobQueue | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -177,10 +179,6 @@ function imageUrlFor(imagePath: string): string {
   return `kvimage://${encodeURIComponent(imagePath)}`;
 }
 
-// The model family of the last generation that finished. ComfyUI keeps a family's models loaded
-// until something else needs the memory, so the next run of the same family starts "warm".
-let lastRunFamily: string | null = null;
-
 function registerIpcHandlers(): void {
   ipcMain.handle(
     'generate',
@@ -190,56 +188,17 @@ function registerIpcHandlers(): void {
       params: GenerationParams,
       estimate: { totalMs: number | null; generateMs: number | null } | null
     ) => {
-    if (!db) throw new Error('Database not initialized');
+    if (!db || !jobQueue) throw new Error('Database not initialized');
 
-    const warm = lastRunFamily === family;
-    const output = await comfyGenerate(family, params, (progress) => {
-      mainWindow?.webContents.send('generationProgress', progress);
-    });
-    lastRunFamily = family;
-
-    // Images and videos are saved to separate folders under KVGenius_Data/output.
-    const outputDir = FAMILY_KIND[family] === 'video' ? getVideosDir() : getImagesDir();
-    fs.mkdirSync(outputDir, { recursive: true });
-    const filename = `${Date.now()}-${params.seed}${output.extension}`;
-    const imagePath = path.join(outputDir, filename);
-    // ComfyUI's MP4s keep their index at the end of the file, which the in-app player can't
-    // handle when served through kvimage:// - store them with the index up front instead.
-    let bytes = output.bytes;
-    if (output.extension.toLowerCase() === '.mp4') {
-      try {
-        bytes = faststartMp4(bytes) ?? bytes;
-      } catch {
-        // Keep the original bytes; playback may fail but the generation is still saved.
-      }
-    }
-    fs.writeFileSync(imagePath, bytes);
-
-    // How long it took vs what was predicted goes in its own table (timing_stats), holding only
-    // timings and settings - never the prompt or image - so it outlives the generation.
-    const t = output.timings;
-    const timingId = insertTiming(db, {
-      family,
-      kind: FAMILY_KIND[family] === 'video' ? 'video' : 'image',
-      width: params.width,
-      height: params.height,
-      steps: params.steps,
-      cfg: params.cfg,
-      length: params.length ?? null,
-      warm,
-      estimateMs: estimate?.totalMs ?? null,
-      estimateGenerateMs: estimate?.generateMs ?? null,
-      actualMs: t.totalMs,
-      loadMs: t.loadMs,
-      generateMs: t.loadMs === null ? t.totalMs : t.totalMs - t.loadMs,
-      samplingMs: t.samplingMs,
-      finishMs: t.finishMs,
-      samplerSteps: t.samplerSteps,
-      paceMs: t.paceMs,
-    });
-    const inserted = insertGeneration(db, params, family, imagePath, timingId);
-    const record = getGenerationById(db, inserted.id) ?? inserted;
-    return { record, imageUrl: imageUrlFor(imagePath) };
+    // The Generate page keeps its own list of what it has queued and awaits one job at a time, so
+    // this waits for the job to finish; the main-process queue is what puts it in line with
+    // anything else (e.g. an outside client) that is also using the GPU.
+    const submitted = jobQueue.submit({ family, params, estimate, source: 'ui' });
+    const job = await jobQueue.wait(submitted.id);
+    if (job.status === 'cancelled') throw new GenerationCancelledError('Generation cancelled.');
+    const record = job.generationId === null ? null : getGenerationById(db, job.generationId);
+    if (job.status !== 'done' || !record) throw new Error(job.error ?? 'Generation failed.');
+    return { record, imageUrl: imageUrlFor(record.imagePath) };
     }
   );
 
@@ -247,7 +206,7 @@ function registerIpcHandlers(): void {
     'estimateGeneration',
     (_event, family: string, params: GenerationParams, previousFamily?: string | null) => {
       if (!db) return null;
-      const before = previousFamily === undefined ? lastRunFamily : previousFamily;
+      const before = previousFamily === undefined ? getLastRunFamily() : previousFamily;
       return estimateRun(listTimingRows(db, 200), {
         family,
         kind: FAMILY_KIND[family] === 'video' ? 'video' : 'image',
@@ -271,7 +230,9 @@ function registerIpcHandlers(): void {
     clearTimingStats(db);
   });
 
-  ipcMain.handle('cancelGeneration', () => cancelCurrentGeneration());
+  ipcMain.handle('cancelGeneration', async () => {
+    await jobQueue?.cancelRunning();
+  });
 
   const videoFamilies = videoFamilyList();
 
@@ -435,6 +396,7 @@ function registerIpcHandlers(): void {
   // simplest correct fix is a full relaunch, which re-opens at whatever getEffectiveDbPath()
   // now resolves to. Matches the standard's own "then restart the app" requirement.
   function relocateAndRelaunch(newPath: string): void {
+    jobQueue = null;
     db?.close();
     db = null;
     setDbPath(newPath);
@@ -469,6 +431,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('resetDbToDefault', () => {
+    jobQueue = null;
     db?.close();
     db = null;
     resetToDefaultDbPath();
@@ -567,6 +530,13 @@ app
     migrateLegacyDefaultDbLocation();
     enforceDevDatabaseIsolation();
     db = initDatabase(getEffectiveDbPath());
+    jobQueue = new JobQueue(db, createGenerationRunner(() => db), {
+      cancelRunning: cancelCurrentGeneration,
+      isCancellation: (err) => err instanceof GenerationCancelledError,
+    });
+    jobQueue.onProgress((_jobId, progress) => {
+      mainWindow?.webContents.send('generationProgress', progress);
+    });
     moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), getImagesDir(), getVideosDir());
     // Favorited before the favorites folder existed: move those files into it.
     syncFavoriteFiles(db, outputDirs(), videoFamilyList());
@@ -601,6 +571,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   mediaServer?.close();
+  jobQueue = null;
   db?.close();
   db = null;
 });

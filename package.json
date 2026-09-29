@@ -12,6 +12,7 @@
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.main.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/main/jobQueue.test.js",
     "package": "electron-builder",
     "generate-icons": "node scripts/generate-icons.js"
   },

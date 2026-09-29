@@ -4,6 +4,7 @@ import * as path from 'path';
 import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, SavedPrompt } from '../shared/types';
 import { normalizeName, normalizeTags } from '../shared/promptTags';
 import { TIMING_SCHEMA } from './timingStats';
+import { JOBS_SCHEMA } from './jobStore';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -64,6 +65,7 @@ export function initDatabase(dbPath: string): DatabaseSync {
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
   db.exec(TIMING_SCHEMA);
+  db.exec(JOBS_SCHEMA);
   migrateSchema(db);
   return db;
 }
