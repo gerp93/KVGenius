@@ -160,11 +160,19 @@ export function upsertImport(db: DatabaseSync, item: NewImport): ItemView {
   return getItem(db, `imp-${Number(result.lastInsertRowid)}`) as ItemView;
 }
 
-export function getItem(db: DatabaseSync, id: string): ItemView | null {
+/** Generated results count as made by an outside client only if the job that produced them came
+ * from one. Anything made in the app itself - and anything from before jobs were recorded - does
+ * not, so restricting to these keeps a client from seeing work it did not ask for. */
+const FROM_CLIENT = "j.source = 'mcp'";
+
+/** `clientOnly`: show only what outside clients created (their generations, imports and assemblies). */
+export function getItem(db: DatabaseSync, id: string, options: { clientOnly?: boolean } = {}): ItemView | null {
   const ref = parseItemId(id);
   if (!ref) return null;
   if (ref.table === 'gen') {
-    const row = db.prepare(`${GEN_SELECT} WHERE g.id = ?`).get(ref.n) as unknown as GenRow | undefined;
+    const row = db
+      .prepare(`${GEN_SELECT} WHERE g.id = ?${options.clientOnly ? ` AND ${FROM_CLIENT}` : ''}`)
+      .get(ref.n) as unknown as GenRow | undefined;
     return row ? genToItem(row) : null;
   }
   const row = db.prepare('SELECT * FROM imports WHERE id = ?').get(ref.n) as unknown as ImpRow | undefined;
@@ -176,6 +184,8 @@ export interface ItemFilter {
   origin?: ItemOrigin;
   batch?: string;
   limit?: number;
+  /** Only what outside clients created; see getItem. */
+  clientOnly?: boolean;
 }
 
 /** Newest first across generated and imported items. */
@@ -184,7 +194,7 @@ export function listItems(db: DatabaseSync, filter: ItemFilter = {}): ItemView[]
   const items: ItemView[] = [];
 
   if ((filter.origin === undefined || filter.origin === 'generated') && filter.kind !== 'audio') {
-    const where: string[] = [];
+    const where: string[] = filter.clientOnly ? [FROM_CLIENT] : [];
     const args: (string | number)[] = [];
     const videoFamilies = Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'video');
     if (filter.kind === 'video') {

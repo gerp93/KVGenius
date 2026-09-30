@@ -15,6 +15,7 @@ const ff = findFfmpeg();
 let dir: string;
 let db: DatabaseSync;
 let service: ApiService;
+let queue: JobQueue;
 let released: Array<() => void> = [];
 let runnerCalls: string[] = [];
 
@@ -34,7 +35,7 @@ const tick = () => new Promise((r) => setImmediate(r));
 before(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-api-'));
   db = initDatabase(':memory:');
-  const queue = new JobQueue(db, fakeRunner, { cancelRunning: async () => undefined });
+  queue = new JobQueue(db, fakeRunner, { cancelRunning: async () => undefined });
   const assemblies = new AssemblyManager(db, { ffmpeg: () => ff, outputDir: () => path.join(dir, 'videos'), tempDir: () => path.join(dir, 'tmp') });
   service = new ApiService({
     db,
@@ -181,6 +182,67 @@ test('get_item reports the file and rejects unknown ids', async () => {
   assert.equal((got.data as any).item.id, song.id);
   assert.equal(got.images, undefined, 'audio has no preview');
   await rejects(service.callTool('get_item', { item_id: 'gen-99999' }), 'not_found');
+});
+
+test('work done in the app is invisible and unusable to clients', async () => {
+  for (let i = 0; i < 50 && (await call('list_jobs', { status: 'running' })).jobs.length > 0; i++) await tick();
+  released = [];
+  const uiParams = { prompt: 'SECRET prompt typed in the app', width: 512, height: 512, seed: 1, steps: 4, cfg: 1 };
+
+  // A generation made in the app, through the same queue.
+  const uiJob = queue.submit({ family: 'z-image-turbo', params: uiParams, source: 'ui', batch: 'shared' });
+  released.shift()?.();
+  const uiDone = await queue.wait(uiJob.id);
+  assert.equal(uiDone.status, 'done');
+  const uiGen = `gen-${uiDone.generationId}`;
+
+  // One from before jobs were recorded at all (no job row).
+  const legacyFile = path.join(dir, 'legacy.png');
+  fs.writeFileSync(legacyFile, 'x');
+  const legacyGen = `gen-${insertGeneration(db, { ...uiParams, prompt: 'SECRET legacy prompt' }, 'z-image-turbo', legacyFile, null).id}`;
+
+  // Not in any listing, by any filter.
+  for (const filter of [{}, { kind: 'image' }, { origin: 'generated' }, { batch: 'shared' }]) {
+    const items = (await call('list_library', { ...filter, limit: 200 })).items;
+    assert.ok(!items.some((i: any) => [uiGen, legacyGen].includes(i.id)), `listed with ${JSON.stringify(filter)}`);
+    assert.ok(!JSON.stringify(items).includes('SECRET'), 'no prompt text leaks');
+  }
+
+  // Indistinguishable from an id that does not exist.
+  const missing = await service.callTool('get_item', { item_id: 'gen-999999' }).catch((e) => e as ApiError);
+  for (const id of [uiGen, legacyGen]) {
+    const err = await service.callTool('get_item', { item_id: id }).catch((e) => e as ApiError);
+    assert.ok(err instanceof ApiError && err.code === 'not_found');
+    assert.equal(err.message.replace(id, 'X'), (missing as ApiError).message.replace('gen-999999', 'X'));
+    await rejects(service.callTool('probe_media', { item_id: id }), 'not_found');
+    await rejects(service.callTool('generate_video', { prompt: 'x', source: id }), 'not_found');
+    await rejects(service.callTool('assemble_video', { clips: [id] }), 'not_found');
+  }
+
+  // Its job is invisible too: listing, lookup and cancel.
+  assert.ok(!(await call('list_jobs', {})).jobs.some((j: any) => j.job_id === uiJob.id));
+  assert.ok(!JSON.stringify(await call('list_jobs', { batch: 'shared' })).includes('SECRET'));
+  await rejects(service.callTool('get_job', { job_id: uiJob.id }), 'not_found');
+  await rejects(service.callTool('cancel_job', { job_id: uiJob.id }), 'not_found');
+
+  // A client cancelling a batch label cannot reach a waiting app job that happens to share it.
+  const clientJob = await call('generate_image', { prompt: 'client work', batch: 'shared' });
+  const waitingUi = queue.submit({ family: 'z-image-turbo', params: uiParams, source: 'ui', batch: 'shared' });
+  await tick();
+  assert.equal(queue.get(waitingUi.id)?.status, 'queued');
+  assert.equal((await call('cancel_job', { batch: 'shared' })).cancelled_waiting_jobs, 0);
+  assert.equal(queue.get(waitingUi.id)?.status, 'queued', 'the app job is untouched');
+  released.shift()?.();
+  assert.equal((await call('get_job', { job_id: clientJob.job_id, wait_seconds: 5 })).status, 'done');
+  await tick();
+  released.shift()?.();
+  assert.equal((await queue.wait(waitingUi.id)).status, 'done');
+
+  // What the client made itself is still fully visible, and usable.
+  const mine = (await call('get_job', { job_id: clientJob.job_id })).item;
+  assert.equal(mine.prompt, 'client work');
+  assert.equal((await call('get_item', { item_id: mine.id })).item.id, mine.id);
+  assert.ok((await call('list_library', { batch: 'shared' })).items.some((i: any) => i.id === mine.id));
 });
 
 // -- with a real ffmpeg -----------------------------------------------------------------------

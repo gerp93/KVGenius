@@ -43,6 +43,7 @@ export interface JobInfo {
 }
 
 export interface JobFilter {
+  source?: JobSource;
   batch?: string;
   status?: JobStatus;
   limit?: number;

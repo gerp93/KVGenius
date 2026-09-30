@@ -115,6 +115,19 @@ export class ApiService {
     });
   }
 
+  // Everything a client can see or touch is scoped to what clients themselves created: their
+  // jobs, and the library items those (and their imports/assemblies) produced. Work done in the
+  // app is not merely hidden from listings - it is indistinguishable from an id that does not exist.
+
+  private item(id: string): ItemView | null {
+    return getItem(this.deps.db, id, { clientOnly: true });
+  }
+
+  private clientJob(id: number): JobInfo | null {
+    const job = this.deps.queue.get(id);
+    return job && job.source === 'mcp' ? job : null;
+  }
+
   async callTool(name: string, rawArgs: unknown): Promise<ToolResult> {
     if (!TOOLS.some((t) => t.name === name)) throw new ApiError('unknown_tool', `Unknown tool "${name}".`);
     if (rawArgs !== undefined && rawArgs !== null && (typeof rawArgs !== 'object' || Array.isArray(rawArgs))) {
@@ -326,7 +339,7 @@ export class ApiService {
           }
         : null,
       error: job.error,
-      item: job.generationId === null ? null : getItem(this.deps.db, `gen-${job.generationId}`),
+      item: job.generationId === null ? null : this.item(`gen-${job.generationId}`),
       created_at: job.createdAt,
       started_at: job.startedAt,
       finished_at: job.finishedAt,
@@ -335,6 +348,7 @@ export class ApiService {
 
   private listJobs(args: Args) {
     const filter: JobFilter = {
+      source: 'mcp',
       batch: optBatch(args),
       status: optEnum<JobStatus>(args, 'status', ['queued', 'running', 'done', 'failed', 'cancelled', 'interrupted']),
       limit: optNumber(args, 'limit', 1, 500, true),
@@ -348,10 +362,10 @@ export class ApiService {
   private async getJob(args: Args) {
     const id = optNumber(args, 'job_id', 1, Number.MAX_SAFE_INTEGER, true);
     if (id === undefined) fail('"job_id" is required.');
-    if (!this.deps.queue.get(id)) throw new ApiError('not_found', `No job ${id}.`);
+    if (!this.clientJob(id)) throw new ApiError('not_found', `No job ${id}.`);
     const wait = (optNumber(args, 'wait_seconds', 0, MAX_WAIT_SECONDS) ?? 0) * 1000;
     if (wait > 0) await Promise.race([this.deps.queue.wait(id), sleep(wait)]);
-    return this.jobView(this.deps.queue.get(id) as JobInfo);
+    return this.jobView(this.clientJob(id) as JobInfo);
   }
 
   private async cancelJob(args: Args) {
@@ -362,21 +376,21 @@ export class ApiService {
       fail('Give exactly one of job_id, batch or assembly_id.');
     }
     if (jobId !== undefined) {
-      if (!this.deps.queue.get(jobId)) throw new ApiError('not_found', `No job ${jobId}.`);
+      if (!this.clientJob(jobId)) throw new ApiError('not_found', `No job ${jobId}.`);
       const cancelled = await this.deps.queue.cancel(jobId);
-      return { cancelled, job: this.jobView(this.deps.queue.get(jobId) as JobInfo) };
+      return { cancelled, job: this.jobView(this.clientJob(jobId) as JobInfo) };
     }
     if (assemblyId !== undefined) {
       if (!this.deps.assemblies.get(assemblyId)) throw new ApiError('not_found', `No assembly ${assemblyId}.`);
       return { cancelled: this.deps.assemblies.cancel(assemblyId) };
     }
-    return { cancelled_waiting_jobs: this.deps.queue.cancelQueued(batch), note: 'Only jobs still waiting were cancelled; a running job is cancelled with its job_id.' };
+    return { cancelled_waiting_jobs: this.deps.queue.cancelQueued(batch, 'mcp'), note: 'Only jobs still waiting were cancelled; a running job is cancelled with its job_id.' };
   }
 
   // -- library -----------------------------------------------------------------------------------
 
   private requireItem(id: string, kinds: ItemKind[], label: string): ItemView {
-    const item = getItem(this.deps.db, id);
+    const item = this.item(id);
     if (!item) throw new ApiError('not_found', `"${label}": no library item ${id} (expected ${ITEM_ID_HINT}).`);
     if (!kinds.includes(item.kind)) fail(`"${label}": ${id} is ${item.kind === 'image' ? 'an' : 'a'} ${item.kind}, expected ${kinds.join(' or ')}.`);
     if (!fs.existsSync(item.path)) throw new ApiError('file_missing', `"${label}": the file for ${id} no longer exists (${item.path}).`);
@@ -389,13 +403,14 @@ export class ApiService {
       origin: optEnum<ItemOrigin>(args, 'origin', ['generated', 'imported', 'assembled']),
       batch: optBatch(args),
       limit: optNumber(args, 'limit', 1, 200, true),
+      clientOnly: true,
     });
     return { count: items.length, items };
   }
 
   private async getItemTool(args: Args): Promise<ToolResult> {
     const id = reqString(args, 'item_id', 64);
-    const item = getItem(this.deps.db, id);
+    const item = this.item(id);
     if (!item) throw new ApiError('not_found', `No library item ${id}.`);
     const exists = fs.existsSync(item.path);
     const result: ToolResult = { data: { item, file_exists: exists } };
