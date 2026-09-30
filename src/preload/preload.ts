@@ -62,6 +62,10 @@ const api: KVGeniusAPI = {
   chooseNewDbLocation: () => ipcRenderer.invoke('chooseNewDbLocation'),
   resetDbToDefault: () => ipcRenderer.invoke('resetDbToDefault'),
 
+  getMcpInfo: () => ipcRenderer.invoke('getMcpInfo'),
+  setMcpEnabled: (enabled: boolean) => ipcRenderer.invoke('setMcpEnabled', enabled),
+  chooseFfmpegPath: () => ipcRenderer.invoke('chooseFfmpegPath'),
+  resetFfmpegPath: () => ipcRenderer.invoke('resetFfmpegPath'),
   getAppVersion: () => ipcRenderer.invoke('getAppVersion'),
   checkForUpdates: () => ipcRenderer.invoke('checkForUpdates'),
 

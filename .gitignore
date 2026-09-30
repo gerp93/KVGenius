@@ -4,6 +4,7 @@ npm-debug.log*
 
 # Build output
 dist/
+dist-test/
 dist-electron/
 out/
 release/

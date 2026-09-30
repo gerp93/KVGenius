@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import { randomBytes } from 'crypto';
 import { app, shell, dialog } from 'electron';
 import { DEFAULT_COMFYUI_HOST } from './comfyui';
 import { PromptSlot, sanitizeSlots } from '../shared/promptSlots';
@@ -10,6 +11,11 @@ interface AppConfig {
   theme?: string;
   promptSlots?: PromptSlot[];
   activePromptSlotId?: string;
+  /** Whether the local control API (for MCP clients) is on. Off unless the user turns it on. */
+  apiEnabled?: boolean;
+  apiToken?: string;
+  /** User-chosen ffmpeg binary; empty = use the bundled one or PATH. */
+  ffmpegPath?: string;
 }
 
 export const DEFAULT_THEME = 'neon';
@@ -231,4 +237,32 @@ export function getActivePromptSlotId(): string | null {
 
 export function savePromptSlots(slots: PromptSlot[], activeId: string): void {
   writeConfig({ ...readConfig(), promptSlots: sanitizeSlots(slots), activePromptSlotId: activeId });
+}
+
+export function getApiEnabled(): boolean {
+  return readConfig().apiEnabled === true;
+}
+
+export function setApiEnabled(enabled: boolean): void {
+  writeConfig({ ...readConfig(), apiEnabled: enabled });
+}
+
+/** The bearer token clients must present; created the first time it is needed and kept after. */
+export function getApiToken(): string {
+  const config = readConfig();
+  if (config.apiToken) return config.apiToken;
+  const apiToken = randomBytes(32).toString('hex');
+  writeConfig({ ...config, apiToken });
+  return apiToken;
+}
+
+export function getFfmpegOverride(): string | null {
+  return readConfig().ffmpegPath || null;
+}
+
+export function setFfmpegOverride(ffmpegPath: string | null): void {
+  const config = readConfig();
+  if (ffmpegPath) config.ffmpegPath = ffmpegPath;
+  else delete config.ffmpegPath;
+  writeConfig(config);
 }

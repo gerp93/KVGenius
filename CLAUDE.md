@@ -18,6 +18,9 @@ implementation here is exactly the kind of drift it exists to prevent.
   contract both sides implement).
 - `src/renderer/` — React UI (`pages/Generate.tsx`, `pages/Library.tsx`).
 - `src/shared/` — types used by both main and renderer.
+- `src/mcp/` — the MCP stdio shim (`shim.ts`, protocol in `mcpProtocol.ts`). Runs as its own
+  process (Node, or the app binary with `ELECTRON_RUN_AS_NODE=1`), holds no state, and forwards to
+  the running app's local API. See `docs/mcp-plan.md`.
 - `src/main/templates/` — ComfyUI workflow templates in API format (not the
   visual "workflow format" you'd drag into ComfyUI's own editor — see the
   session history for why that distinction matters). One template per model
@@ -32,6 +35,13 @@ implementation here is exactly the kind of drift it exists to prevent.
 - `src/shared/types.ts`'s `FAMILY_KIND` map says whether a family produces
   an image or a video - the renderer uses it to decide `<img>` vs `<video>`
   for a given record, without needing a separate DB column for it.
+
+- Generation goes through a persisted job queue in the main process (`jobQueue.ts`,
+  `jobStore.ts`; the runner is `generationService.ts`). The UI's `generate` IPC and outside
+  clients (`apiService.ts` over the loopback API in `localApi.ts`) submit to the same queue, so
+  they share one line for the GPU. Tool definitions live in `src/shared/tools.ts`; add a tool
+  there and in `ApiService.callTool`. ffmpeg work (`mediaTools.ts`, `assembly.ts`) is separate
+  from the queue. `npm test` runs the `*.test.ts` files (compiled by `tsconfig.test.json`).
 
 ## Key design decisions
 

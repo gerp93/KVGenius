@@ -15,14 +15,16 @@ and this repo's `REPO_SCOPE.md` entry for that). Just what's not built yet.
 - Support for additional image model families beyond Z Image Turbo
   (SD1.5-style, SDXL-style, Flux-style templates), each with its own
   curated field set
-- Job queue: let multiple generations be queued up instead of one at a
-  time, with a side panel showing what's queued/running. Real
-  architectural change - today `generate()` is one blocking IPC call
-  per submission; a queue needs the main process to track multiple
-  in-flight/pending jobs (not just the single currentPromptId/
-  currentAbortController pair cancelGeneration() uses today) and push
-  state updates to the renderer as jobs move through it, rather than
-  the renderer just awaiting one promise.
+- Show queue state from the main-process job queue (`src/main/jobQueue.ts`) in the UI, so
+  jobs submitted by outside clients (MCP, see `docs/mcp-plan.md`) appear in the queue panel.
+  The Generate page still keeps its own renderer-side queue and awaits one `generate` call at a
+  time; the main-process queue already serializes and persists everything, the UI just does not
+  read from it yet.
+
+- Show imported and assembled files (the `imports` table, see `docs/mcp-plan.md`) in the
+  Library page. Today only MCP clients can list them; generated results already appear.
+- Try the MCP integration from a real Claude Desktop config and from a packaged build
+  (asar-unpacked ffmpeg, `ELECTRON_RUN_AS_NODE` launch) on each OS.
 
 ## Needs real-world verification
 

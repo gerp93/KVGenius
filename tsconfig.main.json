@@ -2,7 +2,9 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "CommonJS",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "outDir": "dist/main",
     "rootDir": "src",
     "strict": true,
@@ -10,7 +12,17 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*"]
+  "include": [
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/shared/**/*",
+    "src/mcp/**/*"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ]
 }

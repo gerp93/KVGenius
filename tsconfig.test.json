@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.main.json",
+  "compilerOptions": { "outDir": "dist-test", "noEmit": false },
+  "include": ["src/shared/**/*", "src/**/*.test.ts", "src/mcp/shim.ts"],
+  "exclude": []
+}
