@@ -74,6 +74,10 @@ export function getJob(db: DatabaseSync, id: number): JobInfo | null {
 export function listJobs(db: DatabaseSync, filter: JobFilter = {}): JobInfo[] {
   const where: string[] = [];
   const args: (string | number)[] = [];
+  if (filter.source !== undefined) {
+    where.push('source = ?');
+    args.push(filter.source);
+  }
   if (filter.batch !== undefined) {
     where.push('batch = ?');
     args.push(filter.batch);

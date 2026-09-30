@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { GenerationProgress } from '../shared/types';
-import { JobFilter, JobInfo, JobRequest, isTerminalJobStatus } from '../shared/jobs';
+import { JobFilter, JobInfo, JobRequest, JobSource, isTerminalJobStatus } from '../shared/jobs';
 import {
   countQueuedJobs,
   finishJob,
@@ -110,9 +110,10 @@ export class JobQueue {
     return this.runningId === null ? false : this.cancel(this.runningId);
   }
 
-  /** Cancels every job still waiting (not the running one). Returns how many. */
-  cancelQueued(batch?: string): number {
-    const waiting = listJobs(this.db, { status: 'queued', batch, limit: 500 });
+  /** Cancels every job still waiting (not the running one), optionally only those of one batch
+   * and/or one source. Returns how many. */
+  cancelQueued(batch?: string, source?: JobSource): number {
+    const waiting = listJobs(this.db, { status: 'queued', batch, source, limit: 500 });
     for (const job of waiting) this.settle(job.id, 'cancelled', { error: null });
     return waiting.length;
   }

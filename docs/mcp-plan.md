@@ -216,9 +216,23 @@ free one. Any other local client can use the HTTP API directly with the same fil
 
 **Security posture.** Loopback bind; bearer token (constant-time compare); any
 request with an `Origin` header or a non-loopback `Host` is refused; 1 MB body
-limit; off by default. A client holding the token can import and preview any
-image/audio/video file on the machine by path - that is the feature, and the
-toggle plus the token are the consent point.
+limit; off by default.
+
+**Data scope.** A client sees only what it created: jobs submitted through the API,
+and the library items they produced, plus its own imports and assemblies. Anything
+made in the app itself, and anything from before jobs were recorded, is treated
+exactly like an id that does not exist (`not_found`, same message) - in listings,
+`get_item`, `probe_media`, `get_job`, `cancel_job`, and as a source for
+`generate_video` / `assemble_video`. Batch cancellation only touches the client's
+own jobs even when an app job shares the label. Saved prompts, prompt tabs, timing
+stats, settings and the database have no tool at all. To use an app-made image, point
+`import_folder` at the file. Enforced in `library.ts` (`clientOnly`) and
+`ApiService` (`item()` / `clientJob()`), tested in `apiService.test.ts`.
+
+**Remaining exposure.** `import_folder` will read any image/audio/video file at a path
+the client names (and `get_item` then previews it). That is what lets you say "use the
+images in this folder", so it is not restricted yet; the toggle plus the token are the
+consent point. Restricting it to folders approved in Settings is the obvious next step.
 
 **Verification.** `npm test` (56 tests: queue, tool logic against a real ffmpeg,
 assembly planning, API auth/errors, MCP protocol, and the compiled shim run as a
