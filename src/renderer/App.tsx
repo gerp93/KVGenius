@@ -10,14 +10,18 @@ import Timing from './pages/Timing';
 import { GenerationRecord, VideoSourceRequest } from '../shared/types';
 
 const CONNECTION_POLL_MS = 15000;
+// ComfyUI can take a while to come up after launch (first start, loading models into memory).
+const STARTUP_POLL_MS = 2000;
+const STARTUP_TIMEOUT_MS = 4 * 60 * 1000;
 
-type ConnectionStatus = 'checking' | 'connected' | 'unreachable';
+type ConnectionStatus = 'checking' | 'connected' | 'unreachable' | 'starting';
 
 export default function App() {
   const [recallRecord, setRecallRecord] = useState<GenerationRecord | null>(null);
   const [videoSource, setVideoSource] = useState<VideoSourceRequest | null>(null);
   const [recallPrompt, setRecallPrompt] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<string | null>(null);
   const location = useLocation();
 
@@ -33,7 +37,8 @@ export default function App() {
     let cancelled = false;
     async function check() {
       const reachable = await window.kvgenius.checkComfyUIConnection();
-      if (!cancelled) setConnection(reachable ? 'connected' : 'unreachable');
+      // A launch in progress keeps its own 'starting' state until ComfyUI answers or gives up.
+      if (!cancelled) setConnection((prev) => (reachable ? 'connected' : prev === 'starting' ? 'starting' : 'unreachable'));
     }
     check();
     const interval = setInterval(check, CONNECTION_POLL_MS);
@@ -46,8 +51,39 @@ export default function App() {
   const connectionLabel: Record<ConnectionStatus, string> = {
     checking: '⏳ Checking ComfyUI...',
     connected: '🟢 ComfyUI connected',
-    unreachable: '🔴 ComfyUI not reachable',
+    unreachable: '🔴 ComfyUI not reachable - click to launch',
+    starting: '🟡 Starting ComfyUI...',
   };
+
+  async function handleLaunchComfyUI() {
+    setLaunchError(null);
+    setConnection('starting');
+    try {
+      const result = await window.kvgenius.launchComfyUI();
+      if (result.status === 'error') {
+        setLaunchError(result.message);
+        setConnection('unreachable');
+        return;
+      }
+      if (result.status === 'cancelled') {
+        setConnection('unreachable');
+        return;
+      }
+      const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        if (await window.kvgenius.checkComfyUIConnection()) {
+          setConnection('connected');
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, STARTUP_POLL_MS));
+      }
+      setLaunchError('ComfyUI was started but is still not answering. Check its window, or the server address in Settings.');
+      setConnection('unreachable');
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : String(err));
+      setConnection('unreachable');
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -76,13 +112,30 @@ export default function App() {
         <NavLink to="/settings" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Settings
         </NavLink>
-        <Link
-          to="/settings"
-          className="top-bar__connection"
-          title={connection === 'unreachable' ? 'Click to configure the ComfyUI server address' : undefined}
-        >
-          {connectionLabel[connection]}
-        </Link>
+        {launchError && (
+          <span className="top-bar__connection-error" title={launchError}>
+            {launchError}
+          </span>
+        )}
+        {connection === 'unreachable' || connection === 'starting' ? (
+          <button
+            type="button"
+            className="top-bar__connection"
+            disabled={connection === 'starting'}
+            onClick={handleLaunchComfyUI}
+            title={
+              connection === 'starting'
+                ? 'Waiting for ComfyUI to come up...'
+                : 'Start ComfyUI. The first time you may be asked which program to run (you can change it, or the server address, in Settings).'
+            }
+          >
+            {connectionLabel[connection]}
+          </button>
+        ) : (
+          <Link to="/settings" className="top-bar__connection">
+            {connectionLabel[connection]}
+          </Link>
+        )}
       </div>
       {/* Generate stays mounted across navigation (instead of going through <Routes>) so its
           in-progress prompt/settings survive a trip to Library or Settings and back - only

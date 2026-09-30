@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DbInfo, McpInfo, UpdateCheckResult } from '../../shared/types';
+import { ComfyUILauncherInfo, DbInfo, McpInfo, UpdateCheckResult } from '../../shared/types';
 import { THEME_NAMES, themeDisplayName } from '../../shared/themes';
 
 type ConnectionStatus = 'unknown' | 'checking' | 'connected' | 'unreachable';
@@ -17,6 +17,7 @@ export default function Settings({ theme, onThemeChange }: Props) {
   const [connection, setConnection] = useState<ConnectionStatus>('unknown');
   const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
   const [mcp, setMcp] = useState<McpInfo | null>(null);
+  const [launcher, setLauncher] = useState<ComfyUILauncherInfo | null>(null);
   const [snippetCopied, setSnippetCopied] = useState(false);
 
   const [appVersion, setAppVersion] = useState<string | null>(null);
@@ -35,6 +36,7 @@ export default function Settings({ theme, onThemeChange }: Props) {
 
     window.kvgenius.getDbInfo().then(setDbInfo);
     window.kvgenius.getMcpInfo().then(setMcp);
+    window.kvgenius.getComfyUILauncher().then(setLauncher);
     window.kvgenius.getAppVersion().then(setAppVersion);
   }, []);
 
@@ -48,6 +50,15 @@ export default function Settings({ theme, onThemeChange }: Props) {
     } else if (result.status === 'error') {
       setUpdateMessage(result.message ?? 'Something went wrong.');
     }
+  }
+
+  async function handleChooseLauncher() {
+    const next = await window.kvgenius.chooseComfyUILauncher();
+    if (next) setLauncher(next);
+  }
+
+  async function handleClearLauncher() {
+    setLauncher(await window.kvgenius.clearComfyUILauncher());
   }
 
   async function handleToggleMcp(enabled: boolean) {
@@ -223,6 +234,32 @@ export default function Settings({ theme, onThemeChange }: Props) {
           server defaults to port 8188 instead). ComfyUI Desktop's Settings → Server-Config shows
           its actual configured host/port if this doesn't connect.
         </p>
+
+        <h4 style={{ marginTop: 20 }}>Launch shortcut</h4>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+          When ComfyUI isn't running, click the red indicator at the top to start it. KVGenius runs
+          the program below: ComfyUI Desktop is found automatically if it's in its default location;
+          for the standalone version choose its run script (e.g. run_nvidia_gpu.bat) or AppImage.
+        </p>
+        <p style={{ fontSize: 12, wordBreak: 'break-all' }}>
+          {launcher
+            ? launcher.configured
+              ? `Will run: ${launcher.configured}`
+              : launcher.detected
+                ? `Will run (found automatically): ${launcher.detected}`
+                : 'Not set - you will be asked when you first click the indicator.'
+            : '...'}
+        </p>
+        <div className="button-row">
+          <button type="button" onClick={handleChooseLauncher}>
+            Choose Program...
+          </button>
+          {launcher?.configured && (
+            <button type="button" onClick={handleClearLauncher}>
+              Clear
+            </button>
+          )}
+        </div>
       </section>
 
       <section style={{ marginBottom: 32 }}>

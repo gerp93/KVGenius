@@ -35,7 +35,7 @@ function optionalModulePath(name: string, pick: (m: unknown) => unknown): string
 /**
  * Finds ffmpeg + ffprobe, in order: the path chosen in Settings (an ffmpeg binary; ffprobe is
  * looked for beside it), the copy bundled through the optional ffmpeg-static / ffprobe-static
- * packages, then whatever is on PATH. Null when none works.
+ * packages, then whatever is on PATH, then Homebrew's folders. Null when none works.
  */
 export function findFfmpeg(override?: string | null): FfmpegPaths | null {
   const candidates: Array<() => FfmpegPaths | null> = [];
@@ -53,6 +53,12 @@ export function findFfmpeg(override?: string | null): FfmpegPaths | null {
     return ffmpeg && ffprobe && fs.existsSync(ffmpeg) && fs.existsSync(ffprobe) ? { ffmpeg, ffprobe } : null;
   });
   candidates.push(() => ({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe' }));
+  // A macOS app started from Finder does not get the shell's PATH, so Homebrew's folders are not on
+  // it - look there directly. (The macOS build does not bundle ffmpeg: a universal app cannot carry
+  // one arch-specific binary, so on a Mac this is how ffmpeg is normally found.)
+  for (const dir of ['/opt/homebrew/bin', '/usr/local/bin']) {
+    candidates.push(() => ({ ffmpeg: path.join(dir, 'ffmpeg'), ffprobe: path.join(dir, 'ffprobe') }));
+  }
 
   for (const candidate of candidates) {
     const found = candidate();

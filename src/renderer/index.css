@@ -70,6 +70,32 @@ body {
   background: var(--color-border);
 }
 
+.top-bar__connection-error {
+  margin-left: auto;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-accent-red);
+  -webkit-app-region: no-drag;
+}
+
+.top-bar__connection-error + .top-bar__connection {
+  margin-left: 0;
+}
+
+button.top-bar__connection {
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button.top-bar__connection:disabled {
+  cursor: progress;
+}
+
 .top-bar__connection {
   margin-left: auto;
   -webkit-app-region: no-drag;
