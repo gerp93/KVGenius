@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GenerationParams, GenerationProgress } from '../shared/types';
+import { videoQualityFromCfg } from '../shared/videoQuality';
 import { ComfyMessage, ProgressTracker, RunTimings } from './progressTracker';
 import { getEffectiveComfyUIHost } from './dbLocation';
 import zImageTurboTemplate from './templates/z-image-turbo.json';
@@ -37,9 +38,9 @@ const Z_IMAGE_TURBO_NODE_MAP = {
 /**
  * Node IDs in src/main/templates/wan22-i2v.json. This is a 2-stage (high-noise then
  * low-noise) KSamplerAdvanced pipeline gated by a "4-step LoRA" switch chain (node 129:131)
- * that the template ships already enabled - deliberately not exposed here, matching the
- * curated-per-family-template philosophy (see CLAUDE.md): only the fields a user actually
- * needs to touch are patched, everything else stays exactly as the template author set it.
+ * that the template ships already enabled. Only that one boolean (fastLoraSwitch) is patched, to
+ * offer a Fast/High quality choice - the steps, CFG and model choices it selects between stay
+ * exactly as the template author set them (see CLAUDE.md's curated-field philosophy).
  * Only samplerHighNoise's seed is patched - samplerLowNoise (129:85) has add_noise:'disable'
  * and return_with_leftover_noise from stage 1, so its own noise_seed field is inert.
  */
@@ -48,6 +49,7 @@ const WAN22_I2V_NODE_MAP = {
   positivePrompt: '129:93',
   imageToVideo: '129:98',
   samplerHighNoise: '129:86',
+  fastLoraSwitch: '129:131',
 };
 
 export class ComfyUIUnavailableError extends Error {}
@@ -161,6 +163,10 @@ async function patchTemplate(
 
     const samplerNode = workflow[WAN22_I2V_NODE_MAP.samplerHighNoise] as { inputs: Record<string, unknown> };
     samplerNode.inputs.noise_seed = params.seed;
+
+    // One boolean flips the whole switch chain between the 4-step LoRA path and the 20-step path.
+    const loraSwitchNode = workflow[WAN22_I2V_NODE_MAP.fastLoraSwitch] as { inputs: Record<string, unknown> };
+    loraSwitchNode.inputs.value = videoQualityFromCfg(params.cfg) === 'fast';
 
     return workflow;
   }

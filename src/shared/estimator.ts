@@ -1,4 +1,5 @@
 import { GenerationKind, TimeEstimate, TimingStatRow } from './types';
+import { HIGH_VIDEO_WORK_FACTOR, videoQualityFromCfg } from './videoQuality';
 
 export interface EstimateQuery {
   family: string;
@@ -27,12 +28,15 @@ export function median(values: number[]): number {
 
 /**
  * How much sampling work a run is. Time is close to proportional to it: image sampling scales with
- * pixels x steps (and roughly doubles when CFG > 1, which adds a second model pass); the video
- * template has a fixed number of steps so it scales with pixels x frames.
+ * pixels x steps (and roughly doubles when CFG > 1, which adds a second model pass); video
+ * scales with pixels x frames, times a fixed factor when the slow "high" quality is chosen.
  */
 function samplingUnit(q: Pick<EstimateQuery, 'kind' | 'width' | 'height' | 'steps' | 'cfg' | 'lengthFrames'>): number {
   const pixels = q.width * q.height;
-  if (q.kind === 'video') return pixels * (q.lengthFrames ?? DEFAULT_VIDEO_FRAMES);
+  if (q.kind === 'video') {
+    const quality = videoQualityFromCfg(q.cfg) === 'high' ? HIGH_VIDEO_WORK_FACTOR : 1;
+    return pixels * (q.lengthFrames ?? DEFAULT_VIDEO_FRAMES) * quality;
+  }
   return pixels * Math.max(1, q.steps) * (q.cfg > 1.05 ? 2 : 1);
 }
 
@@ -57,7 +61,7 @@ function rowQuery(row: TimingStatRow): EstimateQuery {
 
 function sameSettings(row: TimingStatRow, q: EstimateQuery): boolean {
   if (row.width !== q.width || row.height !== q.height) return false;
-  if (q.kind === 'video') return row.length === q.lengthFrames;
+  if (q.kind === 'video') return row.length === q.lengthFrames && videoQualityFromCfg(row.cfg) === videoQualityFromCfg(q.cfg);
   return row.steps === q.steps && Math.abs(row.cfg - q.cfg) < 0.01;
 }
 
