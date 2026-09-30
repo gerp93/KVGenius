@@ -28,10 +28,13 @@ implementation here is exactly the kind of drift it exists to prevent.
   mode); `src/main/comfyui.ts` has a separate node-ID map per family (e.g.
   `WAN22_I2V_NODE_MAP`) recording which fields get patched at generation
   time, and these must stay in sync with their template JSON. `wan22-i2v`
-  deliberately leaves its 4-step-LoRA switch chain and the CFG=1 primitive
-  feeding its second KSampler pass untouched - only the fields a user
-  actually needs (prompt, width/height/length, seed, source image) are
-  patched, matching the curated-field philosophy below.
+  patches only the fields a user actually needs (prompt, width/height/length,
+  seed, source image) plus one boolean, the 4-step-LoRA switch (`129:131`),
+  which backs the Fast/High video quality option (`src/shared/videoQuality.ts`;
+  stored as steps/cfg on the record, so cfg > 1 means High). The step/CFG
+  primitives it selects between, including the CFG=1 feeding the second
+  KSampler pass, are left as the template author set them - matching the
+  curated-field philosophy below.
 - `src/shared/types.ts`'s `FAMILY_KIND` map says whether a family produces
   an image or a video - the renderer uses it to decide `<img>` vs `<video>`
   for a given record, without needing a separate DB column for it.

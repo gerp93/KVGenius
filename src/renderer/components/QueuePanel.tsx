@@ -1,4 +1,5 @@
 import { GenerationRecord } from '../../shared/types';
+import { videoQualityFromCfg } from '../../shared/videoQuality';
 import { Job, JobKind, ProgressInfo } from '../hooks/useGenerationQueue';
 import { formatDuration } from '../utils/format';
 import { describeProgress } from '../utils/progressModel';
@@ -32,7 +33,7 @@ function isDone(job: Job): job is DoneJob {
 function describe(job: Job): string {
   const { width, height, seed, steps, cfg, length } = job.params;
   const parts = [`${width}×${height}`];
-  if (job.kind === 'video') parts.push(`${framesToSeconds(length ?? 81)}s`);
+  if (job.kind === 'video') parts.push(`${framesToSeconds(length ?? 81)}s`, `${videoQualityFromCfg(cfg)} quality`);
   parts.push(`seed ${seed}`);
   if (job.kind === 'image') parts.push(`${steps} steps`, `CFG ${cfg}`);
   return parts.join(' · ');

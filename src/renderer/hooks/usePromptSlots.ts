@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { GenerationKind } from '../../shared/types';
+import type { VideoQuality } from '../../shared/videoQuality';
 import { MAX_PROMPT_SLOTS, PromptSlot, PromptSlotData, newPromptSlot, slotLabel } from '../../shared/promptSlots';
 
 /** How long to wait after the last edit before writing the tabs to disk - typing shouldn't hit
@@ -26,6 +27,7 @@ export function usePromptSlots() {
   const [steps, setSteps] = useState(8);
   const [cfg, setCfg] = useState(1);
   const [lengthSeconds, setLengthSeconds] = useState(5);
+  const [videoQuality, setVideoQuality] = useState<VideoQuality>('fast');
   const [sourceImagePath, setSourceImagePath] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customSize, setCustomSize] = useState(false);
@@ -42,6 +44,7 @@ export function usePromptSlots() {
     setSteps(data.steps);
     setCfg(data.cfg);
     setLengthSeconds(data.lengthSeconds);
+    setVideoQuality(data.videoQuality ?? 'fast');
     setSourceImagePath(data.sourceImagePath);
     setAdvancedOpen(data.advancedOpen);
     setCustomSize(data.customSize);
@@ -88,6 +91,7 @@ export function usePromptSlots() {
       steps,
       cfg,
       lengthSeconds,
+      videoQuality,
       sourceImagePath,
       advancedOpen,
       customSize,
@@ -122,6 +126,7 @@ export function usePromptSlots() {
     steps,
     cfg,
     lengthSeconds,
+    videoQuality,
     sourceImagePath,
     advancedOpen,
     customSize,
@@ -207,6 +212,8 @@ export function usePromptSlots() {
     setCfg,
     lengthSeconds,
     setLengthSeconds,
+    videoQuality,
+    setVideoQuality,
     sourceImagePath,
     setSourceImagePath,
     advancedOpen,

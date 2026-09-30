@@ -9,6 +9,7 @@ import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
 import { FAMILY_KIND, GenerationRecord, TimeEstimate, VideoSourceRequest } from '../../shared/types';
+import { VIDEO_QUALITY_SETTINGS, VideoQuality, videoQualityFromCfg } from '../../shared/videoQuality';
 
 type Mode = 'image' | 'video';
 
@@ -113,6 +114,8 @@ export default function Generate({
     setCfg,
     lengthSeconds,
     setLengthSeconds,
+    videoQuality,
+    setVideoQuality,
     sourceImagePath,
     setSourceImagePath,
     advancedOpen,
@@ -161,6 +164,9 @@ export default function Generate({
   const lastActiveFamily = [...queue.jobs].reverse().find((j) => j.status === 'queued' || j.status === 'running')?.family;
   // Several at once need different seeds, so a locked seed always means exactly one.
   const effectiveBatch = seedLocked ? 1 : batchSize;
+  // Video has no steps/CFG fields of its own - the Quality choice decides both.
+  const runSteps = mode === 'video' ? VIDEO_QUALITY_SETTINGS[videoQuality].steps : steps;
+  const runCfg = mode === 'video' ? VIDEO_QUALITY_SETTINGS[videoQuality].cfg : cfg;
 
   // Everything that decides what a run produces. The same signature with the same seed is the same
   // picture, so a locked seed plus an unchanged signature would only repeat the last result.
@@ -171,7 +177,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg] : [secondsToFrames(lengthSeconds), sourceImagePath],
+      mode === 'image' ? [steps, cfg] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -225,6 +231,7 @@ export default function Generate({
     setSteps(recallRecord.steps);
     setCfg(recallRecord.cfg);
     setLengthSeconds(recallRecord.length ? framesToSeconds(recallRecord.length) : 5);
+    setVideoQuality(videoQualityFromCfg(recallRecord.cfg));
     // The source image used for a past video generation isn't retained - only the
     // resulting video is. A new one has to be chosen before this can be re-run.
     setSourceImagePath(null);
@@ -248,8 +255,8 @@ export default function Generate({
             width,
             height,
             seed: 0,
-            steps,
-            cfg,
+            steps: runSteps,
+            cfg: runCfg,
             ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds) } : {}),
           },
           lastActiveFamily
@@ -258,7 +265,7 @@ export default function Generate({
         .catch(() => setCurrentEstimate(null));
     }, 250);
     return () => clearTimeout(timer);
-  }, [mode, width, height, steps, cfg, lengthSeconds, lastActiveFamily, finishedRuns]);
+  }, [mode, width, height, runSteps, runCfg, lengthSeconds, lastActiveFamily, finishedRuns]);
 
   const sizePresets = mode === 'image' ? IMAGE_SIZE_PRESETS : VIDEO_SIZE_PRESETS;
   const presetIndex = sizePresets.findIndex((preset) => preset.width === width && preset.height === height);
@@ -294,8 +301,8 @@ export default function Generate({
       prompt,
       width,
       height,
-      steps,
-      cfg,
+      steps: runSteps,
+      cfg: runCfg,
       ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
     };
     const added = queue.enqueue(
@@ -566,6 +573,22 @@ export default function Generate({
               />
               <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
                 {secondsToFrames(lengthSeconds)} frames @ {VIDEO_FPS}fps. Default is 5s; longer clips take much longer to render.
+              </p>
+
+              <label className="field-label" htmlFor="video-quality" style={{ marginTop: 12 }}>
+                Quality
+              </label>
+              <select
+                id="video-quality"
+                value={videoQuality}
+                onChange={(e) => setVideoQuality(e.target.value as VideoQuality)}
+                style={{ width: 260 }}
+              >
+                <option value="fast">Fast (4 steps)</option>
+                <option value="high">High (20 steps, slower)</option>
+              </select>
+              <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+                Fast uses a speed-up LoRA and can look grainy. High is cleaner but takes several times longer.
               </p>
             </div>
           )}

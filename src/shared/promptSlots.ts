@@ -1,4 +1,5 @@
 import type { GenerationKind } from './types';
+import type { VideoQuality } from './videoQuality';
 
 /** Everything a prompt "tab" on the Generate page holds - the whole left-hand form, so switching
  * tabs restores exactly what was there. Deliberately plain JSON (no functions/Dates) since this
@@ -13,6 +14,8 @@ export interface PromptSlotData {
   steps: number;
   cfg: number;
   lengthSeconds: number;
+  /** Video mode only: the Fast (4-step LoRA) / High (20-step) choice. */
+  videoQuality: VideoQuality;
   sourceImagePath: string | null;
   advancedOpen: boolean;
   customSize: boolean;
@@ -45,6 +48,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     steps: 8,
     cfg: 1,
     lengthSeconds: 5,
+    videoQuality: 'fast',
     sourceImagePath: null,
     advancedOpen: false,
     customSize: false,
@@ -82,6 +86,8 @@ function isValidData(data: unknown): data is PromptSlotData {
     typeof d.steps === 'number' &&
     typeof d.cfg === 'number' &&
     typeof d.lengthSeconds === 'number' &&
+    // Absent in configs saved before the option existed - applySnapshot falls back to 'fast'.
+    (d.videoQuality === undefined || d.videoQuality === 'fast' || d.videoQuality === 'high') &&
     (d.sourceImagePath === null || typeof d.sourceImagePath === 'string') &&
     typeof d.advancedOpen === 'boolean' &&
     typeof d.customSize === 'boolean' &&
