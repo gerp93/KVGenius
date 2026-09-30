@@ -58,6 +58,7 @@
       "allowToChangeInstallationDirectory": true
     },
     "mac": {
+      "files": ["!node_modules/ffmpeg-static/**", "!node_modules/ffprobe-static/**"],
       "target": [
         { "target": "dmg", "arch": ["universal"] },
         { "target": "zip", "arch": ["universal"] }

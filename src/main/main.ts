@@ -31,6 +31,8 @@ import {
   getApiToken,
   getFfmpegOverride,
   setFfmpegOverride,
+  getComfyUILaunchPath,
+  setComfyUILaunchPath,
 } from './dbLocation';
 import { PromptSlot } from '../shared/promptSlots';
 import {
@@ -59,7 +61,8 @@ import { AssemblyManager } from './assembly';
 import { ApiService } from './apiService';
 import { LocalApi, removeDiscoveryFile, startLocalApi, writeDiscoveryFile } from './localApi';
 import { FfmpegPaths, findFfmpeg } from './mediaTools';
-import { FAMILY_KIND, GenerationKind, GenerationParams, McpInfo } from '../shared/types';
+import { detectComfyUIProgram, launchComfyUIProgram } from './comfyLauncher';
+import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, McpInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
@@ -201,6 +204,32 @@ function getFfmpeg(): FfmpegPaths | null {
     ffmpegCache && ffmpegCache.override === override && (ffmpegCache.paths !== null || Date.now() - ffmpegCache.at < 5000);
   if (!fresh) ffmpegCache = { override, at: Date.now(), paths: findFfmpeg(override) };
   return ffmpegCache?.paths ?? null;
+}
+
+function comfyLauncherInfo(): ComfyUILauncherInfo {
+  return { configured: getComfyUILaunchPath(), detected: detectComfyUIProgram() };
+}
+
+/** Asks for the program that starts ComfyUI and remembers it. Null if the dialog is dismissed. */
+async function chooseComfyUIProgram(): Promise<string | null> {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose the program that starts ComfyUI',
+    message: 'ComfyUI Desktop, or a run script / AppImage for the standalone version.',
+    properties: ['openFile'],
+    ...(process.platform === 'win32' ? { filters: [{ name: 'Programs and scripts', extensions: ['exe', 'bat', 'cmd'] }] } : {}),
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  setComfyUILaunchPath(result.filePaths[0]);
+  return result.filePaths[0];
+}
+
+async function launchComfyUI(): Promise<ComfyUILaunchResult> {
+  if (await comfyIsAvailable()) return { status: 'already-running' };
+  const target = getComfyUILaunchPath() ?? detectComfyUIProgram() ?? (await chooseComfyUIProgram());
+  if (!target) return { status: 'cancelled' };
+  const result = await launchComfyUIProgram(target, (appPath) => shell.openPath(appPath));
+  return result.status === 'launched' ? { status: 'launched' } : result;
 }
 
 function discoveryFilePath(): string {
@@ -537,6 +566,14 @@ function registerIpcHandlers(): void {
     resetToDefaultDbPath();
     app.relaunch();
     app.exit();
+  });
+
+  ipcMain.handle('launchComfyUI', () => launchComfyUI());
+  ipcMain.handle('getComfyUILauncher', () => comfyLauncherInfo());
+  ipcMain.handle('chooseComfyUILauncher', async () => ((await chooseComfyUIProgram()) ? comfyLauncherInfo() : null));
+  ipcMain.handle('clearComfyUILauncher', () => {
+    setComfyUILaunchPath(null);
+    return comfyLauncherInfo();
   });
 
   ipcMain.handle('getMcpInfo', () => mcpInfo());

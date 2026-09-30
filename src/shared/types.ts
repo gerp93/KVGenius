@@ -173,6 +173,17 @@ export interface UpdateCheckResult {
   message?: string;
 }
 
+/** What the "launch ComfyUI" shortcut would run: the program chosen in Settings, else one found in
+ * ComfyUI Desktop's default install location. */
+export interface ComfyUILauncherInfo {
+  configured: string | null;
+  detected: string | null;
+}
+
+export type ComfyUILaunchResult =
+  | { status: 'launched' | 'already-running' | 'cancelled' }
+  | { status: 'error'; message: string };
+
 /** State of the local control API that MCP clients use, and of ffmpeg (needed for stitching videos). */
 export interface McpInfo {
   enabled: boolean;
@@ -258,6 +269,14 @@ export interface KVGeniusAPI {
   setComfyUIHost: (host: string) => Promise<void>;
   resetComfyUIHost: () => Promise<void>;
   checkComfyUIConnection: () => Promise<boolean>;
+  /** Starts ComfyUI if it is not already up. Asks which program to run the first time if none is
+   * set or found ('cancelled' if that dialog is dismissed). Resolves once the program has started,
+   * not once ComfyUI is ready - keep checking checkComfyUIConnection() for that. */
+  launchComfyUI: () => Promise<ComfyUILaunchResult>;
+  getComfyUILauncher: () => Promise<ComfyUILauncherInfo>;
+  /** Opens a file dialog to choose the program to launch; resolves the new state, or null if cancelled. */
+  chooseComfyUILauncher: () => Promise<ComfyUILauncherInfo | null>;
+  clearComfyUILauncher: () => Promise<ComfyUILauncherInfo>;
 
   getTheme: () => Promise<string>;
   setTheme: (themeId: string) => Promise<void>;

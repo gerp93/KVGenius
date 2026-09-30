@@ -8,6 +8,8 @@ import { PromptSlot, sanitizeSlots } from '../shared/promptSlots';
 interface AppConfig {
   dbPath?: string;
   comfyuiHost?: string;
+  /** Program the "ComfyUI not reachable" indicator launches (ComfyUI Desktop, a run script, an AppImage). */
+  comfyuiLaunchPath?: string;
   theme?: string;
   promptSlots?: PromptSlot[];
   activePromptSlotId?: string;
@@ -264,5 +266,16 @@ export function setFfmpegOverride(ffmpegPath: string | null): void {
   const config = readConfig();
   if (ffmpegPath) config.ffmpegPath = ffmpegPath;
   else delete config.ffmpegPath;
+  writeConfig(config);
+}
+
+export function getComfyUILaunchPath(): string | null {
+  return readConfig().comfyuiLaunchPath || null;
+}
+
+export function setComfyUILaunchPath(launchPath: string | null): void {
+  const config = readConfig();
+  if (launchPath) config.comfyuiLaunchPath = launchPath;
+  else delete config.comfyuiLaunchPath;
   writeConfig(config);
 }
