@@ -826,6 +826,19 @@ input:focus {
   color: #ffd54a;
 }
 
+.library-card__hidden-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
 .library-card__play-badge {
   position: absolute;
   right: 8px;

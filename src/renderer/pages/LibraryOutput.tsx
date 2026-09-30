@@ -25,6 +25,8 @@ function kindOf(record: GenerationRecord): GenerationKind {
 export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   const [tab, setTab] = useState<GenerationKind>('image');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  // Hidden items (see Settings > Hidden Content) are left out of the Library unless this is on.
+  const [showHidden, setShowHidden] = useState(false);
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [counts, setCounts] = useState<Record<GenerationKind, number>>({ image: 0, video: 0 });
   const [hasMore, setHasMore] = useState(true);
@@ -55,11 +57,11 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   const anchorId = useRef<number | null>(null);
   const loadingRef = useRef(false);
 
-  const loadPage = useCallback(async (kind: GenerationKind, beforeId: number | null, favorites: boolean, token: number) => {
+  const loadPage = useCallback(async (kind: GenerationKind, beforeId: number | null, favorites: boolean, hidden: boolean, token: number) => {
     loadingRef.current = true;
     setLoading(true);
     try {
-      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favorites);
+      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favorites, hidden);
       if (token !== requestToken.current) return;
       setRecords((prev) => (beforeId === null ? page : [...prev, ...page]));
       setHasMore(page.length === PAGE_SIZE);
@@ -84,21 +86,21 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     anchorId.current = null;
     setInfoId(null);
     setLightboxIndex(null);
-    void loadPage(tab, null, favoritesOnly, token);
-  }, [tab, favoritesOnly, loadPage]);
+    void loadPage(tab, null, favoritesOnly, showHidden, token);
+  }, [tab, favoritesOnly, showHidden, loadPage]);
 
   useEffect(() => {
     window.kvgenius
-      .countGenerations(favoritesOnly)
+      .countGenerations(favoritesOnly, showHidden)
       .then(setCounts)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [favoritesOnly]);
+  }, [favoritesOnly, showHidden]);
 
   const loadMore = useCallback(() => {
     // The very first page belongs to the tab-change effect above.
     if (loadingRef.current || records.length === 0) return;
-    void loadPage(tab, records[records.length - 1].id, favoritesOnly, requestToken.current);
-  }, [records, tab, favoritesOnly, loadPage]);
+    void loadPage(tab, records[records.length - 1].id, favoritesOnly, showHidden, requestToken.current);
+  }, [records, tab, favoritesOnly, showHidden, loadPage]);
 
   // Infinite scroll: load the next page when the sentinel below the grid gets near the visible
   // area of the scrolling grid column. The observer is rebuilt after every load so it re-reports
@@ -193,7 +195,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   async function handleSelectAll() {
     setBusy(true);
     try {
-      const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly);
+      const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden);
       setSelection(new Map(refs.map((ref) => [ref.id, ref])));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -294,6 +296,22 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     });
   }
 
+  async function handleToggleHidden(record: GenerationRecord) {
+    const hidden = !record.hidden;
+    try {
+      await window.kvgenius.setGenerationHidden(record.id, hidden);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    if (hidden && !showHidden) {
+      // Hiding while hidden items are filtered out: it no longer belongs in this list.
+      forgetIds([record.id], kindOf(record));
+    } else {
+      setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, hidden } : r)));
+    }
+  }
+
   async function handleDelete(record: GenerationRecord) {
     const note = record.favorite ? ' It is marked as a favorite.' : '';
     if (!window.confirm(`Delete this generation? This removes the file from disk too.${note}`)) return;
@@ -377,6 +395,7 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
                 ⤢
               </button>
             )}
+            {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
             {!selecting && (
               <button
                 type="button"
@@ -460,6 +479,14 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
               >
                 {favoritesOnly ? '★' : '☆'} Favorites
               </button>
+              <button
+                type="button"
+                className={showHidden ? 'primary' : undefined}
+                onClick={() => setShowHidden((v) => !v)}
+                title="Include items hidden by the hidden-words rule or by hand"
+              >
+                {showHidden ? '🙈 Showing hidden' : '🙈 Show hidden'}
+              </button>
               <button type="button" onClick={() => setSelecting(true)} disabled={records.length === 0}>
                 Select Multiple
               </button>
@@ -521,6 +548,9 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             <span style={{ display: 'flex', gap: 6 }}>
               <button type="button" onClick={() => handleToggleFavorite(infoRecord)}>
                 {infoRecord.favorite ? '★ Favorited' : '☆ Favorite'}
+              </button>
+              <button type="button" onClick={() => handleToggleHidden(infoRecord)}>
+                {infoRecord.hidden ? 'Unhide' : 'Hide'}
               </button>
               <button type="button" onClick={() => setInfoId(null)} title="Close">
                 ✕

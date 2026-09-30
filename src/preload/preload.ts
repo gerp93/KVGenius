@@ -25,10 +25,15 @@ const api: KVGeniusAPI = {
   getTimingStats: () => ipcRenderer.invoke('getTimingStats'),
   clearTimingStats: () => ipcRenderer.invoke('clearTimingStats'),
   cancelGeneration: () => ipcRenderer.invoke('cancelGeneration'),
-  listGenerations: (kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean) =>
-    ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly),
-  countGenerations: (favoritesOnly: boolean) => ipcRenderer.invoke('countGenerations', favoritesOnly),
-  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean) => ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly),
+  listGenerations: (kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean, showHidden: boolean) =>
+    ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly, showHidden),
+  countGenerations: (favoritesOnly: boolean, showHidden: boolean) => ipcRenderer.invoke('countGenerations', favoritesOnly, showHidden),
+  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean) =>
+    ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly, showHidden),
+  setGenerationHidden: (id: number, hidden: boolean) => ipcRenderer.invoke('setGenerationHidden', id, hidden),
+  getHiddenWords: () => ipcRenderer.invoke('getHiddenWords'),
+  setHiddenWords: (words: string[]) => ipcRenderer.invoke('setHiddenWords', words),
+  applyHiddenWords: () => ipcRenderer.invoke('applyHiddenWords'),
   getFileSize: (imagePath: string) => ipcRenderer.invoke('getFileSize', imagePath),
   exportGenerations: (imagePaths: string[]) => ipcRenderer.invoke('exportGenerations', imagePaths),
   setGenerationFavorite: (id: number, favorite: boolean) => ipcRenderer.invoke('setGenerationFavorite', id, favorite),

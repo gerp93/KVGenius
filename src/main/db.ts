@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS generations (
   model_family TEXT NOT NULL,
   image_path TEXT NOT NULL,
   favorite INTEGER NOT NULL DEFAULT 0,
+  hidden INTEGER NOT NULL DEFAULT 0,
   timing_id INTEGER,
   created_at TEXT NOT NULL
 );
@@ -51,6 +52,9 @@ function migrateSchema(db: DatabaseSync): void {
   }
   if (!columns.some((c) => c.name === 'favorite')) {
     db.exec('ALTER TABLE generations ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;');
+  }
+  if (!columns.some((c) => c.name === 'hidden')) {
+    db.exec('ALTER TABLE generations ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;');
   }
   if (!columns.some((c) => c.name === 'timing_id')) {
     db.exec('ALTER TABLE generations ADD COLUMN timing_id INTEGER;');
@@ -87,6 +91,7 @@ interface GenerationRow {
   model_family: string;
   image_path: string;
   favorite: number;
+  hidden: number;
   created_at: string;
   // Joined from timing_stats (null when the generation has no recorded timing).
   t_estimate_ms?: number | null;
@@ -115,6 +120,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     modelFamily: row.model_family,
     imagePath: row.image_path,
     favorite: row.favorite === 1,
+    hidden: row.hidden === 1,
     createdAt: row.created_at,
     timing:
       row.t_actual_ms == null
@@ -134,13 +140,14 @@ export function insertGeneration(
   params: GenerationParams,
   modelFamily: string,
   imagePath: string,
-  timingId: number | null = null
+  timingId: number | null = null,
+  hidden = false
 ): GenerationRecord {
   const createdAt = new Date().toISOString();
   const length = params.length ?? null;
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, timing_id, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, timing_id, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -152,6 +159,7 @@ export function insertGeneration(
     length,
     modelFamily,
     imagePath,
+    hidden ? 1 : 0,
     timingId,
     createdAt
   );
@@ -168,6 +176,7 @@ export function insertGeneration(
     modelFamily,
     imagePath,
     favorite: false,
+    hidden,
     createdAt,
     timing: null,
   };
@@ -182,16 +191,22 @@ function kindCondition(videoFamilies: string[], kind: GenerationKind): { sql: st
   return { sql: `model_family ${kind === 'video' ? 'IN' : 'NOT IN'} (${marks})`, params: videoFamilies };
 }
 
+/** The Library's extra filters as SQL: favorites only, and hidden ones left out unless asked for. */
+function filterSql(favoritesOnly: boolean, showHidden: boolean): string {
+  return (favoritesOnly ? 'AND favorite = 1 ' : '') + (showHidden ? '' : 'AND hidden = 0');
+}
+
 export function listGenerations(
   db: DatabaseSync,
   videoFamilies: string[],
   kind: GenerationKind,
   limit: number,
   beforeId: number | null,
-  favoritesOnly: boolean
+  favoritesOnly: boolean,
+  showHidden: boolean
 ): GenerationRecord[] {
   const condition = kindCondition(videoFamilies, kind);
-  const cursor = (beforeId === null ? '' : 'AND g.id < ? ') + (favoritesOnly ? 'AND favorite = 1' : '');
+  const cursor = (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
   const params: (string | number)[] = [...condition.params];
   if (beforeId !== null) params.push(beforeId);
   params.push(limit);
@@ -205,12 +220,13 @@ export function listGenerationRefs(
   db: DatabaseSync,
   videoFamilies: string[],
   kind: GenerationKind,
-  favoritesOnly: boolean
+  favoritesOnly: boolean,
+  showHidden: boolean
 ): GenerationRef[] {
   const condition = kindCondition(videoFamilies, kind);
   const rows = db
     .prepare(
-      `SELECT id, image_path, favorite FROM generations WHERE ${condition.sql} ${favoritesOnly ? 'AND favorite = 1' : ''} ORDER BY id DESC`
+      `SELECT id, image_path, favorite FROM generations WHERE ${condition.sql} ${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
     )
     .all(...condition.params) as unknown as { id: number; image_path: string; favorite: number }[];
   return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1 }));
@@ -219,12 +235,13 @@ export function listGenerationRefs(
 export function countGenerations(
   db: DatabaseSync,
   videoFamilies: string[],
-  favoritesOnly: boolean
+  favoritesOnly: boolean,
+  showHidden: boolean
 ): Record<GenerationKind, number> {
   const count = (kind: GenerationKind): number => {
     const condition = kindCondition(videoFamilies, kind);
     const row = db
-      .prepare(`SELECT COUNT(*) AS n FROM generations WHERE ${condition.sql} ${favoritesOnly ? 'AND favorite = 1' : ''}`)
+      .prepare(`SELECT COUNT(*) AS n FROM generations WHERE ${condition.sql} ${filterSql(favoritesOnly, showHidden)}`)
       .get(...condition.params) as unknown as { n: number };
     return row.n;
   };
@@ -283,6 +300,38 @@ export function setGenerationFavorite(db: DatabaseSync, id: number, favorite: bo
   } else {
     db.prepare('UPDATE generations SET favorite = ?, image_path = ? WHERE id = ?').run(favorite ? 1 : 0, newImagePath, id);
   }
+}
+
+export function setGenerationHidden(db: DatabaseSync, id: number, hidden: boolean): void {
+  db.prepare('UPDATE generations SET hidden = ? WHERE id = ?').run(hidden ? 1 : 0, id);
+}
+
+/** Hides every not-yet-hidden generation whose prompt matches. Only ever hides - never un-hides -
+ * so things hidden by hand survive a re-run. Returns how many were checked and newly hidden. */
+export function applyHiddenRule(
+  db: DatabaseSync,
+  matches: (prompt: string) => boolean
+): { checked: number; newlyHidden: number } {
+  const rows = db.prepare('SELECT id, prompt FROM generations WHERE hidden = 0').all() as unknown as {
+    id: number;
+    prompt: string;
+  }[];
+  const hide = db.prepare('UPDATE generations SET hidden = 1 WHERE id = ?');
+  let newlyHidden = 0;
+  db.exec('BEGIN');
+  try {
+    for (const row of rows) {
+      if (matches(row.prompt)) {
+        hide.run(row.id);
+        newlyHidden++;
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return { checked: rows.length, newlyHidden };
 }
 
 export function getGenerationById(db: DatabaseSync, id: number): GenerationRecord | null {
