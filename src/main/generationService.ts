@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { FAMILY_KIND } from '../shared/types';
 import { generate as comfyGenerate } from './comfyui';
-import { getImagesDir, getVideosDir } from './dbLocation';
+import { getHiddenWords, getImagesDir, getVideosDir } from './dbLocation';
+import { compileHiddenMatcher } from '../shared/hiddenWords';
 import { insertGeneration } from './db';
 import { insertTiming } from './timingStats';
 import { faststartMp4 } from './mp4Faststart';
@@ -71,7 +72,9 @@ export function createGenerationRunner(getDb: () => DatabaseSync | null): JobRun
       samplerSteps: t.samplerSteps,
       paceMs: t.paceMs,
     });
-    const record = insertGeneration(db, params, family, imagePath, timingId);
+    // A prompt containing one of the user's hidden words is kept out of the Library (Settings > Hidden Content).
+    const hidden = compileHiddenMatcher(getHiddenWords())(params.prompt);
+    const record = insertGeneration(db, params, family, imagePath, timingId, hidden);
     return { generationId: record.id };
   };
 }

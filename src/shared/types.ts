@@ -27,6 +27,8 @@ export interface GenerationRecord {
   modelFamily: string;
   imagePath: string;
   favorite: boolean;
+  /** Kept out of the Library unless "Show hidden" is on - set by the hidden-words rule or by hand. */
+  hidden: boolean;
   createdAt: string;
   /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
    * null for generations made before timing was tracked. */
@@ -226,12 +228,21 @@ export interface KVGeniusAPI {
     kind: GenerationKind,
     limit: number,
     beforeId: number | null,
-    favoritesOnly: boolean
+    favoritesOnly: boolean,
+    showHidden: boolean
   ) => Promise<GenerationRecord[]>;
-  /** Totals per kind, restricted to favorites when `favoritesOnly`. */
-  countGenerations: (favoritesOnly: boolean) => Promise<Record<GenerationKind, number>>;
+  /** Totals per kind, restricted to favorites when `favoritesOnly`; hidden ones only count when `showHidden`. */
+  countGenerations: (favoritesOnly: boolean, showHidden: boolean) => Promise<Record<GenerationKind, number>>;
   /** Every generation of the kind (newest first), for Select All across pages that aren't loaded. */
-  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean) => Promise<GenerationRef[]>;
+  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean) => Promise<GenerationRef[]>;
+  setGenerationHidden: (id: number, hidden: boolean) => Promise<void>;
+  /** Words that, found in a prompt, mark the generation as hidden (see shared/hiddenWords.ts). */
+  getHiddenWords: () => Promise<string[]>;
+  /** Saves the list (cleaned up) and returns what was stored. Affects new generations only. */
+  setHiddenWords: (words: string[]) => Promise<string[]>;
+  /** Runs the saved word list over every existing generation, hiding the ones that match. It never
+   * un-hides anything, so hand-hidden items stay hidden. */
+  applyHiddenWords: () => Promise<{ checked: number; newlyHidden: number }>;
   /** Size of an output file in bytes, or null if it is missing. */
   getFileSize: (imagePath: string) => Promise<number | null>;
   /** Asks where to save, then writes the given output files into a zip archive there. */

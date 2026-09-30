@@ -33,7 +33,10 @@ import {
   setFfmpegOverride,
   getComfyUILaunchPath,
   setComfyUILaunchPath,
+  getHiddenWords,
+  setHiddenWords,
 } from './dbLocation';
+import { compileHiddenMatcher } from '../shared/hiddenWords';
 import { PromptSlot } from '../shared/promptSlots';
 import {
   initDatabase,
@@ -42,6 +45,8 @@ import {
   listGenerations,
   countGenerations,
   listGenerationRefs,
+  setGenerationHidden,
+  applyHiddenRule,
   moveLegacyOutput,
   deleteGeneration,
   listSavedPrompts,
@@ -367,21 +372,33 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'listGenerations',
-    (_event, kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean) => {
+    (_event, kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean, showHidden: boolean) => {
       if (!db) throw new Error('Database not initialized');
       const safeLimit = Math.min(Math.max(Math.floor(limit) || 0, 1), 200);
-      return listGenerations(db, videoFamilies, kind === 'video' ? 'video' : 'image', safeLimit, beforeId, !!favoritesOnly);
+      return listGenerations(db, videoFamilies, kind === 'video' ? 'video' : 'image', safeLimit, beforeId, !!favoritesOnly, !!showHidden);
     }
   );
 
-  ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean) => {
+  ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean, showHidden: boolean) => {
     if (!db) throw new Error('Database not initialized');
-    return countGenerations(db, videoFamilies, !!favoritesOnly);
+    return countGenerations(db, videoFamilies, !!favoritesOnly, !!showHidden);
   });
 
-  ipcMain.handle('listGenerationRefs', (_event, kind: GenerationKind, favoritesOnly: boolean) => {
+  ipcMain.handle('listGenerationRefs', (_event, kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean) => {
     if (!db) throw new Error('Database not initialized');
-    return listGenerationRefs(db, videoFamilies, kind === 'video' ? 'video' : 'image', !!favoritesOnly);
+    return listGenerationRefs(db, videoFamilies, kind === 'video' ? 'video' : 'image', !!favoritesOnly, !!showHidden);
+  });
+
+  ipcMain.handle('setGenerationHidden', (_event, id: number, hidden: boolean) => {
+    if (!db) throw new Error('Database not initialized');
+    setGenerationHidden(db, id, !!hidden);
+  });
+
+  ipcMain.handle('getHiddenWords', () => getHiddenWords());
+  ipcMain.handle('setHiddenWords', (_event, words: string[]) => setHiddenWords(Array.isArray(words) ? words : []));
+  ipcMain.handle('applyHiddenWords', () => {
+    if (!db) throw new Error('Database not initialized');
+    return applyHiddenRule(db, compileHiddenMatcher(getHiddenWords()));
   });
 
   ipcMain.handle('getFileSize', async (_event, imagePath: string) => {

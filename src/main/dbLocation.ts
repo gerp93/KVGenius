@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import { app, shell, dialog } from 'electron';
 import { DEFAULT_COMFYUI_HOST } from './comfyui';
 import { PromptSlot, sanitizeSlots } from '../shared/promptSlots';
+import { normalizeHiddenWords } from '../shared/hiddenWords';
 
 interface AppConfig {
   dbPath?: string;
@@ -12,6 +13,7 @@ interface AppConfig {
   comfyuiLaunchPath?: string;
   theme?: string;
   promptSlots?: PromptSlot[];
+  hiddenWords?: string[];
   activePromptSlotId?: string;
   /** Whether the local control API (for MCP clients) is on. Off unless the user turns it on. */
   apiEnabled?: boolean;
@@ -278,4 +280,14 @@ export function setComfyUILaunchPath(launchPath: string | null): void {
   if (launchPath) config.comfyuiLaunchPath = launchPath;
   else delete config.comfyuiLaunchPath;
   writeConfig(config);
+}
+
+export function getHiddenWords(): string[] {
+  return normalizeHiddenWords(readConfig().hiddenWords);
+}
+
+export function setHiddenWords(words: string[]): string[] {
+  const cleaned = normalizeHiddenWords(words);
+  writeConfig({ ...readConfig(), hiddenWords: cleaned });
+  return cleaned;
 }

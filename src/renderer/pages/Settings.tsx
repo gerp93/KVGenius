@@ -20,6 +20,11 @@ export default function Settings({ theme, onThemeChange }: Props) {
   const [launcher, setLauncher] = useState<ComfyUILauncherInfo | null>(null);
   const [snippetCopied, setSnippetCopied] = useState(false);
 
+  // One word or phrase per line; matched as whole words against each prompt (see shared/hiddenWords.ts).
+  const [hiddenWordsText, setHiddenWordsText] = useState('');
+  const [hiddenBusy, setHiddenBusy] = useState(false);
+  const [hiddenMessage, setHiddenMessage] = useState<string | null>(null);
+
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckResult['status'] | 'idle' | 'checking'>('idle');
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
@@ -37,6 +42,7 @@ export default function Settings({ theme, onThemeChange }: Props) {
     window.kvgenius.getDbInfo().then(setDbInfo);
     window.kvgenius.getMcpInfo().then(setMcp);
     window.kvgenius.getComfyUILauncher().then(setLauncher);
+    window.kvgenius.getHiddenWords().then((words) => setHiddenWordsText(words.join('\n')));
     window.kvgenius.getAppVersion().then(setAppVersion);
   }, []);
 
@@ -84,6 +90,46 @@ export default function Settings({ theme, onThemeChange }: Props) {
 
   async function handleResetFfmpeg() {
     setMcp(await window.kvgenius.resetFfmpegPath());
+  }
+
+  /** The textarea as a word list: one entry per line, commas also accepted. */
+  function parseHiddenWords(): string[] {
+    return hiddenWordsText.split(/[\n,]/);
+  }
+
+  async function saveHiddenWords(): Promise<string[]> {
+    const saved = await window.kvgenius.setHiddenWords(parseHiddenWords());
+    setHiddenWordsText(saved.join('\n'));
+    return saved;
+  }
+
+  async function handleSaveHiddenWords() {
+    setHiddenBusy(true);
+    setHiddenMessage(null);
+    try {
+      const saved = await saveHiddenWords();
+      setHiddenMessage(`Saved ${saved.length} ${saved.length === 1 ? 'word' : 'words'}. New generations use it from now on.`);
+    } catch (err) {
+      setHiddenMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHiddenBusy(false);
+    }
+  }
+
+  async function handleApplyHiddenWords() {
+    setHiddenBusy(true);
+    setHiddenMessage(null);
+    try {
+      await saveHiddenWords();
+      const { checked, newlyHidden } = await window.kvgenius.applyHiddenWords();
+      setHiddenMessage(
+        `Checked ${checked} ${checked === 1 ? 'generation' : 'generations'} that weren't hidden; hid ${newlyHidden}.`
+      );
+    } catch (err) {
+      setHiddenMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHiddenBusy(false);
+    }
   }
 
   async function checkConnection() {
@@ -260,6 +306,37 @@ export default function Settings({ theme, onThemeChange }: Props) {
             </button>
           )}
         </div>
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h3>Hidden Content</h3>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+          When a prompt contains any of these words or phrases, its image or video is marked hidden and left out of the
+          Library unless "Show hidden" is on. One per line; matching ignores case and only counts whole words.
+        </p>
+        <textarea
+          id="hidden-words"
+          value={hiddenWordsText}
+          onChange={(e) => setHiddenWordsText(e.target.value)}
+          rows={8}
+          spellCheck={false}
+          placeholder="one word or phrase per line"
+          style={{ width: '100%', maxWidth: 640 }}
+        />
+        <div className="button-row" style={{ marginTop: 8 }}>
+          <button type="button" className="primary" onClick={handleSaveHiddenWords} disabled={hiddenBusy}>
+            Save
+          </button>
+          <button type="button" onClick={handleApplyHiddenWords} disabled={hiddenBusy}>
+            Save and Apply to Existing
+          </button>
+        </div>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+          "Apply to Existing" checks every earlier image and video against this list and hides the matches. It only ever
+          hides - anything you've hidden by hand stays hidden, and nothing is un-hidden - so you can add words and run it
+          again whenever you like. Unhide an item from its Details panel in the Library.
+        </p>
+        {hiddenMessage && <p style={{ color: 'var(--color-accent-green)', fontSize: 13 }}>{hiddenMessage}</p>}
       </section>
 
       <section style={{ marginBottom: 32 }}>
