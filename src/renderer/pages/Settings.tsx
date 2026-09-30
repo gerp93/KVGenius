@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DbInfo, McpInfo, UpdateCheckResult } from '../../shared/types';
 import { THEME_NAMES, themeDisplayName } from '../../shared/themes';
+import { formatBytes } from '../utils/format';
 
 type ConnectionStatus = 'unknown' | 'checking' | 'connected' | 'unreachable';
 
@@ -229,6 +230,7 @@ export default function Settings({ theme, onThemeChange }: Props) {
         <h3>Database Location</h3>
         <p style={{ color: 'var(--color-text-muted)', fontSize: 12, wordBreak: 'break-all' }}>
           Current: {dbInfo?.path ?? '...'} {dbInfo?.isDefault ? '(default)' : ''}
+          {dbInfo?.sizeBytes != null ? ` — ${formatBytes(dbInfo.sizeBytes)}` : ''}
         </p>
         <div className="button-row">
           <button type="button" onClick={handleRevealDb}>

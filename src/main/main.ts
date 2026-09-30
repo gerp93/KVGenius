@@ -483,11 +483,21 @@ function registerIpcHandlers(): void {
     setTheme(themeId);
   });
 
-  ipcMain.handle('getDbInfo', () => ({
-    path: getEffectiveDbPath(),
-    isDefault: isUsingDefaultDbLocation(),
-    defaultPath: getDefaultDbPath(),
-  }));
+  ipcMain.handle('getDbInfo', () => {
+    const dbPath = getEffectiveDbPath();
+    let sizeBytes: number | null = null;
+    try {
+      sizeBytes = fs.statSync(dbPath).size;
+    } catch {
+      // Not created yet (e.g. a freshly chosen/reset location before first write).
+    }
+    return {
+      path: dbPath,
+      isDefault: isUsingDefaultDbLocation(),
+      defaultPath: getDefaultDbPath(),
+      sizeBytes,
+    };
+  });
 
   ipcMain.handle('revealDbInFileManager', () => revealDbInFileManager());
 
