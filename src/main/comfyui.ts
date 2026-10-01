@@ -7,6 +7,8 @@ import { ComfyMessage, ProgressTracker, RunTimings } from './progressTracker';
 import { getEffectiveComfyUIHost } from './dbLocation';
 import zImageTurboTemplate from './templates/z-image-turbo.json';
 import wan22I2vTemplate from './templates/wan22-i2v.json';
+import upscaleImageTemplate from './templates/upscale-image.json';
+import { UPSCALE_FAMILY } from '../shared/upscale';
 
 // Imported directly (not read from disk at runtime via fs) so tsc inlines the JSON into the
 // compiled output - `tsc -p tsconfig.main.json` only compiles .ts files, it doesn't copy
@@ -17,6 +19,7 @@ import wan22I2vTemplate from './templates/wan22-i2v.json';
 const TEMPLATES: Record<string, Record<string, unknown>> = {
   'z-image-turbo': zImageTurboTemplate,
   'wan22-i2v': wan22I2vTemplate,
+  [UPSCALE_FAMILY]: upscaleImageTemplate,
 };
 
 // ComfyUI Desktop (the Electron distribution this app targets) defaults to port 8000, not
@@ -50,6 +53,14 @@ const WAN22_I2V_NODE_MAP = {
   imageToVideo: '129:98',
   samplerHighNoise: '129:86',
   fastLoraSwitch: '129:131',
+};
+
+/** Node IDs in src/main/templates/upscale-image.json: load image -> model upscale -> resize to the
+ * exact requested size -> save. Only core ComfyUI nodes, no custom packs. */
+const UPSCALE_NODE_MAP = {
+  loadImage: '1',
+  modelLoader: '2',
+  resize: '4',
 };
 
 export class ComfyUIUnavailableError extends Error {}
@@ -105,6 +116,16 @@ export async function cancelCurrentGeneration(): Promise<void> {
   currentAbortController?.abort();
 }
 
+/** Upscale models ComfyUI can load, read from the loader node's own list of choices. */
+export async function listUpscaleModels(): Promise<string[]> {
+  const resp = await comfyRequest('/object_info/UpscaleModelLoader', { signal: AbortSignal.timeout(10000) });
+  const data = (await resp.json()) as {
+    UpscaleModelLoader?: { input?: { required?: { model_name?: [unknown] } } };
+  };
+  const choices = data.UpscaleModelLoader?.input?.required?.model_name?.[0];
+  return Array.isArray(choices) ? choices.map(String) : [];
+}
+
 export async function isAvailable(): Promise<boolean> {
   try {
     await comfyRequest('/system_stats', { signal: AbortSignal.timeout(5000) });
@@ -143,6 +164,18 @@ async function patchTemplate(
   signal: AbortSignal
 ): Promise<Record<string, unknown>> {
   const workflow = JSON.parse(JSON.stringify(template));
+
+  if (family === UPSCALE_FAMILY) {
+    if (!params.sourceImagePath) throw new Error('Upscaling needs a source image.');
+    if (!params.upscaleModel) throw new Error('Choose an upscale model first.');
+    const uploadedName = await uploadSourceImage(params.sourceImagePath, signal);
+    (workflow[UPSCALE_NODE_MAP.loadImage] as { inputs: Record<string, unknown> }).inputs.image = uploadedName;
+    (workflow[UPSCALE_NODE_MAP.modelLoader] as { inputs: Record<string, unknown> }).inputs.model_name = params.upscaleModel;
+    const resize = workflow[UPSCALE_NODE_MAP.resize] as { inputs: Record<string, unknown> };
+    resize.inputs.width = params.width;
+    resize.inputs.height = params.height;
+    return workflow;
+  }
 
   if (family === 'wan22-i2v') {
     if (!params.sourceImagePath) {

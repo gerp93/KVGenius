@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
 import GeneratedVideo from '../components/GeneratedVideo';
 import GalleryLightbox from '../components/GalleryLightbox';
@@ -43,6 +44,11 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   const [promptToSave, setPromptToSave] = useState<GenerationRecord | null>(null);
   const [existingTags, setExistingTags] = useState<string[]>([]);
   const [infoId, setInfoId] = useState<number | null>(null);
+  // Upscale controls in the details panel: models come from ComfyUI the first time they are needed.
+  const [upscaleModels, setUpscaleModels] = useState<string[] | null>(null);
+  const [upscaleModel, setUpscaleModel] = useState('');
+  const [upscaleFactor, setUpscaleFactor] = useState(DEFAULT_UPSCALE_FACTOR);
+  const [upscaling, setUpscaling] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
   // Index into `records` of the image/video open in the full-window gallery viewer, if any.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -294,6 +300,51 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
       const ref = prev.get(record.id);
       return ref ? new Map(prev).set(record.id, { ...ref, imagePath, favorite }) : prev;
     });
+  }
+
+  async function loadUpscaleModels() {
+    try {
+      const models = await window.kvgenius.listUpscaleModels();
+      setUpscaleModels(models);
+      setUpscaleModel((prev) => (models.includes(prev) ? prev : (models[0] ?? '')));
+    } catch {
+      setError('Could not reach ComfyUI to list upscale models.');
+    }
+  }
+
+  // Fetch the model list the first time an image's details are opened.
+  const infoIsImage = infoRecord ? kindOf(infoRecord) === 'image' : false;
+  useEffect(() => {
+    if (infoIsImage && upscaleModels === null) void loadUpscaleModels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [infoIsImage, upscaleModels]);
+
+  async function handleUpscale(record: GenerationRecord) {
+    if (!upscaleModel) return;
+    setUpscaling(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const { record: made } = await window.kvgenius.generate(UPSCALE_FAMILY, {
+        prompt: record.prompt,
+        width: Math.round(record.width * upscaleFactor),
+        height: Math.round(record.height * upscaleFactor),
+        seed: record.seed,
+        steps: record.steps,
+        cfg: record.cfg,
+        sourceImagePath: record.imagePath,
+        upscaleModel,
+      });
+      setNotice(`Upscaled to ${made.width} × ${made.height} - saved as a new image.`);
+      if (tab === 'image' && !favoritesOnly && !made.hidden) {
+        setRecords((prev) => [made, ...prev]);
+      }
+      setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUpscaling(false);
+    }
   }
 
   async function handleToggleHidden(record: GenerationRecord) {
@@ -576,6 +627,45 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
           <button type="button" className="primary" onClick={() => handleRecreate(infoRecord)} style={{ width: '100%' }}>
             ↺ Re-rack
           </button>
+          {kindOf(infoRecord) === 'image' && (
+            <div className="library-panel__upscale">
+              <span className="field-label" style={{ margin: 0 }}>
+                Upscale
+              </span>
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                <select
+                  value={upscaleModel}
+                  onChange={(e) => setUpscaleModel(e.target.value)}
+                  disabled={upscaling}
+                  style={{ flex: 1, minWidth: 0 }}
+                  title="Upscale model"
+                >
+                  {upscaleModels === null && <option value="">Choose model...</option>}
+                  {upscaleModels?.length === 0 && <option value="">No upscale models installed</option>}
+                  {upscaleModels?.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={upscaleFactor}
+                  onChange={(e) => setUpscaleFactor(Number(e.target.value))}
+                  disabled={upscaling}
+                  title="Size multiplier"
+                >
+                  {UPSCALE_FACTORS.map((f) => (
+                    <option key={f} value={f}>
+                      {f}×
+                    </option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => handleUpscale(infoRecord)} disabled={upscaling || !upscaleModel}>
+                  {upscaling ? 'Upscaling...' : 'Upscale'}
+                </button>
+              </div>
+            </div>
+          )}
           <div className="library-panel__actions">
             {kindOf(infoRecord) === 'image' && (
               <button type="button" onClick={() => handleImageToVideo(infoRecord)} title="Create video from image">

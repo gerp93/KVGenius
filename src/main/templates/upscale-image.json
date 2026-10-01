@@ -1,0 +1,33 @@
+{
+  "1": {
+    "inputs": { "image": "__SOURCE_IMAGE__" },
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load Image" }
+  },
+  "2": {
+    "inputs": { "model_name": "__UPSCALE_MODEL__" },
+    "class_type": "UpscaleModelLoader",
+    "_meta": { "title": "Load Upscale Model" }
+  },
+  "3": {
+    "inputs": { "upscale_model": ["2", 0], "image": ["1", 0] },
+    "class_type": "ImageUpscaleWithModel",
+    "_meta": { "title": "Upscale Image (using Model)" }
+  },
+  "4": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "width": 1024,
+      "height": 1024,
+      "crop": "disabled",
+      "image": ["3", 0]
+    },
+    "class_type": "ImageScale",
+    "_meta": { "title": "Upscale Image" }
+  },
+  "5": {
+    "inputs": { "filename_prefix": "upscale/KVGenius", "images": ["4", 0] },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" }
+  }
+}
