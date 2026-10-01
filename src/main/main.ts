@@ -57,6 +57,7 @@ import {
 import {
   isAvailable as comfyIsAvailable,
   cancelCurrentGeneration,
+  listUpscaleModels,
   GenerationCancelledError,
   DEFAULT_COMFYUI_HOST,
 } from './comfyui';
@@ -393,6 +394,8 @@ function registerIpcHandlers(): void {
     if (!db) throw new Error('Database not initialized');
     setGenerationHidden(db, id, !!hidden);
   });
+
+  ipcMain.handle('listUpscaleModels', () => listUpscaleModels());
 
   ipcMain.handle('getHiddenWords', () => getHiddenWords());
   ipcMain.handle('setHiddenWords', (_event, words: string[]) => setHiddenWords(Array.isArray(words) ? words : []));

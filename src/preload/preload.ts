@@ -80,6 +80,7 @@ const api: KVGeniusAPI = {
 
   openHardpoint: () => ipcRenderer.invoke('openHardpoint'),
   hardpointIsReachable: () => ipcRenderer.invoke('hardpointIsReachable'),
+  listUpscaleModels: () => ipcRenderer.invoke('listUpscaleModels'),
 };
 
 contextBridge.exposeInMainWorld('kvgenius', api);

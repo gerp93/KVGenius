@@ -12,6 +12,8 @@ export interface GenerationParams {
   /** Video families only: local path to the source image to animate, chosen via
    * window.kvgenius.chooseSourceImage() and uploaded to ComfyUI at generation time. */
   sourceImagePath?: string;
+  /** Upscale family only: file name of the ComfyUI upscale model to use (see listUpscaleModels). */
+  upscaleModel?: string;
 }
 
 export interface GenerationRecord {
@@ -314,4 +316,7 @@ export interface KVGeniusAPI {
   openHardpoint: () => Promise<{ status: 'ok' } | { status: 'error'; message: string }>;
   /** Main-process probe of Hardpoint's loopback API (renderer fetch is blocked). */
   hardpointIsReachable: () => Promise<boolean>;
+
+  /** Upscale models installed in ComfyUI (its models/upscale_models folder). Rejects if ComfyUI is unreachable. */
+  listUpscaleModels: () => Promise<string[]>;
 }
