@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import PromptModal from '../components/PromptModal';
 import QueuePanel from '../components/QueuePanel';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
-import { MAX_BATCH_SIZE, MAX_PENDING_JOBS, useGenerationQueue } from '../hooks/useGenerationQueue';
+import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { usePromptSlots } from '../hooks/usePromptSlots';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
@@ -19,6 +19,7 @@ const FAMILY_FOR_MODE: Record<Mode, string> = {
 };
 
 interface Props {
+  queue: GenerationQueue;
   recallRecord: GenerationRecord | null;
   onRecalled: () => void;
   recallPrompt: string | null;
@@ -78,6 +79,7 @@ const VIDEO_SIZE_PRESETS: SizePreset[] = [
 ];
 
 export default function Generate({
+  queue,
   recallRecord,
   onRecalled,
   recallPrompt,
@@ -151,7 +153,6 @@ export default function Generate({
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [existingTags, setExistingTags] = useState<string[]>([]);
 
-  const queue = useGenerationQueue();
   const { showRecord } = queue;
   const runningJob = queue.jobs.find((j) => j.status === 'running');
   const busy = queue.jobs.some((j) => j.status === 'queued' || j.status === 'running');
@@ -219,25 +220,35 @@ export default function Generate({
     if (path) setSourceImagePath(path);
   }
 
+  /** Loads a past generation's prompt and exact settings into the form and shows it in the viewer.
+   * Used for "Re-rack" from the Library (via recallRecord) and from the queue's completed list. */
+  const applyRecord = useCallback(
+    (record: GenerationRecord) => {
+      const recalledMode: Mode = FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
+      setMode(recalledMode);
+      setPrompt(record.prompt);
+      setWidth(record.width);
+      setHeight(record.height);
+      setSeed(record.seed);
+      setSeedLocked(true);
+      setSteps(record.steps);
+      setCfg(record.cfg);
+      setLengthSeconds(record.length ? framesToSeconds(record.length) : 5);
+      setVideoQuality(videoQualityFromCfg(record.cfg));
+      // The source image used for a past video generation isn't retained - only the
+      // resulting video is. A new one has to be chosen before this can be re-run.
+      setSourceImagePath(null);
+      showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showRecord]
+  );
+
   useEffect(() => {
     if (!recallRecord) return;
-    const recalledMode: Mode = FAMILY_KIND[recallRecord.modelFamily] === 'video' ? 'video' : 'image';
-    setMode(recalledMode);
-    setPrompt(recallRecord.prompt);
-    setWidth(recallRecord.width);
-    setHeight(recallRecord.height);
-    setSeed(recallRecord.seed);
-    setSeedLocked(true);
-    setSteps(recallRecord.steps);
-    setCfg(recallRecord.cfg);
-    setLengthSeconds(recallRecord.length ? framesToSeconds(recallRecord.length) : 5);
-    setVideoQuality(videoQualityFromCfg(recallRecord.cfg));
-    // The source image used for a past video generation isn't retained - only the
-    // resulting video is. A new one has to be chosen before this can be re-run.
-    setSourceImagePath(null);
-    showRecord(recallRecord, recalledMode, window.kvgenius.imageUrlFor(recallRecord.imagePath));
+    applyRecord(recallRecord);
     onRecalled();
-  }, [recallRecord, onRecalled, showRecord]);
+  }, [recallRecord, onRecalled, applyRecord]);
 
   useEffect(() => {
     if (recallPrompt === null) return;
@@ -737,6 +748,7 @@ export default function Generate({
           onClearQueued={queue.clearQueued}
           onDismissFailed={queue.dismissFailed}
           onToggleFavorite={handleToggleFavorite}
+          onRerack={applyRecord}
         />
       </div>
 

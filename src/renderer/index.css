@@ -860,6 +860,23 @@ input:focus {
   text-overflow: ellipsis;
 }
 
+/* The queue beside the Library: pops out while upscales (or anything else) are queued. */
+.library-queue {
+  flex: none;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.library-queue--collapsed {
+  width: 44px;
+}
+
+.library-queue .queue-panel {
+  flex: 1;
+}
+
 .library-panel {
   flex: none;
   width: 360px;
@@ -1417,6 +1434,15 @@ textarea:disabled {
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+
+.queue-done__rerack {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 0 8px 8px;
+  min-height: 0;
+  padding: 4px 8px;
+  font-size: 12px;
 }
 
 .queue-panel__hint {

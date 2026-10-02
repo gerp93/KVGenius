@@ -51,10 +51,12 @@ function cleanError(err: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 }
 
+export type GenerationQueue = ReturnType<typeof useGenerationQueue>;
+
 /**
  * Runs generations one at a time from a queue. ComfyUI only works on one prompt at once, so jobs
- * execute strictly in order; a failed job doesn't stop the ones behind it. Lives in the Generate
- * page, which stays mounted while you browse other tabs, so the queue keeps running.
+ * execute strictly in order; a failed job doesn't stop the ones behind it. Created once in App and
+ * shared by the Generate page and the Library, so it keeps running while you browse other tabs.
  */
 export function useGenerationQueue() {
   const [jobs, setJobs] = useState<Job[]>([]);
