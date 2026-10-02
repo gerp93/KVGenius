@@ -322,4 +322,7 @@ export interface KVGeniusAPI {
 
   /** Upscale models installed in ComfyUI (its models/upscale_models folder). Rejects if ComfyUI is unreachable. */
   listUpscaleModels: () => Promise<string[]>;
+
+  /** Converts a Library video to a GIF (ffmpeg, no audio) and saves it as a new Library image. */
+  convertToGif: (id: number, options: { fps: number; width: number }) => Promise<GenerateResult>;
 }

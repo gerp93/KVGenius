@@ -66,7 +66,8 @@ import { createGenerationRunner, getLastRunFamily } from './generationService';
 import { AssemblyManager } from './assembly';
 import { ApiService } from './apiService';
 import { LocalApi, removeDiscoveryFile, startLocalApi, writeDiscoveryFile } from './localApi';
-import { FfmpegPaths, findFfmpeg } from './mediaTools';
+import { FfmpegPaths, findFfmpeg, planGif, probeMedia, runFfmpeg } from './mediaTools';
+import { GIF_FAMILY } from '../shared/gif';
 import { detectComfyUIProgram, launchComfyUIProgram } from './comfyLauncher';
 import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, McpInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
@@ -396,6 +397,43 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('listUpscaleModels', () => listUpscaleModels());
+
+  ipcMain.handle('convertToGif', async (_event, id: number, options: { fps: number; width: number }) => {
+    if (!db) throw new Error('Database not initialized');
+    const ff = getFfmpeg();
+    if (!ff) throw new Error('ffmpeg was not found. Install it or choose it in Settings.');
+    const source = getGenerationById(db, id);
+    if (!source || FAMILY_KIND[source.modelFamily] !== 'video') throw new Error('That item is not a video.');
+    const fps = Math.min(Math.max(Math.round(options.fps) || 15, 1), 30);
+    const width = Math.min(Math.max(Math.round(options.width) || 480, 64), 4096);
+
+    const info = await probeMedia(ff, source.imagePath);
+    if (!info.hasVideo || !info.width || !info.height) throw new Error('Could not read the video.');
+    const gifWidth = Math.min(width, info.width);
+    const gifHeight = Math.max(2, Math.round((info.height * gifWidth) / info.width / 2) * 2);
+
+    const outputDir = getImagesDir();
+    fs.mkdirSync(outputDir, { recursive: true });
+    const finalPath = path.join(outputDir, `${Date.now()}-${source.seed}.gif`);
+    const partial = `${finalPath}.part`;
+    try {
+      await runFfmpeg(ff, planGif({ input: source.imagePath, output: partial, fps, width }), info.durationSeconds ?? 0, () => {}).done;
+      fs.renameSync(partial, finalPath);
+    } finally {
+      fs.rmSync(partial, { force: true });
+    }
+
+    const hidden = compileHiddenMatcher(getHiddenWords())(source.prompt);
+    const record = insertGeneration(
+      db,
+      { prompt: source.prompt, width: gifWidth, height: gifHeight, seed: source.seed, steps: source.steps, cfg: source.cfg },
+      GIF_FAMILY,
+      finalPath,
+      null,
+      hidden
+    );
+    return { record, imageUrl: imageUrlFor(record.imagePath) };
+  });
 
   ipcMain.handle('getHiddenWords', () => getHiddenWords());
   ipcMain.handle('setHiddenWords', (_event, words: string[]) => setHiddenWords(Array.isArray(words) ? words : []));
