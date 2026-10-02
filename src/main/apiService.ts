@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/types';
+import { isUpscaleFamily } from '../shared/upscale';
 import { JobFilter, JobInfo, JobStatus, isTerminalJobStatus } from '../shared/jobs';
 import { TOOLS, ToolResult } from '../shared/tools';
 import { JobQueue } from './jobQueue';
@@ -285,7 +286,7 @@ export class ApiService {
   private generateVideo(args: Args) {
     const prompt = reqString(args, 'prompt');
     const family = optString(args, 'family', 64) ?? 'wan22-i2v';
-    if (FAMILY_KIND[family] !== 'video') fail(`"${family}" is not a video family. Video families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'video').join(', ')}.`);
+    if (FAMILY_KIND[family] !== 'video' || isUpscaleFamily(family)) fail(`"${family}" is not a video family. Video families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'video' && !isUpscaleFamily(f)).join(', ')}.`);
     const source = this.requireItem(reqString(args, 'source', 64), ['image'], 'source');
 
     const size = source.width && source.height ? { width: source.width, height: source.height } : this.deps.imageSize(source.path);

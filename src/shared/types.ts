@@ -12,6 +12,8 @@ export interface GenerationParams {
   /** Video families only: local path to the source image to animate, chosen via
    * window.kvgenius.chooseSourceImage() and uploaded to ComfyUI at generation time. */
   sourceImagePath?: string;
+  /** Video upscale family only: local path to the video to enlarge. */
+  sourceVideoPath?: string;
   /** Upscale family only: file name of the ComfyUI upscale model to use (see listUpscaleModels). */
   upscaleModel?: string;
 }
@@ -143,6 +145,7 @@ export interface VideoSourceRequest {
 export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'z-image-turbo': 'image',
   'wan22-i2v': 'video',
+  'upscale-video': 'video',
 };
 
 export interface SavedPrompt {
