@@ -116,13 +116,16 @@ export async function cancelCurrentGeneration(): Promise<void> {
   currentAbortController?.abort();
 }
 
-/** Upscale models ComfyUI can load, read from the loader node's own list of choices. */
+/** Upscale models ComfyUI can load, read from the loader node's own list of choices. Older ComfyUI
+ * versions describe a choice list as `[[...names]]`; newer ones as `["COMBO", { options: [...] }]`. */
 export async function listUpscaleModels(): Promise<string[]> {
   const resp = await comfyRequest('/object_info/UpscaleModelLoader', { signal: AbortSignal.timeout(10000) });
   const data = (await resp.json()) as {
-    UpscaleModelLoader?: { input?: { required?: { model_name?: [unknown] } } };
+    UpscaleModelLoader?: { input?: { required?: { model_name?: unknown } } };
   };
-  const choices = data.UpscaleModelLoader?.input?.required?.model_name?.[0];
+  const spec = data.UpscaleModelLoader?.input?.required?.model_name;
+  if (!Array.isArray(spec)) return [];
+  const choices = Array.isArray(spec[0]) ? spec[0] : (spec[1] as { options?: unknown } | undefined)?.options;
   return Array.isArray(choices) ? choices.map(String) : [];
 }
 
