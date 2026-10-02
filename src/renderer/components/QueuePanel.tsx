@@ -1,5 +1,5 @@
 import { GenerationRecord } from '../../shared/types';
-import { UPSCALE_FAMILY } from '../../shared/upscale';
+import { isUpscaleFamily } from '../../shared/upscale';
 import { videoQualityFromCfg } from '../../shared/videoQuality';
 import { Job, JobKind, ProgressInfo } from '../hooks/useGenerationQueue';
 import { formatDuration } from '../utils/format';
@@ -35,7 +35,7 @@ function isDone(job: Job): job is DoneJob {
 
 function describe(job: Job): string {
   const { width, height, seed, steps, cfg, length } = job.params;
-  if (job.family === UPSCALE_FAMILY) return `Upscale to ${width}×${height} · ${job.params.upscaleModel ?? ''}`;
+  if (isUpscaleFamily(job.family)) return `Upscale to ${width}×${height} · ${job.params.upscaleModel ?? ''}`;
   const parts = [`${width}×${height}`];
   if (job.kind === 'video') parts.push(`${framesToSeconds(length ?? 81)}s`, `${videoQualityFromCfg(cfg)} quality`);
   parts.push(`seed ${seed}`);
@@ -219,7 +219,7 @@ export default function QueuePanel({
                 <div className="queue-done__caption" title={job.params.prompt}>
                   {job.params.prompt}
                 </div>
-                {job.family !== UPSCALE_FAMILY && (
+                {!isUpscaleFamily(job.family) && (
                   <button
                     type="button"
                     className="queue-done__rerack"

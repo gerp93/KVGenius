@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY } from '../../shared/upscale';
+import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
 import GeneratedVideo from '../components/GeneratedVideo';
 import QueuePanel from '../components/QueuePanel';
@@ -317,12 +317,12 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
     }
   }
 
-  // Fetch the model list the first time an image's details are opened.
-  const infoIsImage = infoRecord ? kindOf(infoRecord) === 'image' : false;
+  // Fetch the model list the first time an item's details are opened.
+  const infoOpen = infoRecord !== null;
   useEffect(() => {
-    if (infoIsImage && upscaleModels === null) void loadUpscaleModels();
+    if (infoOpen && upscaleModels === null) void loadUpscaleModels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [infoIsImage, upscaleModels]);
+  }, [infoOpen, upscaleModels]);
 
   /** Adds an upscale job to the shared queue; several can be waiting at once. */
   function handleUpscale(record: GenerationRecord) {
@@ -330,18 +330,21 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
     setNotice(null);
     setError(null);
     setQueueCollapsed(false);
+    const isVideo = kindOf(record) === 'video';
+    // Video encoders need even dimensions.
+    const scaled = (n: number) => (isVideo ? 2 * Math.round((n * upscaleFactor) / 2) : Math.round(n * upscaleFactor));
     const added = queue.enqueue([
       {
-        family: UPSCALE_FAMILY,
-        kind: 'image',
+        family: isVideo ? UPSCALE_VIDEO_FAMILY : UPSCALE_FAMILY,
+        kind: isVideo ? 'video' : 'image',
         params: {
           prompt: record.prompt,
-          width: Math.round(record.width * upscaleFactor),
-          height: Math.round(record.height * upscaleFactor),
+          width: scaled(record.width),
+          height: scaled(record.height),
           seed: record.seed,
           steps: record.steps,
           cfg: record.cfg,
-          sourceImagePath: record.imagePath,
+          ...(isVideo ? { length: record.length ?? undefined, sourceVideoPath: record.imagePath } : { sourceImagePath: record.imagePath }),
           upscaleModel,
         },
       },
@@ -352,20 +355,20 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
   // A finished upscale is a new image: put it at the top of the list without a reload.
   useEffect(() => {
     if (mergedUpscales.current === null) {
-      mergedUpscales.current = new Set(queue.jobs.filter((j) => j.family === UPSCALE_FAMILY && j.status === 'done').map((j) => j.id));
+      mergedUpscales.current = new Set(queue.jobs.filter((j) => isUpscaleFamily(j.family) && j.status === 'done').map((j) => j.id));
       return;
     }
     const merged = mergedUpscales.current;
     for (const job of queue.jobs) {
-      if (job.family !== UPSCALE_FAMILY || job.status !== 'done' || !job.record || merged.has(job.id)) continue;
+      if (!isUpscaleFamily(job.family) || job.status !== 'done' || !job.record || merged.has(job.id)) continue;
       merged.add(job.id);
       const made = job.record;
       if (made.hidden && !showHidden) continue;
       if (favoritesOnly) setNotice('An upscale finished - it is not a favorite, so turn off the Favorites filter to see it.');
-      if (tab === 'image' && !favoritesOnly) {
+      if (tab === job.kind && !favoritesOnly) {
         setRecords((prev) => (prev.some((r) => r.id === made.id) ? prev : [made, ...prev]));
       }
-      setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
+      setCounts((prev) => ({ ...prev, [job.kind]: prev[job.kind] + 1 }));
     }
   }, [queue.jobs, tab, favoritesOnly, showHidden]);
 
@@ -374,7 +377,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
     (j) =>
       j.status === 'queued' ||
       j.status === 'running' ||
-      (j.family === UPSCALE_FAMILY && (j.status === 'done' || (j.status === 'failed' && !j.dismissed)))
+      (isUpscaleFamily(j.family) && (j.status === 'done' || (j.status === 'failed' && !j.dismissed)))
   );
 
   async function handleToggleHidden(record: GenerationRecord) {
@@ -657,43 +660,41 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
           <button type="button" className="primary" onClick={() => handleRecreate(infoRecord)} style={{ width: '100%' }}>
             ↺ Re-rack
           </button>
-          {kindOf(infoRecord) === 'image' && (
-            <div className="library-panel__upscale">
-              <span className="field-label" style={{ margin: 0 }}>
+          <div className="library-panel__upscale">
+            <span className="field-label" style={{ margin: 0 }}>
+              Upscale
+            </span>
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              <select
+                value={upscaleModel}
+                onChange={(e) => setUpscaleModel(e.target.value)}
+                style={{ flex: 1, minWidth: 0 }}
+                title="Upscale model"
+              >
+                {upscaleModels === null && <option value="">Choose model...</option>}
+                {upscaleModels?.length === 0 && <option value="">No upscale models installed</option>}
+                {upscaleModels?.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={upscaleFactor}
+                onChange={(e) => setUpscaleFactor(Number(e.target.value))}
+                title="Size multiplier"
+              >
+                {UPSCALE_FACTORS.map((f) => (
+                  <option key={f} value={f}>
+                    {f}×
+                  </option>
+                ))}
+              </select>
+              <button type="button" onClick={() => handleUpscale(infoRecord)} disabled={!upscaleModel}>
                 Upscale
-              </span>
-              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                <select
-                  value={upscaleModel}
-                  onChange={(e) => setUpscaleModel(e.target.value)}
-                  style={{ flex: 1, minWidth: 0 }}
-                  title="Upscale model"
-                >
-                  {upscaleModels === null && <option value="">Choose model...</option>}
-                  {upscaleModels?.length === 0 && <option value="">No upscale models installed</option>}
-                  {upscaleModels?.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={upscaleFactor}
-                  onChange={(e) => setUpscaleFactor(Number(e.target.value))}
-                  title="Size multiplier"
-                >
-                  {UPSCALE_FACTORS.map((f) => (
-                    <option key={f} value={f}>
-                      {f}×
-                    </option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => handleUpscale(infoRecord)} disabled={!upscaleModel}>
-                  Upscale
-                </button>
-              </div>
+              </button>
             </div>
-          )}
+          </div>
           <div className="library-panel__actions">
             {kindOf(infoRecord) === 'image' && (
               <button type="button" onClick={() => handleImageToVideo(infoRecord)} title="Create video from image">

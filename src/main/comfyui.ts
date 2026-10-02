@@ -8,7 +8,8 @@ import { getEffectiveComfyUIHost } from './dbLocation';
 import zImageTurboTemplate from './templates/z-image-turbo.json';
 import wan22I2vTemplate from './templates/wan22-i2v.json';
 import upscaleImageTemplate from './templates/upscale-image.json';
-import { UPSCALE_FAMILY } from '../shared/upscale';
+import upscaleVideoTemplate from './templates/upscale-video.json';
+import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../shared/upscale';
 
 // Imported directly (not read from disk at runtime via fs) so tsc inlines the JSON into the
 // compiled output - `tsc -p tsconfig.main.json` only compiles .ts files, it doesn't copy
@@ -20,6 +21,7 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
   'z-image-turbo': zImageTurboTemplate,
   'wan22-i2v': wan22I2vTemplate,
   [UPSCALE_FAMILY]: upscaleImageTemplate,
+  [UPSCALE_VIDEO_FAMILY]: upscaleVideoTemplate,
 };
 
 // ComfyUI Desktop (the Electron distribution this app targets) defaults to port 8000, not
@@ -61,6 +63,14 @@ const UPSCALE_NODE_MAP = {
   loadImage: '1',
   modelLoader: '2',
   resize: '4',
+};
+
+/** Node IDs in src/main/templates/upscale-video.json: load video -> split into frames -> model upscale
+ * -> resize to the exact size -> reassemble (keeping the audio and frame rate) -> save. Core nodes only. */
+const UPSCALE_VIDEO_NODE_MAP = {
+  loadVideo: '1',
+  modelLoader: '2',
+  resize: '5',
 };
 
 export class ComfyUIUnavailableError extends Error {}
@@ -175,6 +185,19 @@ async function patchTemplate(
     (workflow[UPSCALE_NODE_MAP.loadImage] as { inputs: Record<string, unknown> }).inputs.image = uploadedName;
     (workflow[UPSCALE_NODE_MAP.modelLoader] as { inputs: Record<string, unknown> }).inputs.model_name = params.upscaleModel;
     const resize = workflow[UPSCALE_NODE_MAP.resize] as { inputs: Record<string, unknown> };
+    resize.inputs.width = params.width;
+    resize.inputs.height = params.height;
+    return workflow;
+  }
+
+  if (family === UPSCALE_VIDEO_FAMILY) {
+    if (!params.sourceVideoPath) throw new Error('Upscaling needs a source video.');
+    if (!params.upscaleModel) throw new Error('Choose an upscale model first.');
+    // ComfyUI's upload endpoint stores any file in its input folder; LoadVideo then finds it by name.
+    const uploadedName = await uploadSourceImage(params.sourceVideoPath, signal);
+    (workflow[UPSCALE_VIDEO_NODE_MAP.loadVideo] as { inputs: Record<string, unknown> }).inputs.file = uploadedName;
+    (workflow[UPSCALE_VIDEO_NODE_MAP.modelLoader] as { inputs: Record<string, unknown> }).inputs.model_name = params.upscaleModel;
+    const resize = workflow[UPSCALE_VIDEO_NODE_MAP.resize] as { inputs: Record<string, unknown> };
     resize.inputs.width = params.width;
     resize.inputs.height = params.height;
     return workflow;

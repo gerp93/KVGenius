@@ -1,0 +1,43 @@
+{
+  "1": {
+    "inputs": { "file": "__SOURCE_VIDEO__" },
+    "class_type": "LoadVideo",
+    "_meta": { "title": "Load Video" }
+  },
+  "2": {
+    "inputs": { "model_name": "__UPSCALE_MODEL__" },
+    "class_type": "UpscaleModelLoader",
+    "_meta": { "title": "Load Upscale Model" }
+  },
+  "3": {
+    "inputs": { "video": ["1", 0] },
+    "class_type": "GetVideoComponents",
+    "_meta": { "title": "Get Video Components" }
+  },
+  "4": {
+    "inputs": { "upscale_model": ["2", 0], "image": ["3", 0] },
+    "class_type": "ImageUpscaleWithModel",
+    "_meta": { "title": "Upscale Image (using Model)" }
+  },
+  "5": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "width": 1280,
+      "height": 1280,
+      "crop": "disabled",
+      "image": ["4", 0]
+    },
+    "class_type": "ImageScale",
+    "_meta": { "title": "Upscale Image" }
+  },
+  "6": {
+    "inputs": { "images": ["5", 0], "audio": ["3", 1], "fps": ["3", 2] },
+    "class_type": "CreateVideo",
+    "_meta": { "title": "Create Video" }
+  },
+  "7": {
+    "inputs": { "video": ["6", 0], "filename_prefix": "video/upscale/KVGenius", "format": "auto", "codec": "auto" },
+    "class_type": "SaveVideo",
+    "_meta": { "title": "Save Video" }
+  }
+}
