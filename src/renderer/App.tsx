@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, NavLink, Link, Navigate, useLocation } from 'react-router-dom';
 import Generate from './pages/Generate';
+import { useGenerationQueue } from './hooks/useGenerationQueue';
 import LibraryLayout from './pages/LibraryLayout';
 import LibraryOutput from './pages/LibraryOutput';
 import LibraryPrompts from './pages/LibraryPrompts';
@@ -24,6 +25,8 @@ export default function App() {
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<string | null>(null);
   const location = useLocation();
+  // One queue for the whole app: Generate and the Library's Upscale both feed it.
+  const queue = useGenerationQueue();
 
   useEffect(() => {
     window.kvgenius.getTheme().then(setThemeState);
@@ -146,6 +149,7 @@ export default function App() {
           when it rendered through <Routes> - needed for its flex: 1 height to keep working. */}
       <div style={{ display: location.pathname === '/' ? 'contents' : 'none' }}>
         <Generate
+          queue={queue}
           recallRecord={recallRecord}
           onRecalled={() => setRecallRecord(null)}
           recallPrompt={recallPrompt}
@@ -157,7 +161,7 @@ export default function App() {
       <Routes>
         <Route path="/library" element={<LibraryLayout />}>
           <Route index element={<Navigate to="output" replace />} />
-          <Route path="output" element={<LibraryOutput onRecall={setRecallRecord} onImageToVideo={setVideoSource} />} />
+          <Route path="output" element={<LibraryOutput queue={queue} onRecall={setRecallRecord} onImageToVideo={setVideoSource} />} />
           <Route path="prompts" element={<LibraryPrompts onRecallPrompt={setRecallPrompt} />} />
         </Route>
         <Route path="/timing" element={<Timing />} />

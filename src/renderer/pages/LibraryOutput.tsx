@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
 import GeneratedVideo from '../components/GeneratedVideo';
+import QueuePanel from '../components/QueuePanel';
+import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import GalleryLightbox from '../components/GalleryLightbox';
 import PromptModal from '../components/PromptModal';
 import { formatBytes, formatDifference, formatDuration } from '../utils/format';
@@ -15,6 +17,7 @@ const GRID_GAP = 12;
 const VIDEO_FPS = 16;
 
 interface Props {
+  queue: GenerationQueue;
   onRecall: (record: GenerationRecord) => void;
   onImageToVideo: (request: VideoSourceRequest) => void;
 }
@@ -23,7 +26,7 @@ function kindOf(record: GenerationRecord): GenerationKind {
   return FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
 }
 
-export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
+export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props) {
   const [tab, setTab] = useState<GenerationKind>('image');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   // Hidden items (see Settings > Hidden Content) are left out of the Library unless this is on.
@@ -48,7 +51,9 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
   const [upscaleModels, setUpscaleModels] = useState<string[] | null>(null);
   const [upscaleModel, setUpscaleModel] = useState('');
   const [upscaleFactor, setUpscaleFactor] = useState(DEFAULT_UPSCALE_FACTOR);
-  const [upscaling, setUpscaling] = useState(false);
+  const [queueCollapsed, setQueueCollapsed] = useState(false);
+  // Upscale jobs already merged into the list below (those finished before this page opened are in its load).
+  const mergedUpscales = useRef<Set<number> | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
   // Index into `records` of the image/video open in the full-window gallery viewer, if any.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -319,33 +324,58 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [infoIsImage, upscaleModels]);
 
-  async function handleUpscale(record: GenerationRecord) {
+  /** Adds an upscale job to the shared queue; several can be waiting at once. */
+  function handleUpscale(record: GenerationRecord) {
     if (!upscaleModel) return;
-    setUpscaling(true);
     setNotice(null);
     setError(null);
-    try {
-      const { record: made } = await window.kvgenius.generate(UPSCALE_FAMILY, {
-        prompt: record.prompt,
-        width: Math.round(record.width * upscaleFactor),
-        height: Math.round(record.height * upscaleFactor),
-        seed: record.seed,
-        steps: record.steps,
-        cfg: record.cfg,
-        sourceImagePath: record.imagePath,
-        upscaleModel,
-      });
-      setNotice(`Upscaled to ${made.width} × ${made.height} - saved as a new image.`);
-      if (tab === 'image' && !favoritesOnly && !made.hidden) {
-        setRecords((prev) => [made, ...prev]);
+    setQueueCollapsed(false);
+    const added = queue.enqueue([
+      {
+        family: UPSCALE_FAMILY,
+        kind: 'image',
+        params: {
+          prompt: record.prompt,
+          width: Math.round(record.width * upscaleFactor),
+          height: Math.round(record.height * upscaleFactor),
+          seed: record.seed,
+          steps: record.steps,
+          cfg: record.cfg,
+          sourceImagePath: record.imagePath,
+          upscaleModel,
+        },
+      },
+    ]);
+    if (added === 0) setError(`The queue is full (${MAX_PENDING_JOBS} waiting).`);
+  }
+
+  // A finished upscale is a new image: put it at the top of the list without a reload.
+  useEffect(() => {
+    if (mergedUpscales.current === null) {
+      mergedUpscales.current = new Set(queue.jobs.filter((j) => j.family === UPSCALE_FAMILY && j.status === 'done').map((j) => j.id));
+      return;
+    }
+    const merged = mergedUpscales.current;
+    for (const job of queue.jobs) {
+      if (job.family !== UPSCALE_FAMILY || job.status !== 'done' || !job.record || merged.has(job.id)) continue;
+      merged.add(job.id);
+      const made = job.record;
+      if (made.hidden && !showHidden) continue;
+      if (favoritesOnly) setNotice('An upscale finished - it is not a favorite, so turn off the Favorites filter to see it.');
+      if (tab === 'image' && !favoritesOnly) {
+        setRecords((prev) => (prev.some((r) => r.id === made.id) ? prev : [made, ...prev]));
       }
       setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setUpscaling(false);
     }
-  }
+  }, [queue.jobs, tab, favoritesOnly, showHidden]);
+
+  // The queue panel pops out while anything is running or waiting, and stays for finished/failed upscales.
+  const showQueue = queue.jobs.some(
+    (j) =>
+      j.status === 'queued' ||
+      j.status === 'running' ||
+      (j.family === UPSCALE_FAMILY && (j.status === 'done' || (j.status === 'failed' && !j.dismissed)))
+  );
 
   async function handleToggleHidden(record: GenerationRecord) {
     const hidden = !record.hidden;
@@ -636,7 +666,6 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
                 <select
                   value={upscaleModel}
                   onChange={(e) => setUpscaleModel(e.target.value)}
-                  disabled={upscaling}
                   style={{ flex: 1, minWidth: 0 }}
                   title="Upscale model"
                 >
@@ -651,7 +680,6 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
                 <select
                   value={upscaleFactor}
                   onChange={(e) => setUpscaleFactor(Number(e.target.value))}
-                  disabled={upscaling}
                   title="Size multiplier"
                 >
                   {UPSCALE_FACTORS.map((f) => (
@@ -660,8 +688,8 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
                     </option>
                   ))}
                 </select>
-                <button type="button" onClick={() => handleUpscale(infoRecord)} disabled={upscaling || !upscaleModel}>
-                  {upscaling ? 'Upscaling...' : 'Upscale'}
+                <button type="button" onClick={() => handleUpscale(infoRecord)} disabled={!upscaleModel}>
+                  Upscale
                 </button>
               </div>
             </div>
@@ -747,6 +775,26 @@ export default function LibraryOutput({ onRecall, onImageToVideo }: Props) {
             <dd>{infoRecord.imagePath.split(/[\\/]/).pop()}</dd>
           </dl>
         </aside>
+      )}
+
+      {showQueue && (
+        <div className={`library-queue${queueCollapsed ? ' library-queue--collapsed' : ''}`}>
+          <QueuePanel
+            jobs={queue.jobs}
+            now={queue.now}
+            progressInfo={queue.progressInfo}
+            collapsed={queueCollapsed}
+            onToggle={() => setQueueCollapsed((v) => !v)}
+            onCancelJob={queue.cancelJob}
+            onClearQueued={queue.clearQueued}
+            onDismissFailed={queue.dismissFailed}
+            onToggleFavorite={handleToggleFavorite}
+            onRerack={(record) => {
+              onRecall(record);
+              navigate('/');
+            }}
+          />
+        </div>
       )}
 
       {promptToSave && (

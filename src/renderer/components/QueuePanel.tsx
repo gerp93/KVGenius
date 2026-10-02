@@ -1,4 +1,5 @@
 import { GenerationRecord } from '../../shared/types';
+import { UPSCALE_FAMILY } from '../../shared/upscale';
 import { videoQualityFromCfg } from '../../shared/videoQuality';
 import { Job, JobKind, ProgressInfo } from '../hooks/useGenerationQueue';
 import { formatDuration } from '../utils/format';
@@ -18,6 +19,8 @@ interface Props {
   onClearQueued: () => void;
   onDismissFailed: (id: number) => void;
   onToggleFavorite: (record: GenerationRecord) => void;
+  /** Pull a completed result's exact prompt and settings back into the form. */
+  onRerack: (record: GenerationRecord) => void;
 }
 
 /** Most recently completed jobs shown full-width in the queue itself, so a result is visible
@@ -32,6 +35,7 @@ function isDone(job: Job): job is DoneJob {
 
 function describe(job: Job): string {
   const { width, height, seed, steps, cfg, length } = job.params;
+  if (job.family === UPSCALE_FAMILY) return `Upscale to ${width}×${height} · ${job.params.upscaleModel ?? ''}`;
   const parts = [`${width}×${height}`];
   if (job.kind === 'video') parts.push(`${framesToSeconds(length ?? 81)}s`, `${videoQualityFromCfg(cfg)} quality`);
   parts.push(`seed ${seed}`);
@@ -50,6 +54,7 @@ export default function QueuePanel({
   onClearQueued,
   onDismissFailed,
   onToggleFavorite,
+  onRerack,
 }: Props) {
   const running = jobs.find((j) => j.status === 'running');
   const queued = jobs.filter((j) => j.status === 'queued');
@@ -214,6 +219,16 @@ export default function QueuePanel({
                 <div className="queue-done__caption" title={job.params.prompt}>
                   {job.params.prompt}
                 </div>
+                {job.family !== UPSCALE_FAMILY && (
+                  <button
+                    type="button"
+                    className="queue-done__rerack"
+                    onClick={() => onRerack(job.record)}
+                    title="Load this prompt and its exact settings back into the form"
+                  >
+                    ↺ Re-rack
+                  </button>
+                )}
               </div>
             ))}
             {olderDoneCount > 0 && (
