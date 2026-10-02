@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { DEFAULT_GIF_FPS, DEFAULT_GIF_WIDTH, GIF_FPS_CHOICES, GIF_WIDTHS } from '../../shared/gif';
 import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
 import GeneratedVideo from '../components/GeneratedVideo';
@@ -24,6 +25,11 @@ interface Props {
 
 function kindOf(record: GenerationRecord): GenerationKind {
   return FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
+}
+
+/** GIFs made from a video are stored as images, but can't be upscaled or animated again. */
+function isGif(record: GenerationRecord): boolean {
+  return record.imagePath.toLowerCase().endsWith('.gif');
 }
 
 export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props) {
@@ -54,6 +60,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   // Upscale jobs already merged into the list below (those finished before this page opened are in its load).
   const mergedUpscales = useRef<Set<number> | null>(null);
+  // GIF conversion controls for a video's details panel.
+  const [gifWidth, setGifWidth] = useState(DEFAULT_GIF_WIDTH);
+  const [gifFps, setGifFps] = useState(DEFAULT_GIF_FPS);
+  const [makingGif, setMakingGif] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
   // Index into `records` of the image/video open in the full-window gallery viewer, if any.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -380,6 +390,24 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
       (isUpscaleFamily(j.family) && (j.status === 'done' || (j.status === 'failed' && !j.dismissed)))
   );
 
+  async function handleMakeGif(record: GenerationRecord) {
+    setMakingGif(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const { record: made } = await window.kvgenius.convertToGif(record.id, { fps: gifFps, width: gifWidth });
+      setNotice(`Made a ${made.width} × ${made.height} GIF - saved as a new image.`);
+      if (tab === 'image' && !favoritesOnly && !made.hidden) {
+        setRecords((prev) => [made, ...prev]);
+      }
+      setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMakingGif(false);
+    }
+  }
+
   async function handleToggleHidden(record: GenerationRecord) {
     const hidden = !record.hidden;
     try {
@@ -660,43 +688,77 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
           <button type="button" className="primary" onClick={() => handleRecreate(infoRecord)} style={{ width: '100%' }}>
             ↺ Re-rack
           </button>
-          <div className="library-panel__upscale">
-            <span className="field-label" style={{ margin: 0 }}>
-              Upscale
-            </span>
-            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-              <select
-                value={upscaleModel}
-                onChange={(e) => setUpscaleModel(e.target.value)}
-                style={{ flex: 1, minWidth: 0 }}
-                title="Upscale model"
-              >
-                {upscaleModels === null && <option value="">Choose model...</option>}
-                {upscaleModels?.length === 0 && <option value="">No upscale models installed</option>}
-                {upscaleModels?.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={upscaleFactor}
-                onChange={(e) => setUpscaleFactor(Number(e.target.value))}
-                title="Size multiplier"
-              >
-                {UPSCALE_FACTORS.map((f) => (
-                  <option key={f} value={f}>
-                    {f}×
-                  </option>
-                ))}
-              </select>
-              <button type="button" onClick={() => handleUpscale(infoRecord)} disabled={!upscaleModel}>
-                Upscale
-              </button>
+          {kindOf(infoRecord) === 'video' && (
+            <div className="library-panel__upscale">
+              <span className="field-label" style={{ margin: 0 }}>
+                GIF
+              </span>
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                <select
+                  value={gifWidth}
+                  onChange={(e) => setGifWidth(Number(e.target.value))}
+                  disabled={makingGif}
+                  style={{ flex: 1, minWidth: 0 }}
+                  title="Maximum width"
+                >
+                  {GIF_WIDTHS.map((w) => (
+                    <option key={w} value={w}>
+                      {w}px wide
+                    </option>
+                  ))}
+                </select>
+                <select value={gifFps} onChange={(e) => setGifFps(Number(e.target.value))} disabled={makingGif} title="Frames per second">
+                  {GIF_FPS_CHOICES.map((f) => (
+                    <option key={f} value={f}>
+                      {f} fps
+                    </option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => handleMakeGif(infoRecord)} disabled={makingGif}>
+                  {makingGif ? 'Converting...' : 'Make GIF'}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
+          {!isGif(infoRecord) && (
+            <div className="library-panel__upscale">
+              <span className="field-label" style={{ margin: 0 }}>
+                Upscale
+              </span>
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                <select
+                  value={upscaleModel}
+                  onChange={(e) => setUpscaleModel(e.target.value)}
+                  style={{ flex: 1, minWidth: 0 }}
+                  title="Upscale model"
+                >
+                  {upscaleModels === null && <option value="">Choose model...</option>}
+                  {upscaleModels?.length === 0 && <option value="">No upscale models installed</option>}
+                  {upscaleModels?.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={upscaleFactor}
+                  onChange={(e) => setUpscaleFactor(Number(e.target.value))}
+                  title="Size multiplier"
+                >
+                  {UPSCALE_FACTORS.map((f) => (
+                    <option key={f} value={f}>
+                      {f}×
+                    </option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => handleUpscale(infoRecord)} disabled={!upscaleModel}>
+                  Upscale
+                </button>
+              </div>
+            </div>
+          )}
           <div className="library-panel__actions">
-            {kindOf(infoRecord) === 'image' && (
+            {kindOf(infoRecord) === 'image' && !isGif(infoRecord) && (
               <button type="button" onClick={() => handleImageToVideo(infoRecord)} title="Create video from image">
                 🎬 Video
               </button>

@@ -284,6 +284,26 @@ export function planAssemble(input: AssembleInput): AssemblePlan {
   return { mode: 'reencode', args, totalSeconds: total, warnings };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Video -> GIF
+
+export interface GifInput {
+  input: string;
+  output: string;
+  fps: number;
+  /** Widest the GIF may be; a narrower video is not enlarged. */
+  width: number;
+}
+
+/** Builds the ffmpeg command for a GIF. Pure, so it can be tested. The palette is computed from the
+ * clip itself and then applied - without that step GIFs come out muddy and banded. */
+export function planGif({ input, output, fps, width }: GifInput): string[] {
+  const filter =
+    `fps=${num(fps)},scale='min(${Math.round(width)},iw)':-2:flags=lanczos,` +
+    'split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle';
+  return ['-y', '-v', 'error', '-progress', 'pipe:1', '-nostats', '-i', input, '-an', '-vf', filter, '-loop', '0', '-f', 'gif', output];
+}
+
 export interface RunningFfmpeg {
   done: Promise<void>;
   cancel: () => void;

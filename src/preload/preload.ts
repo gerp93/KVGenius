@@ -81,6 +81,7 @@ const api: KVGeniusAPI = {
   openHardpoint: () => ipcRenderer.invoke('openHardpoint'),
   hardpointIsReachable: () => ipcRenderer.invoke('hardpointIsReachable'),
   listUpscaleModels: () => ipcRenderer.invoke('listUpscaleModels'),
+  convertToGif: (id: number, options: { fps: number; width: number }) => ipcRenderer.invoke('convertToGif', id, options),
 };
 
 contextBridge.exposeInMainWorld('kvgenius', api);

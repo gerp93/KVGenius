@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AssembleInput, planAssemble } from './mediaTools';
+import { AssembleInput, planAssemble, planGif } from './mediaTools';
 
 const base = (over: Partial<AssembleInput> = {}): AssembleInput => ({
   clips: [
@@ -107,4 +107,15 @@ test('without audio the output has no audio stream', () => {
 
 test('no clips is an error', () => {
   assert.throws(() => planAssemble(base({ clips: [] })), /At least one clip/);
+});
+
+test('planGif builds a palette-based gif command that never enlarges', () => {
+  const args = planGif({ input: '/v/in.mp4', output: '/o/out.gif.part', fps: 15, width: 480 });
+  assert.equal(args[args.indexOf('-i') + 1], '/v/in.mp4');
+  assert.equal(args[args.length - 1], '/o/out.gif.part');
+  assert.ok(args.includes('-an'));
+  assert.equal(args[args.indexOf('-f') + 1], 'gif');
+  const filter = args[args.indexOf('-vf') + 1];
+  assert.match(filter, /^fps=15,scale='min\(480,iw\)':-2/);
+  assert.match(filter, /palettegen.*paletteuse/);
 });
