@@ -402,7 +402,9 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
       }
       setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Electron prefixes errors thrown in an ipcMain handler with "Error invoking remote method".
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
     } finally {
       setMakingGif(false);
     }
