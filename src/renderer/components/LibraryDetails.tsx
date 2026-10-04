@@ -1,0 +1,362 @@
+import { useEffect, useState } from 'react';
+import { DEFAULT_GIF_FPS, DEFAULT_GIF_WIDTH, GIF_FPS_CHOICES, GIF_WIDTHS } from '../../shared/gif';
+import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../../shared/upscale';
+import { FAMILY_KIND, GenerationKind, GenerationRecord } from '../../shared/types';
+import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
+import { formatBytes, formatDifference, formatDuration } from '../utils/format';
+import CopyButton from './CopyButton';
+import GeneratedVideo from './GeneratedVideo';
+
+// wan22-i2v's frame rate (see Generate.tsx) - only used to show a video's length in seconds.
+const VIDEO_FPS = 16;
+
+// The upscale choices are kept for the session, so closing the panel and opening another item does
+// not send you back to the first model.
+let lastUpscaleModel = '';
+let lastUpscaleFactor = DEFAULT_UPSCALE_FACTOR;
+
+function kindOf(record: GenerationRecord): GenerationKind {
+  return FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
+}
+
+/** GIFs made from a video are stored as images, but can't be upscaled or animated again. */
+function isGif(record: GenerationRecord): boolean {
+  return record.imagePath.toLowerCase().endsWith('.gif');
+}
+
+interface Props {
+  record: GenerationRecord;
+  queue: GenerationQueue;
+  onClose: () => void;
+  /** Open the picture in the full-window viewer. */
+  onExpand: () => void;
+  onToggleFavorite: (record: GenerationRecord) => void;
+  onTogglePinned: (record: GenerationRecord) => void;
+  onToggleHidden: (record: GenerationRecord) => void;
+  onDelete: (record: GenerationRecord) => void;
+  /** Load the generation into a Generate tab. */
+  onRerack: (record: GenerationRecord) => void;
+  onImageToVideo: (record: GenerationRecord) => void;
+  onSaveAs: (record: GenerationRecord) => void;
+  onReveal: (record: GenerationRecord) => void;
+  /** An upscale was added to the queue (the page can show its queue). */
+  onUpscaleQueued: () => void;
+  /** A GIF was made from this video: the new image's record, for the page to fold into its list. */
+  onGifMade: (made: GenerationRecord) => void;
+  onError: (message: string | null) => void;
+  onNotice: (message: string | null) => void;
+}
+
+/**
+ * The Library's details side panel for one generation: its picture, the actions on it (re-rack,
+ * favorite, pin, hide, GIF, upscale, ...), the prompt with a copy button, and everything known about
+ * it. Shared by Library > Output and Library > Prompts so they behave alike; the page owns the list
+ * and decides what each action does to it.
+ */
+export default function LibraryDetails({
+  record,
+  queue,
+  onClose,
+  onExpand,
+  onToggleFavorite,
+  onTogglePinned,
+  onToggleHidden,
+  onDelete,
+  onRerack,
+  onImageToVideo,
+  onSaveAs,
+  onReveal,
+  onUpscaleQueued,
+  onGifMade,
+  onError,
+  onNotice,
+}: Props) {
+  const [size, setSize] = useState<number | null>(null);
+  // Upscale controls: the models come from ComfyUI when the panel opens.
+  const [upscaleModels, setUpscaleModels] = useState<string[] | null>(null);
+  const [upscaleModel, setUpscaleModelState] = useState(lastUpscaleModel);
+  const [upscaleFactor, setUpscaleFactorState] = useState(lastUpscaleFactor);
+  // GIF conversion controls, for a video.
+  const [gifWidth, setGifWidth] = useState(DEFAULT_GIF_WIDTH);
+  const [gifFps, setGifFps] = useState(DEFAULT_GIF_FPS);
+  const [makingGif, setMakingGif] = useState(false);
+
+  function setUpscaleModel(model: string) {
+    lastUpscaleModel = model;
+    setUpscaleModelState(model);
+  }
+
+  function setUpscaleFactor(factor: number) {
+    lastUpscaleFactor = factor;
+    setUpscaleFactorState(factor);
+  }
+
+  const imagePath = record.imagePath;
+  useEffect(() => {
+    setSize(null);
+    let cancelled = false;
+    window.kvgenius
+      .getFileSize(imagePath)
+      .then((bytes) => {
+        if (!cancelled) setSize(bytes);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [imagePath]);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.kvgenius
+      .listUpscaleModels()
+      .then((models) => {
+        if (cancelled) return;
+        setUpscaleModels(models);
+        setUpscaleModelState((prev) => {
+          const next = models.includes(prev) ? prev : (models[0] ?? '');
+          lastUpscaleModel = next;
+          return next;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) onError('Could not reach ComfyUI to list upscale models.');
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Adds an upscale job to the shared queue; several can be waiting at once. */
+  function handleUpscale() {
+    if (!upscaleModel) return;
+    onNotice(null);
+    onError(null);
+    onUpscaleQueued();
+    const isVideo = kindOf(record) === 'video';
+    // Video encoders need even dimensions.
+    const scaled = (n: number) => (isVideo ? 2 * Math.round((n * upscaleFactor) / 2) : Math.round(n * upscaleFactor));
+    const added = queue.enqueue([
+      {
+        family: isVideo ? UPSCALE_VIDEO_FAMILY : UPSCALE_FAMILY,
+        kind: isVideo ? 'video' : 'image',
+        params: {
+          prompt: record.prompt,
+          width: scaled(record.width),
+          height: scaled(record.height),
+          seed: record.seed,
+          steps: record.steps,
+          cfg: record.cfg,
+          ...(isVideo ? { length: record.length ?? undefined, sourceVideoPath: record.imagePath } : { sourceImagePath: record.imagePath }),
+          upscaleModel,
+        },
+      },
+    ]);
+    if (added === 0) onError(`The queue is full (${MAX_PENDING_JOBS} waiting).`);
+  }
+
+  async function handleMakeGif() {
+    setMakingGif(true);
+    onNotice(null);
+    onError(null);
+    try {
+      const { record: made } = await window.kvgenius.convertToGif(record.id, { fps: gifFps, width: gifWidth });
+      onNotice(`Made a ${made.width} × ${made.height} GIF - saved as a new image.`);
+      onGifMade(made);
+    } catch (err) {
+      // Electron prefixes errors thrown in an ipcMain handler with "Error invoking remote method".
+      const message = err instanceof Error ? err.message : String(err);
+      onError(message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    } finally {
+      setMakingGif(false);
+    }
+  }
+
+  return (
+    <aside className="library-panel">
+      <div className="library-panel__header">
+        <strong>Details</strong>
+        <span className="library-panel__header-buttons">
+          <button type="button" onClick={() => onToggleFavorite(record)}>
+            {record.favorite ? '★ Favorited' : '☆ Favorite'}
+          </button>
+          <button
+            type="button"
+            onClick={() => onTogglePinned(record)}
+            title={
+              record.pinned
+                ? 'Unpin - remove this from Library > Prompts'
+                : 'Pin as the example of this prompt, shown under Library > Prompts'
+            }
+          >
+            {record.pinned ? '📌 Pinned' : '📌 Pin'}
+          </button>
+          <button type="button" onClick={() => onToggleHidden(record)}>
+            {record.hidden ? 'Unhide' : 'Hide'}
+          </button>
+          <button type="button" onClick={onClose} title="Close">
+            ✕
+          </button>
+        </span>
+      </div>
+      <div className="library-panel__media">
+        <button type="button" className="expand-button" title="Expand" onClick={onExpand}>
+          ⤢
+        </button>
+        {kindOf(record) === 'video' ? (
+          <GeneratedVideo src={window.kvgenius.imageUrlFor(record.imagePath)} filePath={record.imagePath} />
+        ) : (
+          <img src={window.kvgenius.imageUrlFor(record.imagePath)} alt={record.prompt} />
+        )}
+      </div>
+
+      <button type="button" className="primary" onClick={() => onRerack(record)} style={{ width: '100%' }}>
+        ↺ Re-rack
+      </button>
+      {kindOf(record) === 'video' && (
+        <div className="library-panel__upscale">
+          <span className="field-label" style={{ margin: 0 }}>
+            GIF
+          </span>
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <select
+              value={gifWidth}
+              onChange={(e) => setGifWidth(Number(e.target.value))}
+              disabled={makingGif}
+              style={{ flex: 1, minWidth: 0 }}
+              title="Maximum width"
+            >
+              {GIF_WIDTHS.map((w) => (
+                <option key={w} value={w}>
+                  {w}px wide
+                </option>
+              ))}
+            </select>
+            <select value={gifFps} onChange={(e) => setGifFps(Number(e.target.value))} disabled={makingGif} title="Frames per second">
+              {GIF_FPS_CHOICES.map((f) => (
+                <option key={f} value={f}>
+                  {f} fps
+                </option>
+              ))}
+            </select>
+            <button type="button" onClick={handleMakeGif} disabled={makingGif}>
+              {makingGif ? 'Converting...' : 'Make GIF'}
+            </button>
+          </div>
+        </div>
+      )}
+      {!isGif(record) && (
+        <div className="library-panel__upscale">
+          <span className="field-label" style={{ margin: 0 }}>
+            Upscale
+          </span>
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <select
+              value={upscaleModel}
+              onChange={(e) => setUpscaleModel(e.target.value)}
+              style={{ flex: 1, minWidth: 0 }}
+              title="Upscale model"
+            >
+              {upscaleModels === null && <option value="">Choose model...</option>}
+              {upscaleModels?.length === 0 && <option value="">No upscale models installed</option>}
+              {upscaleModels?.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <select value={upscaleFactor} onChange={(e) => setUpscaleFactor(Number(e.target.value))} title="Size multiplier">
+              {UPSCALE_FACTORS.map((f) => (
+                <option key={f} value={f}>
+                  {f}×
+                </option>
+              ))}
+            </select>
+            <button type="button" onClick={handleUpscale} disabled={!upscaleModel}>
+              Upscale
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="library-panel__actions">
+        {kindOf(record) === 'image' && !isGif(record) && (
+          <button type="button" onClick={() => onImageToVideo(record)} title="Create video from image">
+            🎬 Video
+          </button>
+        )}
+        <button type="button" onClick={() => onSaveAs(record)} title="Save As...">
+          💾
+        </button>
+        <button type="button" onClick={() => onReveal(record)} title="Show in File Manager">
+          📂
+        </button>
+        <button type="button" onClick={() => onDelete(record)} title="Delete">
+          🗑️
+        </button>
+      </div>
+
+      <div className="library-panel__prompt-header">
+        <span className="field-label" style={{ margin: 0 }}>
+          Prompt
+        </span>
+        <CopyButton text={record.prompt} title="Copy this prompt" />
+      </div>
+      <p className="library-panel__prompt">{record.prompt}</p>
+
+      <dl className="library-panel__meta">
+        <dt>Type</dt>
+        <dd>{kindOf(record) === 'video' ? 'Video' : 'Image'}</dd>
+        <dt>Model</dt>
+        <dd>{record.modelFamily}</dd>
+        <dt>Dimensions</dt>
+        <dd>
+          {record.width} × {record.height}
+        </dd>
+        <dt>File size</dt>
+        <dd>{size === null ? '-' : formatBytes(size)}</dd>
+        {record.length !== null && (
+          <>
+            <dt>Length</dt>
+            <dd>
+              {Math.round(((record.length - 1) / VIDEO_FPS) * 4) / 4}s ({record.length} frames)
+            </dd>
+          </>
+        )}
+        <dt>Seed</dt>
+        <dd>{record.seed}</dd>
+        {kindOf(record) === 'image' && (
+          <>
+            <dt>Steps</dt>
+            <dd>{record.steps}</dd>
+            <dt>CFG</dt>
+            <dd>{record.cfg}</dd>
+          </>
+        )}
+        {record.timing && (
+          <>
+            <dt>Estimated</dt>
+            <dd>{record.timing.estimateMs === null ? 'no estimate yet' : formatDuration(record.timing.estimateMs)}</dd>
+            <dt>Took</dt>
+            <dd>
+              {formatDuration(record.timing.actualMs)}
+              {record.timing.loadMs !== null && record.timing.loadMs >= 2000
+                ? ` (${formatDuration(record.timing.loadMs)} loading models)`
+                : ''}
+            </dd>
+            {record.timing.estimateMs !== null && (
+              <>
+                <dt>Difference</dt>
+                <dd>{formatDifference(record.timing.estimateMs, record.timing.actualMs)}</dd>
+              </>
+            )}
+          </>
+        )}
+        <dt>Created</dt>
+        <dd>{new Date(record.createdAt).toLocaleString()}</dd>
+        <dt>File</dt>
+        <dd>{record.imagePath.split(/[\\/]/).pop()}</dd>
+      </dl>
+    </aside>
+  );
+}

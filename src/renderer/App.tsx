@@ -177,7 +177,15 @@ export default function App() {
           <Route path="output" element={<LibraryOutput queue={queue} onRecall={setRecallRecord} onImageToVideo={setVideoSource} showHidden={showHidden} />} />
           <Route
             path="prompts"
-            element={<LibraryPrompts onRecallPrompt={setRecallPrompt} onRecall={setRecallRecord} showHidden={showHidden} />}
+            element={
+              <LibraryPrompts
+                queue={queue}
+                onRecallPrompt={setRecallPrompt}
+                onRecall={setRecallRecord}
+                onImageToVideo={setVideoSource}
+                showHidden={showHidden}
+              />
+            }
           />
         </Route>
         <Route path="/timing" element={<Timing />} />

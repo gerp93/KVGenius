@@ -1,21 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DEFAULT_GIF_FPS, DEFAULT_GIF_WIDTH, GIF_FPS_CHOICES, GIF_WIDTHS } from '../../shared/gif';
-import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from '../../shared/upscale';
+import { isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
-import CopyButton from '../components/CopyButton';
 import GeneratedVideo from '../components/GeneratedVideo';
-import QueuePanel from '../components/QueuePanel';
-import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
+import LibraryDetails from '../components/LibraryDetails';
+import LibraryQueue from '../components/LibraryQueue';
+import { GenerationQueue } from '../hooks/useGenerationQueue';
 import GalleryLightbox from '../components/GalleryLightbox';
-import { formatBytes, formatDifference, formatDuration } from '../utils/format';
 import { justifyRows } from '../utils/justifiedRows';
 
 const PAGE_SIZE = 60;
 const TARGET_ROW_HEIGHT = 260;
 const GRID_GAP = 12;
-// wan22-i2v's frame rate (see Generate.tsx) - only used to show a video's length in seconds.
-const VIDEO_FPS = 16;
 
 interface Props {
   queue: GenerationQueue;
@@ -27,11 +23,6 @@ interface Props {
 
 function kindOf(record: GenerationRecord): GenerationKind {
   return FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
-}
-
-/** GIFs made from a video are stored as images, but can't be upscaled or animated again. */
-function isGif(record: GenerationRecord): boolean {
-  return record.imagePath.toLowerCase().endsWith('.gif');
 }
 
 export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHidden }: Props) {
@@ -51,19 +42,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const [selection, setSelection] = useState<Map<number, GenerationRef>>(new Map());
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [infoSize, setInfoSize] = useState<number | null>(null);
   const [infoId, setInfoId] = useState<number | null>(null);
-  // Upscale controls in the details panel: models come from ComfyUI the first time they are needed.
-  const [upscaleModels, setUpscaleModels] = useState<string[] | null>(null);
-  const [upscaleModel, setUpscaleModel] = useState('');
-  const [upscaleFactor, setUpscaleFactor] = useState(DEFAULT_UPSCALE_FACTOR);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   // Upscale jobs already merged into the list below (those finished before this page opened are in its load).
   const mergedUpscales = useRef<Set<number> | null>(null);
-  // GIF conversion controls for a video's details panel.
-  const [gifWidth, setGifWidth] = useState(DEFAULT_GIF_WIDTH);
-  const [gifFps, setGifFps] = useState(DEFAULT_GIF_FPS);
-  const [makingGif, setMakingGif] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
   // Index into `records` of the image/video open in the full-window gallery viewer, if any.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -175,22 +157,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     GRID_GAP
   );
   const infoRecord = records.find((r) => r.id === infoId) ?? null;
-
-  const infoPath = infoRecord?.imagePath ?? null;
-  useEffect(() => {
-    setInfoSize(null);
-    if (!infoPath) return;
-    let cancelled = false;
-    window.kvgenius
-      .getFileSize(infoPath)
-      .then((size) => {
-        if (!cancelled) setInfoSize(size);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [infoPath]);
 
   function handleTabChange(next: GenerationKind) {
     if (next !== tab) setTab(next);
@@ -336,51 +302,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     });
   }
 
-  async function loadUpscaleModels() {
-    try {
-      const models = await window.kvgenius.listUpscaleModels();
-      setUpscaleModels(models);
-      setUpscaleModel((prev) => (models.includes(prev) ? prev : (models[0] ?? '')));
-    } catch {
-      setError('Could not reach ComfyUI to list upscale models.');
-    }
-  }
-
-  // Fetch the model list the first time an item's details are opened.
-  const infoOpen = infoRecord !== null;
-  useEffect(() => {
-    if (infoOpen && upscaleModels === null) void loadUpscaleModels();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [infoOpen, upscaleModels]);
-
-  /** Adds an upscale job to the shared queue; several can be waiting at once. */
-  function handleUpscale(record: GenerationRecord) {
-    if (!upscaleModel) return;
-    setNotice(null);
-    setError(null);
-    setQueueCollapsed(false);
-    const isVideo = kindOf(record) === 'video';
-    // Video encoders need even dimensions.
-    const scaled = (n: number) => (isVideo ? 2 * Math.round((n * upscaleFactor) / 2) : Math.round(n * upscaleFactor));
-    const added = queue.enqueue([
-      {
-        family: isVideo ? UPSCALE_VIDEO_FAMILY : UPSCALE_FAMILY,
-        kind: isVideo ? 'video' : 'image',
-        params: {
-          prompt: record.prompt,
-          width: scaled(record.width),
-          height: scaled(record.height),
-          seed: record.seed,
-          steps: record.steps,
-          cfg: record.cfg,
-          ...(isVideo ? { length: record.length ?? undefined, sourceVideoPath: record.imagePath } : { sourceImagePath: record.imagePath }),
-          upscaleModel,
-        },
-      },
-    ]);
-    if (added === 0) setError(`The queue is full (${MAX_PENDING_JOBS} waiting).`);
-  }
-
   // A finished upscale is a new image: put it at the top of the list without a reload.
   useEffect(() => {
     if (mergedUpscales.current === null) {
@@ -403,34 +324,14 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queue.jobs, tab, favoritesOnly, showHidden, extension]);
 
-  // The queue panel pops out while anything is running or waiting, and stays for finished/failed upscales.
-  const showQueue = queue.jobs.some(
-    (j) =>
-      j.status === 'queued' ||
-      j.status === 'running' ||
-      (isUpscaleFamily(j.family) && (j.status === 'done' || (j.status === 'failed' && !j.dismissed)))
-  );
-
-  async function handleMakeGif(record: GenerationRecord) {
-    setMakingGif(true);
-    setNotice(null);
-    setError(null);
-    try {
-      const { record: made } = await window.kvgenius.convertToGif(record.id, { fps: gifFps, width: gifWidth });
-      setNotice(`Made a ${made.width} × ${made.height} GIF - saved as a new image.`);
-      const fits = matchesExtension(made) && (!made.hidden || showHidden);
-      if (tab === 'image' && !favoritesOnly && fits) {
-        setRecords((prev) => [made, ...prev]);
-      }
-      if (fits) setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
-      refreshExtensions();
-    } catch (err) {
-      // Electron prefixes errors thrown in an ipcMain handler with "Error invoking remote method".
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
-    } finally {
-      setMakingGif(false);
+  /** A GIF was made from a video: it is a new image, so fold it into the list as it is filtered. */
+  function handleGifMade(made: GenerationRecord) {
+    const fits = matchesExtension(made) && (!made.hidden || showHidden);
+    if (tab === 'image' && !favoritesOnly && fits) {
+      setRecords((prev) => [made, ...prev]);
     }
+    if (fits) setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
+    refreshExtensions();
   }
 
   async function handleToggleHidden(record: GenerationRecord) {
@@ -693,220 +594,33 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       </div>
 
       {infoRecord && (
-        <aside className="library-panel">
-          <div className="library-panel__header">
-            <strong>Details</strong>
-            <span className="library-panel__header-buttons">
-              <button type="button" onClick={() => handleToggleFavorite(infoRecord)}>
-                {infoRecord.favorite ? '★ Favorited' : '☆ Favorite'}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleTogglePinned(infoRecord)}
-                title={
-                  infoRecord.pinned
-                    ? 'Unpin - remove this from Library > Prompts'
-                    : 'Pin as the example of this prompt, shown under Library > Prompts'
-                }
-              >
-                {infoRecord.pinned ? '📌 Pinned' : '📌 Pin'}
-              </button>
-              <button type="button" onClick={() => handleToggleHidden(infoRecord)}>
-                {infoRecord.hidden ? 'Unhide' : 'Hide'}
-              </button>
-              <button type="button" onClick={() => setInfoId(null)} title="Close">
-                ✕
-              </button>
-            </span>
-          </div>
-          <div className="library-panel__media">
-            <button
-              type="button"
-              className="expand-button"
-              title="Expand"
-              onClick={() => setLightboxIndex(records.findIndex((r) => r.id === infoRecord.id))}
-            >
-              ⤢
-            </button>
-            {kindOf(infoRecord) === 'video' ? (
-              <GeneratedVideo src={window.kvgenius.imageUrlFor(infoRecord.imagePath)} filePath={infoRecord.imagePath} />
-            ) : (
-              <img src={window.kvgenius.imageUrlFor(infoRecord.imagePath)} alt={infoRecord.prompt} />
-            )}
-          </div>
-
-          <button type="button" className="primary" onClick={() => handleRecreate(infoRecord)} style={{ width: '100%' }}>
-            ↺ Re-rack
-          </button>
-          {kindOf(infoRecord) === 'video' && (
-            <div className="library-panel__upscale">
-              <span className="field-label" style={{ margin: 0 }}>
-                GIF
-              </span>
-              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                <select
-                  value={gifWidth}
-                  onChange={(e) => setGifWidth(Number(e.target.value))}
-                  disabled={makingGif}
-                  style={{ flex: 1, minWidth: 0 }}
-                  title="Maximum width"
-                >
-                  {GIF_WIDTHS.map((w) => (
-                    <option key={w} value={w}>
-                      {w}px wide
-                    </option>
-                  ))}
-                </select>
-                <select value={gifFps} onChange={(e) => setGifFps(Number(e.target.value))} disabled={makingGif} title="Frames per second">
-                  {GIF_FPS_CHOICES.map((f) => (
-                    <option key={f} value={f}>
-                      {f} fps
-                    </option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => handleMakeGif(infoRecord)} disabled={makingGif}>
-                  {makingGif ? 'Converting...' : 'Make GIF'}
-                </button>
-              </div>
-            </div>
-          )}
-          {!isGif(infoRecord) && (
-            <div className="library-panel__upscale">
-              <span className="field-label" style={{ margin: 0 }}>
-                Upscale
-              </span>
-              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                <select
-                  value={upscaleModel}
-                  onChange={(e) => setUpscaleModel(e.target.value)}
-                  style={{ flex: 1, minWidth: 0 }}
-                  title="Upscale model"
-                >
-                  {upscaleModels === null && <option value="">Choose model...</option>}
-                  {upscaleModels?.length === 0 && <option value="">No upscale models installed</option>}
-                  {upscaleModels?.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={upscaleFactor}
-                  onChange={(e) => setUpscaleFactor(Number(e.target.value))}
-                  title="Size multiplier"
-                >
-                  {UPSCALE_FACTORS.map((f) => (
-                    <option key={f} value={f}>
-                      {f}×
-                    </option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => handleUpscale(infoRecord)} disabled={!upscaleModel}>
-                  Upscale
-                </button>
-              </div>
-            </div>
-          )}
-          <div className="library-panel__actions">
-            {kindOf(infoRecord) === 'image' && !isGif(infoRecord) && (
-              <button type="button" onClick={() => handleImageToVideo(infoRecord)} title="Create video from image">
-                🎬 Video
-              </button>
-            )}
-            <button type="button" onClick={() => handleSaveAs(infoRecord)} title="Save As...">
-              💾
-            </button>
-            <button type="button" onClick={() => handleReveal(infoRecord)} title="Show in File Manager">
-              📂
-            </button>
-            <button type="button" onClick={() => handleDelete(infoRecord)} title="Delete">
-              🗑️
-            </button>
-          </div>
-
-          <div className="library-panel__prompt-header">
-            <span className="field-label" style={{ margin: 0 }}>
-              Prompt
-            </span>
-            <CopyButton text={infoRecord.prompt} title="Copy this prompt" />
-          </div>
-          <p className="library-panel__prompt">{infoRecord.prompt}</p>
-
-          <dl className="library-panel__meta">
-            <dt>Type</dt>
-            <dd>{kindOf(infoRecord) === 'video' ? 'Video' : 'Image'}</dd>
-            <dt>Model</dt>
-            <dd>{infoRecord.modelFamily}</dd>
-            <dt>Dimensions</dt>
-            <dd>
-              {infoRecord.width} × {infoRecord.height}
-            </dd>
-            <dt>File size</dt>
-            <dd>{infoSize === null ? '-' : formatBytes(infoSize)}</dd>
-            {infoRecord.length !== null && (
-              <>
-                <dt>Length</dt>
-                <dd>
-                  {Math.round(((infoRecord.length - 1) / VIDEO_FPS) * 4) / 4}s ({infoRecord.length} frames)
-                </dd>
-              </>
-            )}
-            <dt>Seed</dt>
-            <dd>{infoRecord.seed}</dd>
-            {kindOf(infoRecord) === 'image' && (
-              <>
-                <dt>Steps</dt>
-                <dd>{infoRecord.steps}</dd>
-                <dt>CFG</dt>
-                <dd>{infoRecord.cfg}</dd>
-              </>
-            )}
-            {infoRecord.timing && (
-              <>
-                <dt>Estimated</dt>
-                <dd>{infoRecord.timing.estimateMs === null ? 'no estimate yet' : formatDuration(infoRecord.timing.estimateMs)}</dd>
-                <dt>Took</dt>
-                <dd>
-                  {formatDuration(infoRecord.timing.actualMs)}
-                  {infoRecord.timing.loadMs !== null && infoRecord.timing.loadMs >= 2000
-                    ? ` (${formatDuration(infoRecord.timing.loadMs)} loading models)`
-                    : ''}
-                </dd>
-                {infoRecord.timing.estimateMs !== null && (
-                  <>
-                    <dt>Difference</dt>
-                    <dd>{formatDifference(infoRecord.timing.estimateMs, infoRecord.timing.actualMs)}</dd>
-                  </>
-                )}
-              </>
-            )}
-            <dt>Created</dt>
-            <dd>{new Date(infoRecord.createdAt).toLocaleString()}</dd>
-            <dt>File</dt>
-            <dd>{infoRecord.imagePath.split(/[\\/]/).pop()}</dd>
-          </dl>
-        </aside>
+        <LibraryDetails
+          record={infoRecord}
+          queue={queue}
+          onClose={() => setInfoId(null)}
+          onExpand={() => setLightboxIndex(records.findIndex((r) => r.id === infoRecord.id))}
+          onToggleFavorite={handleToggleFavorite}
+          onTogglePinned={handleTogglePinned}
+          onToggleHidden={handleToggleHidden}
+          onDelete={handleDelete}
+          onRerack={handleRecreate}
+          onImageToVideo={handleImageToVideo}
+          onSaveAs={handleSaveAs}
+          onReveal={handleReveal}
+          onUpscaleQueued={() => setQueueCollapsed(false)}
+          onGifMade={handleGifMade}
+          onError={setError}
+          onNotice={setNotice}
+        />
       )}
 
-      {showQueue && (
-        <div className={`library-queue${queueCollapsed ? ' library-queue--collapsed' : ''}`}>
-          <QueuePanel
-            jobs={queue.jobs}
-            now={queue.now}
-            progressInfo={queue.progressInfo}
-            collapsed={queueCollapsed}
-            onToggle={() => setQueueCollapsed((v) => !v)}
-            onCancelJob={queue.cancelJob}
-            onClearQueued={queue.clearQueued}
-            onDismissFailed={queue.dismissFailed}
-            onToggleFavorite={handleToggleFavorite}
-            onRerack={(record) => {
-              onRecall(record);
-              navigate('/');
-            }}
-          />
-        </div>
-      )}
+      <LibraryQueue
+        queue={queue}
+        collapsed={queueCollapsed}
+        onToggle={() => setQueueCollapsed((v) => !v)}
+        onToggleFavorite={handleToggleFavorite}
+        onRerack={handleRecreate}
+      />
 
       {lightboxIndex !== null && records[lightboxIndex] && (
         <GalleryLightbox
