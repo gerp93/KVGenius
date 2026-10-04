@@ -53,10 +53,8 @@ const api: KVGeniusAPI = {
   openGenerationExternally: (imagePath: string) => ipcRenderer.invoke('openGenerationExternally', imagePath),
   saveGenerationAs: (imagePath: string) => ipcRenderer.invoke('saveGenerationAs', imagePath),
 
-  listSavedPrompts: () => ipcRenderer.invoke('listSavedPrompts'),
-  savePrompt: (name: string, prompt: string, tags: string[]) => ipcRenderer.invoke('savePrompt', name, prompt, tags),
-  updateSavedPrompt: (id: number, name: string, tags: string[]) => ipcRenderer.invoke('updateSavedPrompt', id, name, tags),
-  deleteSavedPrompt: (id: number) => ipcRenderer.invoke('deleteSavedPrompt', id),
+  setGenerationPinned: (id: number, pinned: boolean) => ipcRenderer.invoke('setGenerationPinned', id, pinned),
+  listPinnedGenerations: (showHidden: boolean) => ipcRenderer.invoke('listPinnedGenerations', showHidden),
 
   getPromptSlots: () => ipcRenderer.invoke('getPromptSlots'),
   savePromptSlots: (slots: PromptSlot[], activeId: string) => ipcRenderer.invoke('savePromptSlots', slots, activeId),

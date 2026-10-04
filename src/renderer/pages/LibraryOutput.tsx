@@ -7,7 +7,6 @@ import GeneratedVideo from '../components/GeneratedVideo';
 import QueuePanel from '../components/QueuePanel';
 import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import GalleryLightbox from '../components/GalleryLightbox';
-import PromptModal from '../components/PromptModal';
 import { formatBytes, formatDifference, formatDuration } from '../utils/format';
 import { justifyRows } from '../utils/justifiedRows';
 
@@ -52,9 +51,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [infoSize, setInfoSize] = useState<number | null>(null);
-  // Save the details panel's prompt to the prompt library (opens the name + tags modal).
-  const [promptToSave, setPromptToSave] = useState<GenerationRecord | null>(null);
-  const [existingTags, setExistingTags] = useState<string[]>([]);
   const [infoId, setInfoId] = useState<number | null>(null);
   // Upscale controls in the details panel: models come from ComfyUI the first time they are needed.
   const [upscaleModels, setUpscaleModels] = useState<string[] | null>(null);
@@ -203,7 +199,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
     setSelection((prev) => {
       const next = new Map(prev);
       if (next.has(record.id)) next.delete(record.id);
-      else next.set(record.id, { id: record.id, imagePath: record.imagePath, favorite: record.favorite });
+      else next.set(record.id, { id: record.id, imagePath: record.imagePath, favorite: record.favorite, pinned: record.pinned });
       return next;
     });
   }
@@ -222,7 +218,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
     setSelection((prev) => {
       const next = new Map(prev);
       for (const r of records.slice(lo, hi + 1)) {
-        next.set(r.id, { id: r.id, imagePath: r.imagePath, favorite: r.favorite });
+        next.set(r.id, { id: r.id, imagePath: r.imagePath, favorite: r.favorite, pinned: r.pinned });
       }
       return next;
     });
@@ -280,22 +276,21 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
     }
   }
 
-  async function openSavePrompt(record: GenerationRecord) {
+  /** Pins (or unpins) a generation as the example of its prompt - the Library > Prompts gallery. */
+  async function handleTogglePinned(record: GenerationRecord) {
+    const pinned = !record.pinned;
     try {
-      // Tags already in use, offered as suggestions in the modal.
-      const saved = await window.kvgenius.listSavedPrompts();
-      setExistingTags([...new Set(saved.flatMap((sp) => sp.tags))]);
-    } catch {
-      setExistingTags([]);
+      await window.kvgenius.setGenerationPinned(record.id, pinned);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return;
     }
-    setPromptToSave(record);
-  }
-
-  async function handleSavePrompt(name: string, tags: string[]) {
-    if (!promptToSave) return;
-    await window.kvgenius.savePrompt(name, promptToSave.prompt, tags);
-    setPromptToSave(null);
-    setNotice(`Saved "${name}" - find it under Library > Prompts.`);
+    setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, pinned } : r)));
+    setSelection((prev) => {
+      const ref = prev.get(record.id);
+      return ref ? new Map(prev).set(record.id, { ...ref, pinned }) : prev;
+    });
+    setNotice(pinned ? 'Pinned - find it under Library > Prompts.' : null);
   }
 
   function handleRecreate(record: GenerationRecord) {
@@ -454,7 +449,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
   }
 
   async function handleDelete(record: GenerationRecord) {
-    const note = record.favorite ? ' It is marked as a favorite.' : '';
+    const note = (record.favorite ? ' It is marked as a favorite.' : '') + (record.pinned ? ' It is pinned under Prompts.' : '');
     if (!window.confirm(`Delete this generation? This removes the file from disk too.${note}`)) return;
     try {
       await window.kvgenius.deleteGeneration(record.id, record.imagePath);
@@ -468,7 +463,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
     const toDelete = [...selection.values()];
     if (toDelete.length === 0) return;
     const favoriteCount = toDelete.filter((r) => r.favorite).length;
-    const note = favoriteCount > 0 ? ` ${favoriteCount} of them ${favoriteCount === 1 ? 'is a favorite' : 'are favorites'}.` : '';
+    const pinnedCount = toDelete.filter((r) => r.pinned).length;
+    const note =
+      (favoriteCount > 0 ? ` ${favoriteCount} of them ${favoriteCount === 1 ? 'is a favorite' : 'are favorites'}.` : '') +
+      (pinnedCount > 0 ? ` ${pinnedCount} of them ${pinnedCount === 1 ? 'is' : 'are'} pinned under Prompts.` : '');
     if (!window.confirm(`Delete ${toDelete.length} generation${toDelete.length === 1 ? '' : 's'}? This removes the files from disk too.${note}`)) {
       return;
     }
@@ -537,6 +535,11 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
               </button>
             )}
             {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
+            {record.pinned && (
+              <span className="library-card__pinned-badge" title="Pinned under Prompts">
+                📌
+              </span>
+            )}
             {!selecting && (
               <button
                 type="button"
@@ -704,6 +707,17 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
               <button type="button" onClick={() => handleToggleFavorite(infoRecord)}>
                 {infoRecord.favorite ? '★ Favorited' : '☆ Favorite'}
               </button>
+              <button
+                type="button"
+                onClick={() => handleTogglePinned(infoRecord)}
+                title={
+                  infoRecord.pinned
+                    ? 'Unpin - remove this from Library > Prompts'
+                    : 'Pin as the example of this prompt, shown under Library > Prompts'
+                }
+              >
+                {infoRecord.pinned ? '📌 Pinned' : '📌 Pin'}
+              </button>
               <button type="button" onClick={() => handleToggleHidden(infoRecord)}>
                 {infoRecord.hidden ? 'Unhide' : 'Hide'}
               </button>
@@ -821,9 +835,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
             <span className="field-label" style={{ margin: 0 }}>
               Prompt
             </span>
-            <button type="button" onClick={() => openSavePrompt(infoRecord)} title="Save this prompt to the prompt library">
-              💾 Save prompt
-            </button>
           </div>
           <p className="library-panel__prompt">{infoRecord.prompt}</p>
 
@@ -901,17 +912,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
             }}
           />
         </div>
-      )}
-
-      {promptToSave && (
-        <PromptModal
-          title="Save prompt"
-          submitLabel="Save prompt"
-          prompt={promptToSave.prompt}
-          existingTags={existingTags}
-          onSave={handleSavePrompt}
-          onClose={() => setPromptToSave(null)}
-        />
       )}
 
       {lightboxIndex !== null && records[lightboxIndex] && (

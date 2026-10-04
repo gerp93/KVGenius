@@ -33,6 +33,8 @@ export interface GenerationRecord {
   favorite: boolean;
   /** Kept out of the Library unless "Show hidden" is on - set by the hidden-words rule or by hand. */
   hidden: boolean;
+  /** Marked as the representative example of its prompt - these make up Library > Prompts. */
+  pinned: boolean;
   createdAt: string;
   /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
    * null for generations made before timing was tracked. */
@@ -128,6 +130,7 @@ export interface GenerationRef {
   id: number;
   imagePath: string;
   favorite: boolean;
+  pinned: boolean;
 }
 
 export type ExportResult = { status: 'saved'; path: string; count: number } | { status: 'cancelled' };
@@ -147,16 +150,6 @@ export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'wan22-i2v': 'video',
   'upscale-video': 'video',
 };
-
-export interface SavedPrompt {
-  id: number;
-  /** Prompts saved before names were required have none. */
-  name: string | null;
-  prompt: string;
-  negativePrompt: string | null;
-  tags: string[];
-  createdAt: string;
-}
 
 export interface GenerateResult {
   record: GenerationRecord;
@@ -276,11 +269,10 @@ export interface KVGeniusAPI {
    * Resolves true if saved, false if the dialog was cancelled. */
   saveGenerationAs: (imagePath: string) => Promise<boolean>;
 
-  listSavedPrompts: () => Promise<SavedPrompt[]>;
-  /** Saves a prompt under a required name, with optional tags. */
-  savePrompt: (name: string, prompt: string, tags: string[]) => Promise<SavedPrompt>;
-  updateSavedPrompt: (id: number, name: string, tags: string[]) => Promise<SavedPrompt>;
-  deleteSavedPrompt: (id: number) => Promise<void>;
+  /** Pins a generation as a representative example of its prompt (Library > Prompts), or unpins it. */
+  setGenerationPinned: (id: number, pinned: boolean) => Promise<void>;
+  /** Every pinned generation, most recently pinned first; hidden ones only with `showHidden`. */
+  listPinnedGenerations: (showHidden: boolean) => Promise<GenerationRecord[]>;
 
   /** The Generate page's prompt "tabs" (whole form per tab), persisted across restarts. */
   getPromptSlots: () => Promise<{ slots: PromptSlot[]; activeId: string | null }>;

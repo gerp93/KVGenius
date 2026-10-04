@@ -162,7 +162,7 @@ export default function App() {
         <Route path="/library" element={<LibraryLayout />}>
           <Route index element={<Navigate to="output" replace />} />
           <Route path="output" element={<LibraryOutput queue={queue} onRecall={setRecallRecord} onImageToVideo={setVideoSource} />} />
-          <Route path="prompts" element={<LibraryPrompts onRecallPrompt={setRecallPrompt} />} />
+          <Route path="prompts" element={<LibraryPrompts onRecallPrompt={setRecallPrompt} onRecall={setRecallRecord} />} />
         </Route>
         <Route path="/timing" element={<Timing />} />
         <Route path="/hardpoint" element={<Hardpoint />} />
