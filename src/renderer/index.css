@@ -929,8 +929,20 @@ input:focus {
 
 .library-panel__header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+
+/* Wraps rather than running off the panel's edge (and cutting off the close button) when the
+   labels are long, e.g. "Favorited" + "Pinned" + "Unhide". */
+.library-panel__header-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
 }
 
 /* The media takes whatever height the panel has left after the text below it, so a long prompt

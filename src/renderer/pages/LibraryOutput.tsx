@@ -695,7 +695,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
         <aside className="library-panel">
           <div className="library-panel__header">
             <strong>Details</strong>
-            <span style={{ display: 'flex', gap: 6 }}>
+            <span className="library-panel__header-buttons">
               <button type="button" onClick={() => handleToggleFavorite(infoRecord)}>
                 {infoRecord.favorite ? '★ Favorited' : '☆ Favorite'}
               </button>
