@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import CopyButton from '../components/CopyButton';
 import QueuePanel from '../components/QueuePanel';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
@@ -148,7 +149,12 @@ export default function Generate({
 
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pinStatus, setPinStatus] = useState<string | null>(null);
+  // A short confirmation under the buttons (pinned, or a recall that had to reuse this tab).
+  const [notice, setNotice] = useState<string | null>(null);
+  // The recall requests already acted on, so one request can never open two tabs (the effects below
+  // re-run on every render until App has cleared the request).
+  const handledRecall = useRef<GenerationRecord | null>(null);
+  const handledPrompt = useRef(false);
 
   const { showRecord } = queue;
   const runningJob = queue.jobs.find((j) => j.status === 'running');
@@ -219,10 +225,10 @@ export default function Generate({
     if (path) setSourceImagePath(path);
   }
 
-  /** Loads a past generation's prompt and exact settings into the form and shows it in the viewer.
-   * Used for "Re-rack" from the Library (via recallRecord) and from the queue's completed list. */
+  /** Loads a past generation's prompt and exact settings into the form and shows it in the viewer,
+   * under working tab `slotId` (the form being edited must already be that tab's). */
   const applyRecord = useCallback(
-    (record: GenerationRecord) => {
+    (record: GenerationRecord, slotId: string) => {
       const recalledMode: Mode = FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
       setMode(recalledMode);
       setPrompt(record.prompt);
@@ -237,21 +243,51 @@ export default function Generate({
       // The source image used for a past video generation isn't retained - only the
       // resulting video is. A new one has to be chosen before this can be re-run.
       setSourceImagePath(null);
-      showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath), activeSlotId);
+      showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath), slotId);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [showRecord, activeSlotId]
+    [showRecord]
   );
 
-  useEffect(() => {
-    if (!recallRecord) return;
-    applyRecord(recallRecord);
-    onRecalled();
-  }, [recallRecord, onRecalled, applyRecord]);
+  /** "Re-rack": opens a past generation (prompt, settings and picture) in a new working tab, so
+   * what is in the current tab is left alone. With every tab in use it reuses the current one. */
+  function rerackInNewTab(record: GenerationRecord) {
+    const slotId = addSlot();
+    if (slotId === null) {
+      setNotice(`All ${MAX_PROMPT_SLOTS} tabs are in use - loaded into this one.`);
+      setTimeout(() => setNotice(null), 4000);
+    }
+    applyRecord(record, slotId ?? activeSlotId);
+  }
+
+  /** A prompt picked in Library > Prompts goes into a new tab too (or this one, if all are in use). */
+  function openPromptInNewTab(text: string) {
+    if (addSlot() === null) {
+      setNotice(`All ${MAX_PROMPT_SLOTS} tabs are in use - loaded into this one.`);
+      setTimeout(() => setNotice(null), 4000);
+    }
+    setPrompt(text);
+  }
 
   useEffect(() => {
-    if (recallPrompt === null) return;
-    setPrompt(recallPrompt);
+    if (!recallRecord) {
+      handledRecall.current = null;
+      return;
+    }
+    if (handledRecall.current === recallRecord) return;
+    handledRecall.current = recallRecord;
+    rerackInNewTab(recallRecord);
+    onRecalled();
+  }, [recallRecord, onRecalled]);
+
+  useEffect(() => {
+    if (recallPrompt === null) {
+      handledPrompt.current = false;
+      return;
+    }
+    if (handledPrompt.current) return;
+    handledPrompt.current = true;
+    openPromptInNewTab(recallPrompt);
     onPromptRecalled();
   }, [recallPrompt, onPromptRecalled]);
 
@@ -349,8 +385,8 @@ export default function Generate({
     try {
       await window.kvgenius.setGenerationPinned(record.id, pinned);
       queue.updateRecord(record.id, { pinned });
-      setPinStatus(pinned ? 'Pinned - find it under Library > Prompts.' : null);
-      setTimeout(() => setPinStatus(null), 3000);
+      setNotice(pinned ? 'Pinned - find it under Library > Prompts.' : null);
+      setTimeout(() => setNotice(null), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -491,9 +527,12 @@ export default function Generate({
             </div>
           )}
 
-          <label className="field-label" htmlFor="prompt">
-            Prompt
-          </label>
+          <div className="field-label-row">
+            <label className="field-label" htmlFor="prompt">
+              Prompt
+            </label>
+            <CopyButton text={prompt} title="Copy the prompt" />
+          </div>
           <textarea
             id="prompt"
             value={prompt}
@@ -716,7 +755,7 @@ export default function Generate({
             </p>
           )}
           {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
-          {pinStatus && <p style={{ color: 'var(--color-accent-green)' }}>{pinStatus}</p>}
+          {notice && <p style={{ color: 'var(--color-accent-green)' }}>{notice}</p>}
           </div>
         </div>
 
@@ -745,7 +784,7 @@ export default function Generate({
           onClearQueued={queue.clearQueued}
           onDismissFailed={queue.dismissFailed}
           onToggleFavorite={handleToggleFavorite}
-          onRerack={applyRecord}
+          onRerack={rerackInNewTab}
         />
       </div>
 
