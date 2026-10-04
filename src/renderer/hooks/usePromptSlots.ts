@@ -145,14 +145,16 @@ export function usePromptSlots() {
     void window.kvgenius.savePromptSlots(next, id);
   }
 
-  function addSlot() {
-    if (slots.length >= MAX_PROMPT_SLOTS) return;
+  /** Adds a fresh tab and switches to it. Returns its id, or null when every tab is in use. */
+  function addSlot(): string | null {
+    if (slots.length >= MAX_PROMPT_SLOTS) return null;
     const fresh = newPromptSlot('image');
     const next = slots.map((s) => (s.id === activeSlotId ? { ...s, data: snapshotFromState() } : s)).concat(fresh);
     setSlots(next);
     setActiveSlotId(fresh.id);
     applySnapshot(fresh.data);
     void window.kvgenius.savePromptSlots(next, fresh.id);
+    return fresh.id;
   }
 
   function closeSlot(id: string) {
