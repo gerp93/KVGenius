@@ -689,7 +689,7 @@ export default function Generate({
           </div>
           )}
 
-          <div className={`generate-actions${busy ? ' generate-actions--busy' : ''}`}>
+          <div className="generate-actions">
             <button
               type="button"
               className="primary generate-actions__go"

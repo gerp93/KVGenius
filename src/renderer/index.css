@@ -285,7 +285,8 @@ input:focus {
   min-width: 0;
 }
 
-.generate-actions--busy .generate-actions__go {
+/* Generate takes the whole row; Cancel, when there is something to cancel, sits under it. */
+.generate-actions__go {
   grid-column: 1 / -1;
 }
 
