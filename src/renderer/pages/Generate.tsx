@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import PromptModal from '../components/PromptModal';
 import QueuePanel from '../components/QueuePanel';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
@@ -148,10 +147,7 @@ export default function Generate({
 
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  // Save Prompt opens a modal asking for a name and optional tags.
-  const [saveModalOpen, setSaveModalOpen] = useState(false);
-  const [existingTags, setExistingTags] = useState<string[]>([]);
+  const [pinStatus, setPinStatus] = useState<string | null>(null);
 
   const { showRecord } = queue;
   const runningJob = queue.jobs.find((j) => j.status === 'running');
@@ -343,8 +339,21 @@ export default function Generate({
     }
   }
 
+  /** Pins (or unpins) a result as the example of its prompt - the Library > Prompts gallery. */
+  async function handleTogglePinned(record: GenerationRecord) {
+    const pinned = !record.pinned;
+    try {
+      await window.kvgenius.setGenerationPinned(record.id, pinned);
+      queue.updateRecord(record.id, { pinned });
+      setPinStatus(pinned ? 'Pinned - find it under Library > Prompts.' : null);
+      setTimeout(() => setPinStatus(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function handleDeleteResult(record: GenerationRecord) {
-    const note = record.favorite ? ' It is marked as a favorite.' : '';
+    const note = (record.favorite ? ' It is marked as a favorite.' : '') + (record.pinned ? ' It is pinned under Prompts.' : '');
     if (!window.confirm(`Delete this generation? This removes the file from disk too.${note}`)) return;
     try {
       await window.kvgenius.deleteGeneration(record.id, record.imagePath);
@@ -358,25 +367,6 @@ export default function Generate({
 
   function handleConvertToVideo(record: GenerationRecord) {
     setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
-  }
-
-  async function openSavePromptModal() {
-    if (!prompt.trim()) return;
-    try {
-      // Tags already in use, offered as suggestions in the modal.
-      const saved = await window.kvgenius.listSavedPrompts();
-      setExistingTags([...new Set(saved.flatMap((sp) => sp.tags))]);
-    } catch {
-      setExistingTags([]);
-    }
-    setSaveModalOpen(true);
-  }
-
-  async function handleSavePrompt(name: string, tags: string[]) {
-    await window.kvgenius.savePrompt(name, prompt, tags);
-    setSaveModalOpen(false);
-    setSaveStatus(`Saved "${name}" - find it under Library > Prompts.`);
-    setTimeout(() => setSaveStatus(null), 3000);
   }
 
   return (
@@ -708,9 +698,6 @@ export default function Generate({
                 ✕ Cancel ({formatElapsed(Math.floor((queue.now - (runningJob.startedAt ?? queue.now)) / 1000))})
               </button>
             )}
-            <button type="button" onClick={openSavePromptModal} disabled={!prompt.trim()}>
-              Save Prompt
-            </button>
           </div>
 
           <p className="generate-estimate">{estimateText}</p>
@@ -722,7 +709,7 @@ export default function Generate({
             </p>
           )}
           {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
-          {saveStatus && <p style={{ color: 'var(--color-accent-green)' }}>{saveStatus}</p>}
+          {pinStatus && <p style={{ color: 'var(--color-accent-green)' }}>{pinStatus}</p>}
           </div>
         </div>
 
@@ -733,6 +720,7 @@ export default function Generate({
             progressInfo={queue.progressInfo}
             onDelete={handleDeleteResult}
             onToggleFavorite={handleToggleFavorite}
+            onTogglePinned={handleTogglePinned}
             onConvertToVideo={handleConvertToVideo}
             onCancelJob={queue.cancelJob}
           />
@@ -752,16 +740,6 @@ export default function Generate({
         />
       </div>
 
-      {saveModalOpen && (
-        <PromptModal
-          title="Save prompt"
-          submitLabel="Save prompt"
-          prompt={prompt}
-          existingTags={existingTags}
-          onSave={handleSavePrompt}
-          onClose={() => setSaveModalOpen(false)}
-        />
-      )}
     </div>
   );
 }

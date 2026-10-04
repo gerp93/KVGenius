@@ -51,10 +51,8 @@ import {
   applyHiddenRule,
   moveLegacyOutput,
   deleteGeneration,
-  listSavedPrompts,
-  insertSavedPrompt,
-  updateSavedPrompt,
-  deleteSavedPrompt,
+  setGenerationPinned,
+  listPinnedGenerations,
 } from './db';
 import {
   isAvailable as comfyIsAvailable,
@@ -527,24 +525,14 @@ function registerIpcHandlers(): void {
     return true;
   });
 
-  ipcMain.handle('listSavedPrompts', () => {
+  ipcMain.handle('setGenerationPinned', (_event, id: number, pinned: boolean) => {
     if (!db) throw new Error('Database not initialized');
-    return listSavedPrompts(db);
+    setGenerationPinned(db, id, !!pinned);
   });
 
-  ipcMain.handle('savePrompt', (_event, name: string, prompt: string, tags: string[]) => {
+  ipcMain.handle('listPinnedGenerations', (_event, showHidden: boolean) => {
     if (!db) throw new Error('Database not initialized');
-    return insertSavedPrompt(db, name, prompt, tags);
-  });
-
-  ipcMain.handle('updateSavedPrompt', (_event, id: number, name: string, tags: string[]) => {
-    if (!db) throw new Error('Database not initialized');
-    return updateSavedPrompt(db, id, name, tags);
-  });
-
-  ipcMain.handle('deleteSavedPrompt', (_event, id: number) => {
-    if (!db) throw new Error('Database not initialized');
-    deleteSavedPrompt(db, id);
+    return listPinnedGenerations(db, !!showHidden);
   });
 
   ipcMain.handle('getPromptSlots', () => ({

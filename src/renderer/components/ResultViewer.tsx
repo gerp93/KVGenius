@@ -14,6 +14,7 @@ interface Props {
   progressInfo: ProgressInfo | null;
   onDelete: (record: GenerationRecord) => void;
   onToggleFavorite: (record: GenerationRecord) => void;
+  onTogglePinned: (record: GenerationRecord) => void;
   onConvertToVideo: (record: GenerationRecord) => void;
   onCancelJob: (id: number) => void;
 }
@@ -48,6 +49,7 @@ export default function ResultViewer({
   progressInfo,
   onDelete,
   onToggleFavorite,
+  onTogglePinned,
   onConvertToVideo,
   onCancelJob,
 }: Props) {
@@ -199,6 +201,17 @@ export default function ResultViewer({
               title={record.favorite ? 'Remove from favorites' : 'Save to favorites'}
             >
               {record.favorite ? '★ Favorited' : '☆ Favorite'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onTogglePinned(record)}
+              title={
+                record.pinned
+                  ? 'Unpin - remove this from Library > Prompts'
+                  : 'Pin as the example of this prompt, shown under Library > Prompts'
+              }
+            >
+              {record.pinned ? '📌 Pinned' : '📌 Pin'}
             </button>
             {current.kind === 'image' && (
               <button

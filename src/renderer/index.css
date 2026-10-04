@@ -839,6 +839,18 @@ input:focus {
   pointer-events: none;
 }
 
+.library-card__pinned-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
 .library-card__play-badge {
   position: absolute;
   right: 8px;
@@ -1085,131 +1097,7 @@ input:focus {
   color: var(--color-text-muted);
 }
 
-/* Modal dialog (save / edit prompt). */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.7);
-}
-
-.modal {
-  width: 100%;
-  max-width: 520px;
-  max-height: 100%;
-  overflow-y: auto;
-  padding: 20px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-surface);
-}
-
-.modal__title {
-  margin: 0 0 14px;
-}
-
-.modal__required {
-  color: var(--color-accent-red);
-}
-
-.modal__optional {
-  opacity: 0.8;
-}
-
-.modal__prompt {
-  max-height: 120px;
-  overflow-y: auto;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-bg-hover);
-  font-size: 13px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--color-text-muted);
-}
-
-.modal__error {
-  margin: 12px 0 0;
-  color: var(--color-accent-red);
-  font-size: 13px;
-}
-
-.modal__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
-}
-
-.tag-input {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-surface);
-  cursor: text;
-}
-
-.tag-input input {
-  flex: 1;
-  min-width: 90px;
-  padding: 4px 2px;
-  border: none;
-  background: transparent;
-}
-
-.tag-input input:focus {
-  outline: none;
-}
-
-.tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-hover);
-  color: var(--color-text);
-  font-size: 12px;
-}
-
-.tag-chip__remove {
-  min-height: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font-size: 11px;
-  line-height: 1;
-  opacity: 0.7;
-}
-
-.tag-chip__remove:hover:not(:disabled) {
-  background: transparent;
-  opacity: 1;
-}
-
-button.tag-chip--button {
-  min-height: 0;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-
-button.tag-chip--on,
-.tag-filter--on {
-  border-color: var(--color-accent-blue);
-  color: var(--color-accent-blue);
-}
-
-/* Prompts page */
+/* Prompts page: the pinned generations. */
 .prompt-library__toolbar {
   display: flex;
   align-items: center;
@@ -1227,93 +1115,29 @@ button.tag-chip--on,
   color: var(--color-text-muted);
 }
 
-.prompt-library__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-
-.tag-filter {
-  min-height: 0;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-}
-
-.tag-filter__count {
-  margin-left: 4px;
-  opacity: 0.6;
-}
-
-.tag-filter--clear {
-  border-style: dashed;
-}
-
-.prompt-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px;
-}
-
-.prompt-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface);
-}
-
-.prompt-card__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.prompt-card__name {
-  min-width: 0;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.prompt-card__name--untitled {
-  font-style: italic;
-  opacity: 0.7;
-}
-
-.prompt-card__actions {
-  display: flex;
-  flex: none;
-  gap: 6px;
-}
-
-.prompt-card__actions button {
-  min-height: 30px;
-  padding: 2px 10px;
-  font-size: 13px;
-}
-
-.prompt-card__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.prompt-card__text {
+/* The prompt shows over the bottom of a tile while hovering it, so the picture stays the point. */
+.prompt-tile__prompt {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: -webkit-box;
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: 13px;
-  color: var(--color-text-muted);
+  padding: 24px 8px 8px;
+  font-size: 12px;
+  color: #fff;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0));
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+  pointer-events: none;
+}
+
+.prompt-tile:hover .prompt-tile__prompt {
+  opacity: 1;
 }
 
 /* Disabled form fields look disabled (browsers only dim them slightly, and this theme overrides that). */

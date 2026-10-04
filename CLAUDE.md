@@ -61,3 +61,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   — `file://` subresources don't load in the dev window (which runs against
   `http://localhost:5173`), and the custom scheme behaves identically in dev
   and packaged builds.
+- **No separate "saved prompt" record.** Library > Prompts is the generations
+  with `pinned_at` set - a picture chosen as the example of a look, whose prompt
+  is just that generation's own. An image-less prompt, a name or tags were
+  deliberately dropped (the table was migrated into pins by `migrateSavedPrompts`
+  in `db.ts`, with any prompt that had no matching image written to
+  `saved-prompts-unpinned.txt` beside the database). Deleting a pinned
+  generation removes the pin with it.

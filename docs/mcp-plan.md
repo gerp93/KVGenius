@@ -224,7 +224,7 @@ made in the app itself, and anything from before jobs were recorded, is treated
 exactly like an id that does not exist (`not_found`, same message) - in listings,
 `get_item`, `probe_media`, `get_job`, `cancel_job`, and as a source for
 `generate_video` / `assemble_video`. Batch cancellation only touches the client's
-own jobs even when an app job shares the label. Saved prompts, prompt tabs, timing
+own jobs even when an app job shares the label. Pins, prompt tabs, timing
 stats, settings and the database have no tool at all. To use an app-made image, point
 `import_folder` at the file. Enforced in `library.ts` (`clientOnly`) and
 `ApiService` (`item()` / `clientJob()`), tested in `apiService.test.ts`.

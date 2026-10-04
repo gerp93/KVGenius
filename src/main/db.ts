@@ -1,8 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
 import * as path from 'path';
-import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, SavedPrompt } from '../shared/types';
-import { normalizeName, normalizeTags } from '../shared/promptTags';
+import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef } from '../shared/types';
 import { TIMING_SCHEMA } from './timingStats';
 import { JOBS_SCHEMA } from './jobStore';
 import { IMPORTS_SCHEMA } from './library';
@@ -23,16 +22,8 @@ CREATE TABLE IF NOT EXISTS generations (
   image_path TEXT NOT NULL,
   favorite INTEGER NOT NULL DEFAULT 0,
   hidden INTEGER NOT NULL DEFAULT 0,
+  pinned_at TEXT,
   timing_id INTEGER,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS saved_prompts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT,
-  prompt TEXT NOT NULL,
-  negative_prompt TEXT,
-  tags TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
 `;
@@ -59,10 +50,76 @@ function migrateSchema(db: DatabaseSync): void {
   if (!columns.some((c) => c.name === 'timing_id')) {
     db.exec('ALTER TABLE generations ADD COLUMN timing_id INTEGER;');
   }
-  const promptColumns = db.prepare('PRAGMA table_info(saved_prompts)').all() as unknown as ColumnInfo[];
-  if (!promptColumns.some((c) => c.name === 'tags')) {
-    db.exec("ALTER TABLE saved_prompts ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';");
+  if (!columns.some((c) => c.name === 'pinned_at')) {
+    db.exec('ALTER TABLE generations ADD COLUMN pinned_at TEXT;');
   }
+}
+
+/**
+ * One-time conversion of the old saved-prompts table (a name, prompt text and tags with no picture)
+ * into pins on the generations themselves. Each saved prompt pins the newest generation made from
+ * exactly that text (preferring one that is not hidden), keeping the saved prompt's date as the pin
+ * date so the order survives. A prompt with no matching generation has nothing to pin, so those are
+ * written to a text file at `exportPath` first; the table is only dropped once every row is either
+ * pinned or exported. With no `exportPath` and something unmatched, or if the file cannot be written,
+ * the table is left alone and this is retried on the next start. Returns what was done, or null when
+ * nothing was converted.
+ */
+export function migrateSavedPrompts(db: DatabaseSync, exportPath: string | null): { pinned: number; exported: number } | null {
+  const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'saved_prompts'").get();
+  if (!exists) return null;
+
+  const saved = db.prepare('SELECT * FROM saved_prompts ORDER BY id').all() as unknown as {
+    name: string | null;
+    prompt: string;
+    tags: string | null;
+    created_at: string;
+  }[];
+  const findMatch = db.prepare('SELECT id FROM generations WHERE prompt = ? ORDER BY hidden, id DESC LIMIT 1');
+  const matched: { id: number; createdAt: string }[] = [];
+  const unmatched: typeof saved = [];
+  for (const row of saved) {
+    const match = findMatch.get(row.prompt) as unknown as { id: number } | undefined;
+    if (match) matched.push({ id: match.id, createdAt: row.created_at });
+    else unmatched.push(row);
+  }
+
+  if (unmatched.length > 0) {
+    if (!exportPath) return null;
+    const lines = [
+      'Saved prompts that had no matching image, kept from before prompts became pinned images.',
+      'To keep one, paste it into Generate, make an image, and pin it.',
+      '',
+    ];
+    for (const row of unmatched) {
+      let tags: string[] = [];
+      try {
+        const parsed: unknown = JSON.parse(row.tags ?? '[]');
+        if (Array.isArray(parsed)) tags = parsed.map(String);
+      } catch {
+        // Unreadable tags are not worth blocking the export for.
+      }
+      lines.push(`# ${row.name?.trim() || '(untitled)'}${tags.length ? `  [${tags.join(', ')}]` : ''}`, row.prompt, '');
+    }
+    try {
+      fs.writeFileSync(exportPath, lines.join('\n'), 'utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  // Two saved prompts can land on the same generation: it keeps the older pin date.
+  const pin = db.prepare('UPDATE generations SET pinned_at = ? WHERE id = ? AND (pinned_at IS NULL OR pinned_at > ?)');
+  db.exec('BEGIN');
+  try {
+    for (const { id, createdAt } of matched) pin.run(createdAt, id, createdAt);
+    db.exec('DROP TABLE saved_prompts');
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return { pinned: new Set(matched.map((m) => m.id)).size, exported: unmatched.length };
 }
 
 export function initDatabase(dbPath: string): DatabaseSync {
@@ -75,6 +132,8 @@ export function initDatabase(dbPath: string): DatabaseSync {
   db.exec(IMPORTS_SCHEMA);
   db.exec(ASSEMBLIES_SCHEMA);
   migrateSchema(db);
+  // A database in memory has no folder to leave the export in.
+  migrateSavedPrompts(db, dbPath === ':memory:' ? null : path.join(path.dirname(dbPath), 'saved-prompts-unpinned.txt'));
   return db;
 }
 
@@ -92,6 +151,7 @@ interface GenerationRow {
   image_path: string;
   favorite: number;
   hidden: number;
+  pinned_at: string | null;
   created_at: string;
   // Joined from timing_stats (null when the generation has no recorded timing).
   t_estimate_ms?: number | null;
@@ -121,6 +181,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     imagePath: row.image_path,
     favorite: row.favorite === 1,
     hidden: row.hidden === 1,
+    pinned: row.pinned_at !== null,
     createdAt: row.created_at,
     timing:
       row.t_actual_ms == null
@@ -177,6 +238,7 @@ export function insertGeneration(
     imagePath,
     favorite: false,
     hidden,
+    pinned: false,
     createdAt,
     timing: null,
   };
@@ -237,10 +299,10 @@ export function listGenerationRefs(
   const ext = extensionCondition(extension);
   const rows = db
     .prepare(
-      `SELECT id, image_path, favorite FROM generations WHERE ${condition.sql} ${ext.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
+      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
     )
-    .all(...condition.params, ...ext.params) as unknown as { id: number; image_path: string; favorite: number }[];
-  return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1 }));
+    .all(...condition.params, ...ext.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
+  return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1, pinned: r.pinned === 1 }));
 }
 
 export function countGenerations(
@@ -329,6 +391,24 @@ export function setGenerationFavorite(db: DatabaseSync, id: number, favorite: bo
   }
 }
 
+/** Pins a generation as a representative example of its prompt (shown under Library > Prompts), or
+ * unpins it. Pinning an already-pinned item keeps its original pin date. */
+export function setGenerationPinned(db: DatabaseSync, id: number, pinned: boolean): void {
+  if (pinned) {
+    db.prepare('UPDATE generations SET pinned_at = ? WHERE id = ? AND pinned_at IS NULL').run(new Date().toISOString(), id);
+  } else {
+    db.prepare('UPDATE generations SET pinned_at = NULL WHERE id = ?').run(id);
+  }
+}
+
+/** Every pinned generation, most recently pinned first; hidden ones only when `showHidden`. */
+export function listPinnedGenerations(db: DatabaseSync, showHidden: boolean): GenerationRecord[] {
+  const rows = db
+    .prepare(`${GENERATION_SELECT} WHERE g.pinned_at IS NOT NULL ${showHidden ? '' : 'AND g.hidden = 0'} ORDER BY g.pinned_at DESC, g.id DESC`)
+    .all() as unknown as GenerationRow[];
+  return rows.map(rowToRecord);
+}
+
 export function setGenerationHidden(db: DatabaseSync, id: number, hidden: boolean): void {
   db.prepare('UPDATE generations SET hidden = ? WHERE id = ?').run(hidden ? 1 : 0, id);
 }
@@ -373,74 +453,4 @@ export function listFavoriteIds(db: DatabaseSync): number[] {
 
 export function deleteGeneration(db: DatabaseSync, id: number): void {
   db.prepare('DELETE FROM generations WHERE id = ?').run(id);
-}
-
-interface SavedPromptRow {
-  id: number;
-  name: string | null;
-  prompt: string;
-  negative_prompt: string | null;
-  tags: string;
-  created_at: string;
-}
-
-function parseTags(json: string | null): string[] {
-  try {
-    const parsed: unknown = JSON.parse(json ?? '[]');
-    return Array.isArray(parsed) ? normalizeTags(parsed.map(String)) : [];
-  } catch {
-    return [];
-  }
-}
-
-function rowToSavedPrompt(row: SavedPromptRow): SavedPrompt {
-  return {
-    id: row.id,
-    name: row.name,
-    prompt: row.prompt,
-    negativePrompt: row.negative_prompt,
-    tags: parseTags(row.tags),
-    createdAt: row.created_at,
-  };
-}
-
-export function listSavedPrompts(db: DatabaseSync): SavedPrompt[] {
-  const rows = db.prepare('SELECT * FROM saved_prompts ORDER BY id DESC').all() as unknown as SavedPromptRow[];
-  return rows.map(rowToSavedPrompt);
-}
-
-export function insertSavedPrompt(db: DatabaseSync, name: string, prompt: string, tags: string[]): SavedPrompt {
-  const cleanName = normalizeName(name);
-  if (!cleanName) throw new Error('A saved prompt needs a name.');
-  const cleanTags = normalizeTags(tags);
-  const createdAt = new Date().toISOString();
-  const result = db
-    .prepare('INSERT INTO saved_prompts (name, prompt, negative_prompt, tags, created_at) VALUES (?, ?, NULL, ?, ?)')
-    .run(cleanName, prompt, JSON.stringify(cleanTags), createdAt);
-  return {
-    id: Number(result.lastInsertRowid),
-    name: cleanName,
-    prompt,
-    negativePrompt: null,
-    tags: cleanTags,
-    createdAt,
-  };
-}
-
-/** Renames a saved prompt and replaces its tags; the prompt text itself is not edited. */
-export function updateSavedPrompt(db: DatabaseSync, id: number, name: string, tags: string[]): SavedPrompt {
-  const cleanName = normalizeName(name);
-  if (!cleanName) throw new Error('A saved prompt needs a name.');
-  db.prepare('UPDATE saved_prompts SET name = ?, tags = ? WHERE id = ?').run(
-    cleanName,
-    JSON.stringify(normalizeTags(tags)),
-    id
-  );
-  const row = db.prepare('SELECT * FROM saved_prompts WHERE id = ?').get(id) as unknown as SavedPromptRow | undefined;
-  if (!row) throw new Error('That prompt no longer exists.');
-  return rowToSavedPrompt(row);
-}
-
-export function deleteSavedPrompt(db: DatabaseSync, id: number): void {
-  db.prepare('DELETE FROM saved_prompts WHERE id = ?').run(id);
 }
