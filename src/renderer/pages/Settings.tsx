@@ -312,7 +312,7 @@ export default function Settings({ theme, onThemeChange }: Props) {
         <h3>Hidden Content</h3>
         <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
           When a prompt contains any of these words or phrases, its image or video is marked hidden and left out of the
-          Library unless "Show hidden" is on. One per line; matching ignores case and only counts whole words.
+          Library and Prompts unless "Show hidden" (top bar) is on. One per line; matching ignores case and only counts whole words.
         </p>
         <textarea
           id="hidden-words"

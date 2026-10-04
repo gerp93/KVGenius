@@ -20,6 +20,8 @@ interface Props {
   queue: GenerationQueue;
   onRecall: (record: GenerationRecord) => void;
   onImageToVideo: (request: VideoSourceRequest) => void;
+  /** The app-wide "Show hidden" switch (top bar). Hidden items (Settings > Hidden Content) are left out unless it is on. */
+  showHidden: boolean;
 }
 
 function kindOf(record: GenerationRecord): GenerationKind {
@@ -31,11 +33,9 @@ function isGif(record: GenerationRecord): boolean {
   return record.imagePath.toLowerCase().endsWith('.gif');
 }
 
-export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props) {
+export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHidden }: Props) {
   const [tab, setTab] = useState<GenerationKind>('image');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
-  // Hidden items (see Settings > Hidden Content) are left out of the Library unless this is on.
-  const [showHidden, setShowHidden] = useState(false);
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [counts, setCounts] = useState<Record<GenerationKind, number>>({ image: 0, video: 0 });
   // Image tab only: show just one file type (e.g. 'gif'); null = all. `extensions` are the types present.
@@ -622,14 +622,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
                 title="Show only favorites"
               >
                 {favoritesOnly ? '★' : '☆'} Favorites
-              </button>
-              <button
-                type="button"
-                className={showHidden ? 'primary' : undefined}
-                onClick={() => setShowHidden((v) => !v)}
-                title="Include items hidden by the hidden-words rule or by hand"
-              >
-                {showHidden ? '🙈 Showing hidden' : '🙈 Show hidden'}
               </button>
               {tab === 'image' && extensions.length > 0 && (
                 <select

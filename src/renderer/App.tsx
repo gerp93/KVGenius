@@ -24,6 +24,9 @@ export default function App() {
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<string | null>(null);
+  // One "Show hidden" switch for the whole app (the top bar button), so it need not be flipped on
+  // every page. Deliberately not remembered across launches - hidden content starts out hidden.
+  const [showHidden, setShowHidden] = useState(false);
   const location = useLocation();
   // One queue for the whole app: Generate and the Library's Upscale both feed it.
   const queue = useGenerationQueue();
@@ -115,6 +118,16 @@ export default function App() {
         <NavLink to="/settings" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Settings
         </NavLink>
+        <span className="top-bar__separator" />
+        <button
+          type="button"
+          className={`top-bar__toggle${showHidden ? ' top-bar__toggle--on' : ''}`}
+          aria-pressed={showHidden}
+          onClick={() => setShowHidden((v) => !v)}
+          title="Include items hidden by the hidden-words rule or by hand, in the Library and Prompts. Applies everywhere; resets when the app restarts."
+        >
+          {showHidden ? '🙈 Showing hidden' : '🙈 Show hidden'}
+        </button>
         {launchError && (
           <span className="top-bar__connection-error" title={launchError}>
             {launchError}
@@ -161,8 +174,11 @@ export default function App() {
       <Routes>
         <Route path="/library" element={<LibraryLayout />}>
           <Route index element={<Navigate to="output" replace />} />
-          <Route path="output" element={<LibraryOutput queue={queue} onRecall={setRecallRecord} onImageToVideo={setVideoSource} />} />
-          <Route path="prompts" element={<LibraryPrompts onRecallPrompt={setRecallPrompt} onRecall={setRecallRecord} />} />
+          <Route path="output" element={<LibraryOutput queue={queue} onRecall={setRecallRecord} onImageToVideo={setVideoSource} showHidden={showHidden} />} />
+          <Route
+            path="prompts"
+            element={<LibraryPrompts onRecallPrompt={setRecallPrompt} onRecall={setRecallRecord} showHidden={showHidden} />}
+          />
         </Route>
         <Route path="/timing" element={<Timing />} />
         <Route path="/hardpoint" element={<Hardpoint />} />
