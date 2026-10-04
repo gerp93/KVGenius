@@ -14,6 +14,7 @@ import {
   revealDbInFileManager,
   getImagesDir,
   getVideosDir,
+  getGifsDir,
   getLegacyOutputDir,
   dbPathInsideFolder,
   enforceDevDatabaseIsolation,
@@ -45,6 +46,7 @@ import {
   listGenerations,
   countGenerations,
   listGenerationRefs,
+  listImageExtensions,
   setGenerationHidden,
   applyHiddenRule,
   moveLegacyOutput,
@@ -179,7 +181,7 @@ function createWindow(): void {
 const pickedSourceImages = new Set<string>();
 
 function outputDirs() {
-  return { images: getImagesDir(), videos: getVideosDir(), legacy: getLegacyOutputDir() };
+  return { images: getImagesDir(), videos: getVideosDir(), gifs: getGifsDir(), legacy: getLegacyOutputDir() };
 }
 
 function videoFamilyList(): string[] {
@@ -187,7 +189,7 @@ function videoFamilyList(): string[] {
 }
 
 function registerImageProtocol(): void {
-  protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, [getImagesDir(), getVideosDir(), getLegacyOutputDir()], pickedSourceImages));
+  protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, [getImagesDir(), getVideosDir(), getGifsDir(), getLegacyOutputDir()], pickedSourceImages));
 }
 
 let mediaServer: MediaServer | null = null;
@@ -374,21 +376,26 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'listGenerations',
-    (_event, kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean, showHidden: boolean) => {
+    (_event, kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean, showHidden: boolean, extension?: string | null) => {
       if (!db) throw new Error('Database not initialized');
       const safeLimit = Math.min(Math.max(Math.floor(limit) || 0, 1), 200);
-      return listGenerations(db, videoFamilies, kind === 'video' ? 'video' : 'image', safeLimit, beforeId, !!favoritesOnly, !!showHidden);
+      return listGenerations(db, videoFamilies, kind === 'video' ? 'video' : 'image', safeLimit, beforeId, !!favoritesOnly, !!showHidden, extension ?? null);
     }
   );
 
-  ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean, showHidden: boolean) => {
+  ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null) => {
     if (!db) throw new Error('Database not initialized');
-    return countGenerations(db, videoFamilies, !!favoritesOnly, !!showHidden);
+    return countGenerations(db, videoFamilies, !!favoritesOnly, !!showHidden, imageExtension ?? null);
   });
 
-  ipcMain.handle('listGenerationRefs', (_event, kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean) => {
+  ipcMain.handle('listImageExtensions', () => {
     if (!db) throw new Error('Database not initialized');
-    return listGenerationRefs(db, videoFamilies, kind === 'video' ? 'video' : 'image', !!favoritesOnly, !!showHidden);
+    return listImageExtensions(db, videoFamilies);
+  });
+
+  ipcMain.handle('listGenerationRefs', (_event, kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null) => {
+    if (!db) throw new Error('Database not initialized');
+    return listGenerationRefs(db, videoFamilies, kind === 'video' ? 'video' : 'image', !!favoritesOnly, !!showHidden, extension ?? null);
   });
 
   ipcMain.handle('setGenerationHidden', (_event, id: number, hidden: boolean) => {
@@ -412,7 +419,7 @@ function registerIpcHandlers(): void {
     const gifWidth = Math.min(width, info.width);
     const gifHeight = Math.max(2, Math.round((info.height * gifWidth) / info.width / 2) * 2);
 
-    const outputDir = getImagesDir();
+    const outputDir = getGifsDir();
     fs.mkdirSync(outputDir, { recursive: true });
     const finalPath = path.join(outputDir, `${Date.now()}-${source.seed}.gif`);
     const partial = `${finalPath}.part`;
@@ -769,7 +776,7 @@ app
 
     registerImageProtocol();
     mediaServer = await startMediaServer(
-      () => [getImagesDir(), getVideosDir(), getLegacyOutputDir()],
+      () => [getImagesDir(), getVideosDir(), getGifsDir(), getLegacyOutputDir()],
       pickedSourceImages
     );
     // The preload script asks for this synchronously while the window is loading.

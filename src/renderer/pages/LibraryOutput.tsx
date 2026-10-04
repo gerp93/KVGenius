@@ -39,6 +39,9 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
   const [showHidden, setShowHidden] = useState(false);
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [counts, setCounts] = useState<Record<GenerationKind, number>>({ image: 0, video: 0 });
+  // Image tab only: show just one file type (e.g. 'gif'); null = all. `extensions` are the types present.
+  const [extension, setExtension] = useState<string | null>(null);
+  const [extensions, setExtensions] = useState<string[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,11 +81,11 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
   const anchorId = useRef<number | null>(null);
   const loadingRef = useRef(false);
 
-  const loadPage = useCallback(async (kind: GenerationKind, beforeId: number | null, favorites: boolean, hidden: boolean, token: number) => {
+  const loadPage = useCallback(async (kind: GenerationKind, beforeId: number | null, favorites: boolean, hidden: boolean, ext: string | null, token: number) => {
     loadingRef.current = true;
     setLoading(true);
     try {
-      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favorites, hidden);
+      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favorites, hidden, kind === 'image' ? ext : null);
       if (token !== requestToken.current) return;
       setRecords((prev) => (beforeId === null ? page : [...prev, ...page]));
       setHasMore(page.length === PAGE_SIZE);
@@ -107,21 +110,41 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
     anchorId.current = null;
     setInfoId(null);
     setLightboxIndex(null);
-    void loadPage(tab, null, favoritesOnly, showHidden, token);
-  }, [tab, favoritesOnly, showHidden, loadPage]);
+    void loadPage(tab, null, favoritesOnly, showHidden, extension, token);
+  }, [tab, favoritesOnly, showHidden, extension, loadPage]);
 
   useEffect(() => {
     window.kvgenius
-      .countGenerations(favoritesOnly, showHidden)
+      .countGenerations(favoritesOnly, showHidden, extension)
       .then(setCounts)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [favoritesOnly, showHidden]);
+  }, [favoritesOnly, showHidden, extension]);
+
+  // The file types offered in the filter. A type whose last image was deleted drops out of the list,
+  // and the filter goes back to "all" if it was set to that type.
+  const refreshExtensions = useCallback(() => {
+    window.kvgenius
+      .listImageExtensions()
+      .then((list) => {
+        setExtensions(list);
+        setExtension((prev) => (prev && !list.includes(prev) ? null : prev));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshExtensions();
+  }, [refreshExtensions, counts.image]);
+
+  /** Whether a new image belongs in the list as filtered: its type has to be the chosen one. */
+  const matchesExtension = (record: GenerationRecord) =>
+    !extension || record.imagePath.toLowerCase().endsWith(`.${extension}`);
 
   const loadMore = useCallback(() => {
     // The very first page belongs to the tab-change effect above.
     if (loadingRef.current || records.length === 0) return;
-    void loadPage(tab, records[records.length - 1].id, favoritesOnly, showHidden, requestToken.current);
-  }, [records, tab, favoritesOnly, showHidden, loadPage]);
+    void loadPage(tab, records[records.length - 1].id, favoritesOnly, showHidden, extension, requestToken.current);
+  }, [records, tab, favoritesOnly, showHidden, extension, loadPage]);
 
   // Infinite scroll: load the next page when the sentinel below the grid gets near the visible
   // area of the scrolling grid column. The observer is rebuilt after every load so it re-reports
@@ -216,7 +239,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
   async function handleSelectAll() {
     setBusy(true);
     try {
-      const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden);
+      const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null);
       setSelection(new Map(refs.map((ref) => [ref.id, ref])));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -375,12 +398,14 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
       const made = job.record;
       if (made.hidden && !showHidden) continue;
       if (favoritesOnly) setNotice('An upscale finished - it is not a favorite, so turn off the Favorites filter to see it.');
-      if (tab === job.kind && !favoritesOnly) {
+      const fits = job.kind !== 'image' || matchesExtension(made);
+      if (tab === job.kind && !favoritesOnly && fits) {
         setRecords((prev) => (prev.some((r) => r.id === made.id) ? prev : [made, ...prev]));
       }
-      setCounts((prev) => ({ ...prev, [job.kind]: prev[job.kind] + 1 }));
+      if (fits) setCounts((prev) => ({ ...prev, [job.kind]: prev[job.kind] + 1 }));
     }
-  }, [queue.jobs, tab, favoritesOnly, showHidden]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue.jobs, tab, favoritesOnly, showHidden, extension]);
 
   // The queue panel pops out while anything is running or waiting, and stays for finished/failed upscales.
   const showQueue = queue.jobs.some(
@@ -397,10 +422,12 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
     try {
       const { record: made } = await window.kvgenius.convertToGif(record.id, { fps: gifFps, width: gifWidth });
       setNotice(`Made a ${made.width} × ${made.height} GIF - saved as a new image.`);
-      if (tab === 'image' && !favoritesOnly && !made.hidden) {
+      const fits = matchesExtension(made) && (!made.hidden || showHidden);
+      if (tab === 'image' && !favoritesOnly && fits) {
         setRecords((prev) => [made, ...prev]);
       }
-      setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
+      if (fits) setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
+      refreshExtensions();
     } catch (err) {
       // Electron prefixes errors thrown in an ipcMain handler with "Error invoking remote method".
       const message = err instanceof Error ? err.message : String(err);
@@ -601,6 +628,20 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo }: Props
               >
                 {showHidden ? '🙈 Showing hidden' : '🙈 Show hidden'}
               </button>
+              {tab === 'image' && extensions.length > 0 && (
+                <select
+                  value={extension ?? ''}
+                  onChange={(e) => setExtension(e.target.value || null)}
+                  title="Show only one file type"
+                >
+                  <option value="">All types</option>
+                  {extensions.map((ext) => (
+                    <option key={ext} value={ext}>
+                      {ext.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button type="button" onClick={() => setSelecting(true)} disabled={records.length === 0}>
                 Select Multiple
               </button>
