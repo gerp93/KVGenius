@@ -2,14 +2,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DatabaseSync } from 'node:sqlite';
 import { getGenerationById, listFavoriteIds, setGenerationFavorite } from './db';
+import { GIF_FAMILY } from '../shared/gif';
 
-/** Favorited output is kept in this subfolder of the images / videos folder, so it can be picked
+/** Favorited output is kept in this subfolder of the images / videos / gifs folder, so it can be picked
  * out on disk (backups, bulk edits, other tools) without going through the app. */
 export const FAVORITES_FOLDER = 'favorites';
 
 export interface OutputDirs {
   images: string;
   videos: string;
+  gifs: string;
   /** Where output lived before it was split into images/videos (KVGenius_Data/images). */
   legacy: string;
 }
@@ -24,9 +26,8 @@ function sameDir(a: string, b: string): boolean {
  * stay put: it is already in the right place, or it lives outside the app's own output folders
  * (e.g. under an old database location) where moving it would be a surprise.
  */
-function targetDirFor(currentDir: string, favorite: boolean, isVideo: boolean, dirs: OutputDirs): string | null {
-  const base = isVideo ? dirs.videos : dirs.images;
-  const bases = [dirs.images, dirs.videos, dirs.legacy];
+function targetDirFor(currentDir: string, favorite: boolean, base: string, dirs: OutputDirs): string | null {
+  const bases = [dirs.images, dirs.videos, dirs.gifs, dirs.legacy];
   if (favorite) {
     return bases.some((dir) => sameDir(dir, currentDir)) ? path.join(base, FAVORITES_FOLDER) : null;
   }
@@ -62,8 +63,8 @@ export function applyFavorite(
   if (!record) throw new Error('That generation no longer exists.');
 
   const from = path.resolve(record.imagePath);
-  const isVideo = videoFamilies.includes(record.modelFamily);
-  const targetDir = fs.existsSync(from) ? targetDirFor(path.dirname(from), favorite, isVideo, dirs) : null;
+  const base = videoFamilies.includes(record.modelFamily) ? dirs.videos : record.modelFamily === GIF_FAMILY ? dirs.gifs : dirs.images;
+  const targetDir = fs.existsSync(from) ? targetDirFor(path.dirname(from), favorite, base, dirs) : null;
 
   let newPath = record.imagePath;
   let moved = false;

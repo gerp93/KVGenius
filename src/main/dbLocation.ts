@@ -217,6 +217,12 @@ export function getVideosDir(): string {
   return path.join(getOutputDir(), 'videos');
 }
 
+/** Where GIFs made from videos are saved: KVGenius_Data/output/gifs. They are not generated, so
+ * they get a folder of their own rather than sitting among the generated images. */
+export function getGifsDir(): string {
+  return path.join(getOutputDir(), 'gifs');
+}
+
 /** Before output was grouped under `output/`, both kinds were saved in KVGenius_Data/images. */
 export function getLegacyOutputDir(): string {
   return path.join(path.dirname(getEffectiveDbPath()), 'images');

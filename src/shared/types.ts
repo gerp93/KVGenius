@@ -234,12 +234,17 @@ export interface KVGeniusAPI {
     limit: number,
     beforeId: number | null,
     favoritesOnly: boolean,
-    showHidden: boolean
+    showHidden: boolean,
+    /** Images only: show just this file type (e.g. 'gif'). */
+    extension?: string | null
   ) => Promise<GenerationRecord[]>;
-  /** Totals per kind, restricted to favorites when `favoritesOnly`; hidden ones only count when `showHidden`. */
-  countGenerations: (favoritesOnly: boolean, showHidden: boolean) => Promise<Record<GenerationKind, number>>;
+  /** Totals per kind, restricted to favorites when `favoritesOnly`; hidden ones only count when `showHidden`.
+   * `imageExtension` (e.g. 'gif') narrows the image count only. */
+  countGenerations: (favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null) => Promise<Record<GenerationKind, number>>;
+  /** File extensions present among the Library's images (lowercase, no dot), most common first. */
+  listImageExtensions: () => Promise<string[]>;
   /** Every generation of the kind (newest first), for Select All across pages that aren't loaded. */
-  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean) => Promise<GenerationRef[]>;
+  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null) => Promise<GenerationRef[]>;
   setGenerationHidden: (id: number, hidden: boolean) => Promise<void>;
   /** Words that, found in a prompt, mark the generation as hidden (see shared/hiddenWords.ts). */
   getHiddenWords: () => Promise<string[]>;

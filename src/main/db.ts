@@ -191,6 +191,13 @@ function kindCondition(videoFamilies: string[], kind: GenerationKind): { sql: st
   return { sql: `model_family ${kind === 'video' ? 'IN' : 'NOT IN'} (${marks})`, params: videoFamilies };
 }
 
+/** Narrows a listing to one file extension (e.g. 'gif'), matched on the stored path. Anything that
+ * is not a plain extension is ignored rather than put into a LIKE pattern. */
+function extensionCondition(extension: string | null | undefined): { sql: string; params: string[] } {
+  if (!extension || !/^[a-z0-9]{1,8}$/i.test(extension)) return { sql: '', params: [] };
+  return { sql: 'AND LOWER(image_path) LIKE ? ', params: [`%.${extension.toLowerCase()}`] };
+}
+
 /** The Library's extra filters as SQL: favorites only, and hidden ones left out unless asked for. */
 function filterSql(favoritesOnly: boolean, showHidden: boolean): string {
   return (favoritesOnly ? 'AND favorite = 1 ' : '') + (showHidden ? '' : 'AND hidden = 0');
@@ -203,11 +210,13 @@ export function listGenerations(
   limit: number,
   beforeId: number | null,
   favoritesOnly: boolean,
-  showHidden: boolean
+  showHidden: boolean,
+  extension: string | null = null
 ): GenerationRecord[] {
   const condition = kindCondition(videoFamilies, kind);
-  const cursor = (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
-  const params: (string | number)[] = [...condition.params];
+  const ext = extensionCondition(extension);
+  const cursor = ext.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
+  const params: (string | number)[] = [...condition.params, ...ext.params];
   if (beforeId !== null) params.push(beforeId);
   params.push(limit);
   const rows = db
@@ -221,14 +230,16 @@ export function listGenerationRefs(
   videoFamilies: string[],
   kind: GenerationKind,
   favoritesOnly: boolean,
-  showHidden: boolean
+  showHidden: boolean,
+  extension: string | null = null
 ): GenerationRef[] {
   const condition = kindCondition(videoFamilies, kind);
+  const ext = extensionCondition(extension);
   const rows = db
     .prepare(
-      `SELECT id, image_path, favorite FROM generations WHERE ${condition.sql} ${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
+      `SELECT id, image_path, favorite FROM generations WHERE ${condition.sql} ${ext.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
     )
-    .all(...condition.params) as unknown as { id: number; image_path: string; favorite: number }[];
+    .all(...condition.params, ...ext.params) as unknown as { id: number; image_path: string; favorite: number }[];
   return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1 }));
 }
 
@@ -236,16 +247,32 @@ export function countGenerations(
   db: DatabaseSync,
   videoFamilies: string[],
   favoritesOnly: boolean,
-  showHidden: boolean
+  showHidden: boolean,
+  imageExtension: string | null = null
 ): Record<GenerationKind, number> {
   const count = (kind: GenerationKind): number => {
     const condition = kindCondition(videoFamilies, kind);
+    const ext = extensionCondition(kind === 'image' ? imageExtension : null);
     const row = db
-      .prepare(`SELECT COUNT(*) AS n FROM generations WHERE ${condition.sql} ${filterSql(favoritesOnly, showHidden)}`)
-      .get(...condition.params) as unknown as { n: number };
+      .prepare(`SELECT COUNT(*) AS n FROM generations WHERE ${condition.sql} ${ext.sql}${filterSql(favoritesOnly, showHidden)}`)
+      .get(...condition.params, ...ext.params) as unknown as { n: number };
     return row.n;
   };
   return { image: count('image'), video: count('video') };
+}
+
+/** The file extensions (lowercase, no dot) present among the images, most common first. */
+export function listImageExtensions(db: DatabaseSync, videoFamilies: string[]): string[] {
+  const condition = kindCondition(videoFamilies, 'image');
+  // The text after the last '.': RTRIM drops the trailing non-dot characters, leaving "...name.",
+  // which REPLACE then removes from the path.
+  const rows = db
+    .prepare(
+      `SELECT LOWER(REPLACE(image_path, RTRIM(image_path, REPLACE(image_path, '.', '')), '')) AS ext, COUNT(*) AS n
+       FROM generations WHERE ${condition.sql} GROUP BY ext ORDER BY n DESC, ext`
+    )
+    .all(...condition.params) as unknown as { ext: string }[];
+  return rows.map((r) => r.ext).filter((ext) => /^[a-z0-9]{1,8}$/.test(ext));
 }
 
 /**

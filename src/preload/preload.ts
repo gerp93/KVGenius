@@ -25,11 +25,19 @@ const api: KVGeniusAPI = {
   getTimingStats: () => ipcRenderer.invoke('getTimingStats'),
   clearTimingStats: () => ipcRenderer.invoke('clearTimingStats'),
   cancelGeneration: () => ipcRenderer.invoke('cancelGeneration'),
-  listGenerations: (kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean, showHidden: boolean) =>
-    ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly, showHidden),
-  countGenerations: (favoritesOnly: boolean, showHidden: boolean) => ipcRenderer.invoke('countGenerations', favoritesOnly, showHidden),
-  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean) =>
-    ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly, showHidden),
+  listGenerations: (
+    kind: GenerationKind,
+    limit: number,
+    beforeId: number | null,
+    favoritesOnly: boolean,
+    showHidden: boolean,
+    extension?: string | null
+  ) => ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly, showHidden, extension ?? null),
+  countGenerations: (favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null) =>
+    ipcRenderer.invoke('countGenerations', favoritesOnly, showHidden, imageExtension ?? null),
+  listImageExtensions: () => ipcRenderer.invoke('listImageExtensions'),
+  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null) =>
+    ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly, showHidden, extension ?? null),
   setGenerationHidden: (id: number, hidden: boolean) => ipcRenderer.invoke('setGenerationHidden', id, hidden),
   getHiddenWords: () => ipcRenderer.invoke('getHiddenWords'),
   setHiddenWords: (words: string[]) => ipcRenderer.invoke('setHiddenWords', words),
