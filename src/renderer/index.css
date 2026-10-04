@@ -197,6 +197,43 @@ input:focus {
   margin-bottom: 4px;
 }
 
+/* A field label with a small action (e.g. Copy) at the far end of the same line. */
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.field-label-row .field-label {
+  margin-bottom: 0;
+}
+
+button.copy-button {
+  min-height: 0;
+  padding: 2px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* On a Prompts tile the copy button is a round icon beside the unpin button, in the picture's corner. */
+button.copy-button.prompt-tile__copy {
+  position: absolute;
+  top: 6px;
+  right: 40px;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+
 .button-row {
   display: flex;
   gap: 8px;

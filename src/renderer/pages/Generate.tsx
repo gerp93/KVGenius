@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import CopyButton from '../components/CopyButton';
 import QueuePanel from '../components/QueuePanel';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
@@ -526,9 +527,12 @@ export default function Generate({
             </div>
           )}
 
-          <label className="field-label" htmlFor="prompt">
-            Prompt
-          </label>
+          <div className="field-label-row">
+            <label className="field-label" htmlFor="prompt">
+              Prompt
+            </label>
+            <CopyButton text={prompt} title="Copy the prompt" />
+          </div>
           <textarea
             id="prompt"
             value={prompt}

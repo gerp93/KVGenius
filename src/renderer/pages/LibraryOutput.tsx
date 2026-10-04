@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { DEFAULT_GIF_FPS, DEFAULT_GIF_WIDTH, GIF_FPS_CHOICES, GIF_WIDTHS } from '../../shared/gif';
 import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
+import CopyButton from '../components/CopyButton';
 import GeneratedVideo from '../components/GeneratedVideo';
 import QueuePanel from '../components/QueuePanel';
 import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
@@ -827,6 +828,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             <span className="field-label" style={{ margin: 0 }}>
               Prompt
             </span>
+            <CopyButton text={infoRecord.prompt} title="Copy this prompt" />
           </div>
           <p className="library-panel__prompt">{infoRecord.prompt}</p>
 

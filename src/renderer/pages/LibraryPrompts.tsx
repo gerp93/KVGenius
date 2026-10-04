@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FAMILY_KIND, GenerationKind, GenerationRecord } from '../../shared/types';
+import CopyButton from '../components/CopyButton';
 import GalleryLightbox from '../components/GalleryLightbox';
 import GeneratedVideo from '../components/GeneratedVideo';
 import { justifyRows } from '../utils/justifiedRows';
@@ -133,7 +134,8 @@ export default function LibraryPrompts({ onRecallPrompt, onRecall, showHidden }:
           >
             📌
           </button>
-          {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
+          <CopyButton compact className="prompt-tile__copy" text={record.prompt} title="Copy this prompt" />
+          {record.hidden &&<span className="library-card__hidden-badge">Hidden</span>}
           <div className="prompt-tile__prompt">{record.prompt}</div>
         </div>
         <div className="library-card__actions">
