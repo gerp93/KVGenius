@@ -223,6 +223,12 @@ export function getGifsDir(): string {
   return path.join(getOutputDir(), 'gifs');
 }
 
+/** Where a video's source image is kept so the video can be re-run: KVGenius_Data/output/sources.
+ * Not part of the Library - nothing here is listed, only referred to by the videos made from it. */
+export function getSourcesDir(): string {
+  return path.join(getOutputDir(), 'sources');
+}
+
 /** Before output was grouped under `output/`, both kinds were saved in KVGenius_Data/images. */
 export function getLegacyOutputDir(): string {
   return path.join(path.dirname(getEffectiveDbPath()), 'images');

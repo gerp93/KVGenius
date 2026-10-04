@@ -240,9 +240,9 @@ export default function Generate({
       setCfg(record.cfg);
       setLengthSeconds(record.length ? framesToSeconds(record.length) : 5);
       setVideoQuality(videoQualityFromCfg(record.cfg));
-      // The source image used for a past video generation isn't retained - only the
-      // resulting video is. A new one has to be chosen before this can be re-run.
-      setSourceImagePath(null);
+      // A video keeps a copy of the image it was made from, so it can be re-run in place. Videos made
+      // before that was kept have none: a new one has to be chosen before they can be re-run.
+      setSourceImagePath(recalledMode === 'video' ? record.sourceImagePath : null);
       showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath), slotId);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps

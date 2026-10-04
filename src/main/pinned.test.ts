@@ -100,6 +100,7 @@ test('a database from before pinning gets the column added and keeps its rows', 
   const record = getGenerationById(db, 1);
   assert.equal(record?.prompt, 'kept');
   assert.equal(record?.pinned, false);
+  assert.equal(record?.sourceImagePath, null);
   db.close();
 });
 
