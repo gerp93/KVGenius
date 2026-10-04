@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GenerationParams, GenerationProgress, GenerationRecord, TimeEstimate } from '../../shared/types';
+import { SlotViews, batchShownFor, shouldFollow } from '../../shared/slotViews';
 
 export type JobKind = 'image' | 'video';
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';
@@ -8,6 +9,9 @@ export interface Job {
   id: number;
   /** Jobs queued by one Generate click (a batch of N, or a single one) share a batchId. */
   batchId: number;
+  /** The Generate working tab that queued it, so its result shows in that tab only. None for jobs
+   * from elsewhere (a Library upscale), which no tab's viewer shows. */
+  slotId?: string;
   family: string;
   kind: JobKind;
   params: GenerationParams;
@@ -60,7 +64,10 @@ export type GenerationQueue = ReturnType<typeof useGenerationQueue>;
  */
 export function useGenerationQueue() {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [viewBatchId, setViewBatchId] = useState<number | null>(null);
+  // The batch each working tab is showing (see shared/slotViews.ts). The ref mirrors it so the
+  // runner and enqueue can read the latest value without waiting for a render.
+  const [views, setViews] = useState<SlotViews>({});
+  const viewsRef = useRef<SlotViews>({});
   const [now, setNow] = useState(() => Date.now());
   const [progressInfo, setProgressInfo] = useState<ProgressInfo | null>(null);
   // Bumped whenever a run finishes: the estimates for what is still waiting can use its timings.
@@ -83,6 +90,11 @@ export function useGenerationQueue() {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [hasRunning]);
+
+  const pointView = useCallback((slotId: string, batchId: number) => {
+    viewsRef.current = { ...viewsRef.current, [slotId]: batchId };
+    setViews(viewsRef.current);
+  }, []);
 
   const patchJob = useCallback((id: number, patch: Partial<Job>) => {
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
@@ -115,10 +127,10 @@ export function useGenerationQueue() {
     cancelRequestedRef.current = false;
     patchJob(next.id, { status: 'running', startedAt: Date.now() });
     setProgressInfo(null);
-    // If the batch being viewed has nothing left to do, follow the queue onto this job's batch.
-    setViewBatchId((current) =>
-      current === null || !jobsRef.current.some((j) => j.batchId === current && isActive(j)) ? next.batchId : current
-    );
+    // If the batch its tab is viewing has nothing left to do, follow the queue onto this job's batch.
+    if (next.slotId !== undefined && shouldFollow(jobsRef.current, viewsRef.current, next.slotId)) {
+      pointView(next.slotId, next.batchId);
+    }
 
     // The estimate on screen for this job is what gets stored next to its actual time; if none has
     // arrived yet (a job started at once), ask for one first so the run is not left without.
@@ -149,7 +161,8 @@ export function useGenerationQueue() {
           );
           return updated.length > MAX_HISTORY ? updated.filter((j, i) => isActive(j) || i >= updated.length - MAX_HISTORY) : updated;
         });
-        setViewBatchId(next.batchId);
+        // A finished result shows in the tab it was made for - never in the others.
+        if (next.slotId !== undefined) pointView(next.slotId, next.batchId);
       },
       (err) => {
         runningRef.current = false;
@@ -162,7 +175,7 @@ export function useGenerationQueue() {
         }
       }
     );
-  }, [jobs, patchJob]);
+  }, [jobs, patchJob, pointView]);
 
   // Keep every waiting/running job's estimate current. A job's estimate depends on the family that
   // runs just before it (same family = models already loaded), so each is asked about in queue order.
@@ -189,8 +202,9 @@ export function useGenerationQueue() {
     };
   }, [activeKey, historyVersion, patchJob]);
 
-  /** Adds jobs as one batch. Returns how many fit under MAX_PENDING_JOBS. */
-  const enqueue = useCallback((items: NewJob[]): number => {
+  /** Adds jobs as one batch, queued from working tab `slotId` (none for jobs made elsewhere).
+   * Returns how many fit under MAX_PENDING_JOBS. */
+  const enqueue = useCallback((items: NewJob[], slotId?: string): number => {
     const pending = jobsRef.current.filter(isActive).length;
     const accepted = items.slice(0, Math.max(0, MAX_PENDING_JOBS - pending));
     if (accepted.length === 0) return 0;
@@ -199,16 +213,17 @@ export function useGenerationQueue() {
     const created: Job[] = accepted.map((item) => ({
       id: nextIdRef.current++,
       batchId,
+      slotId,
       family: item.family,
       kind: item.kind,
       params: item.params,
       status: 'queued',
     }));
     setJobs((prev) => [...prev, ...created]);
-    // Starting from idle: show the new batch straight away. While busy, leave the viewer alone.
-    if (pending === 0) setViewBatchId(batchId);
+    // Show the new batch straight away unless its tab is still looking at one being worked on.
+    if (slotId !== undefined && shouldFollow(jobsRef.current, viewsRef.current, slotId)) pointView(slotId, batchId);
     return accepted.length;
-  }, []);
+  }, [pointView]);
 
   /** Cancels a running job (interrupting ComfyUI) or removes a waiting one. */
   const cancelJob = useCallback((id: number) => {
@@ -228,12 +243,14 @@ export function useGenerationQueue() {
 
   const dismissFailed = useCallback((id: number) => patchJob(id, { dismissed: true }), [patchJob]);
 
-  /** Puts an existing record on screen (e.g. recalled from the Library) as a finished one-off. */
-  const showRecord = useCallback((record: GenerationRecord, kind: JobKind, imageUrl: string) => {
+  /** Puts an existing record on screen in working tab `slotId` (e.g. recalled from the Library) as
+   * a finished one-off. */
+  const showRecord = useCallback((record: GenerationRecord, kind: JobKind, imageUrl: string, slotId: string) => {
     const batchId = nextBatchRef.current++;
     const job: Job = {
       id: nextIdRef.current++,
       batchId,
+      slotId,
       family: record.modelFamily,
       kind,
       params: {
@@ -249,7 +266,14 @@ export function useGenerationQueue() {
       imageUrl,
     };
     setJobs((prev) => [...prev, job]);
-    setViewBatchId(batchId);
+    pointView(slotId, batchId);
+  }, [pointView]);
+
+  /** A working tab was closed: it no longer has a view to keep. */
+  const forgetSlot = useCallback((slotId: string) => {
+    const { [slotId]: _gone, ...rest } = viewsRef.current;
+    viewsRef.current = rest;
+    setViews(rest);
   }, []);
 
   /** A generation was deleted: drop its result from the viewer. */
@@ -281,19 +305,16 @@ export function useGenerationQueue() {
     );
   }, []);
 
-  // If every job of the viewed batch was cancelled away, fall back to the latest batch that still
-  // has something to show instead of leaving the viewer empty.
-  const shownBatchId = jobs.some((j) => j.batchId === viewBatchId)
-    ? viewBatchId
-    : jobs.length > 0
-      ? jobs[jobs.length - 1].batchId
-      : null;
+  /** The batch working tab `slotId` should show (null: it has no results yet). If every job of its
+   * viewed batch was cancelled away it falls back to that tab's newest batch. */
+  const viewBatchFor = useCallback((slotId: string) => batchShownFor(jobs, views, slotId), [jobs, views]);
 
   return {
     jobs,
     now,
     progressInfo,
-    viewBatchId: shownBatchId,
+    viewBatchFor,
+    forgetSlot,
     enqueue,
     cancelJob,
     clearQueued,

@@ -70,6 +70,29 @@ body {
   background: var(--color-border);
 }
 
+/* The app-wide Show hidden switch: reads like a nav link, with an accent colour while on. */
+button.top-bar__toggle {
+  -webkit-app-region: no-drag;
+  min-height: 0;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button.top-bar__toggle:hover {
+  background: var(--color-top-bar-hover);
+}
+
+button.top-bar__toggle--on {
+  color: var(--color-accent-blue);
+  box-shadow: inset 0 0 0 1px var(--color-accent-blue);
+}
+
 .top-bar__connection-error {
   margin-left: auto;
   max-width: 420px;
@@ -262,7 +285,8 @@ input:focus {
   min-width: 0;
 }
 
-.generate-actions--busy .generate-actions__go {
+/* Generate takes the whole row; Cancel, when there is something to cancel, sits under it. */
+.generate-actions__go {
   grid-column: 1 / -1;
 }
 

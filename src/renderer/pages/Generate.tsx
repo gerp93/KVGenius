@@ -52,6 +52,7 @@ const IMAGE_SIZE_PRESETS: SizePreset[] = [
   { label: 'Square (1:1)', width: 1024, height: 1024 },
   { label: 'Square, small (1:1)', width: 768, height: 768 },
   { label: 'Square, large (1:1)', width: 1280, height: 1280 },
+  { label: 'Square, extra large (1:1)', width: 2048, height: 2048 },
   { label: 'Portrait (3:4)', width: 896, height: 1152 },
   { label: 'Portrait (2:3)', width: 832, height: 1216 },
   { label: 'Portrait (4:5)', width: 896, height: 1120 },
@@ -152,7 +153,9 @@ export default function Generate({
   const { showRecord } = queue;
   const runningJob = queue.jobs.find((j) => j.status === 'running');
   const busy = queue.jobs.some((j) => j.status === 'queued' || j.status === 'running');
-  const viewSlots = queue.jobs.filter((j) => j.batchId === queue.viewBatchId);
+  // Each working tab shows its own results: what finishes for another tab never replaces them.
+  const shownBatch = queue.viewBatchFor(activeSlotId);
+  const viewSlots = shownBatch === null ? [] : queue.jobs.filter((j) => j.batchId === shownBatch);
 
   // Estimated time for the settings currently in the form, from earlier runs' timings.
   const [currentEstimate, setCurrentEstimate] = useState<TimeEstimate | null>(null);
@@ -234,10 +237,10 @@ export default function Generate({
       // The source image used for a past video generation isn't retained - only the
       // resulting video is. A new one has to be chosen before this can be re-run.
       setSourceImagePath(null);
-      showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath));
+      showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath), activeSlotId);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [showRecord]
+    [showRecord, activeSlotId]
   );
 
   useEffect(() => {
@@ -313,7 +316,8 @@ export default function Generate({
       ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
     };
     const added = queue.enqueue(
-      seeds.map((jobSeed) => ({ family: FAMILY_FOR_MODE[mode], kind: mode, params: { ...base, seed: jobSeed } }))
+      seeds.map((jobSeed) => ({ family: FAMILY_FOR_MODE[mode], kind: mode, params: { ...base, seed: jobSeed } })),
+      activeSlotId
     );
     if (added < seeds.length) {
       setError(`The queue is full (${MAX_PENDING_JOBS} waiting) - added ${added} of ${seeds.length}.`);
@@ -420,7 +424,10 @@ export default function Generate({
                     <button
                       type="button"
                       className="prompt-slot-row__close"
-                      onClick={() => closeSlot(slot.id)}
+                      onClick={() => {
+                        closeSlot(slot.id);
+                        queue.forgetSlot(slot.id);
+                      }}
                       title="Close this tab"
                     >
                       ✕
@@ -682,7 +689,7 @@ export default function Generate({
           </div>
           )}
 
-          <div className={`generate-actions${busy ? ' generate-actions--busy' : ''}`}>
+          <div className="generate-actions">
             <button
               type="button"
               className="primary generate-actions__go"
@@ -714,7 +721,9 @@ export default function Generate({
         </div>
 
         <div className="generate-preview">
+          {/* Keyed by tab so switching starts the viewer fresh instead of carrying the previous tab's picture over. */}
           <ResultViewer
+            key={activeSlotId}
             slots={viewSlots}
             now={queue.now}
             progressInfo={queue.progressInfo}

@@ -11,6 +11,8 @@ const GRID_GAP = 12;
 interface Props {
   onRecallPrompt: (prompt: string) => void;
   onRecall: (record: GenerationRecord) => void;
+  /** The app-wide "Show hidden" switch (top bar). Hidden items (Settings > Hidden Content) are left out unless it is on. */
+  showHidden: boolean;
 }
 
 function kindOf(record: GenerationRecord): GenerationKind {
@@ -21,13 +23,11 @@ function kindOf(record: GenerationRecord): GenerationKind {
  * The pinned generations: one picture per "look", chosen in the Library or on the Generate page.
  * There is no separate saved prompt - a tile's prompt is just the prompt of the generation shown.
  */
-export default function LibraryPrompts({ onRecallPrompt, onRecall }: Props) {
+export default function LibraryPrompts({ onRecallPrompt, onRecall, showHidden }: Props) {
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  // Hidden items (see Settings > Hidden Content) are left out unless this is on, as in Library > Output.
-  const [showHidden, setShowHidden] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -163,14 +163,6 @@ export default function LibraryPrompts({ onRecallPrompt, onRecall }: Props) {
         <span className="prompt-library__count">
           {visible.length === records.length ? `${records.length} pinned` : `${visible.length} of ${records.length}`}
         </span>
-        <button
-          type="button"
-          className={showHidden ? 'primary' : undefined}
-          onClick={() => setShowHidden((v) => !v)}
-          title="Include pinned items hidden by the hidden-words rule or by hand"
-        >
-          {showHidden ? '🙈 Showing hidden' : '🙈 Show hidden'}
-        </button>
       </div>
 
       {loaded && records.length === 0 && (
