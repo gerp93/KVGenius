@@ -471,11 +471,9 @@ export function getGenerationById(db: DatabaseSync, id: number): GenerationRecor
   return row ? rowToRecord(row) : null;
 }
 
+/** Favorites that are in the Library. One in the Trash keeps its flag (so restoring brings it back as a
+ * favorite) but its file belongs in the trash folder, so the startup sync must not touch it. */
 export function listFavoriteIds(db: DatabaseSync): number[] {
-  const rows = db.prepare('SELECT id FROM generations WHERE favorite = 1').all() as unknown as { id: number }[];
+  const rows = db.prepare('SELECT id FROM generations WHERE favorite = 1 AND trashed_at IS NULL').all() as unknown as { id: number }[];
   return rows.map((r) => r.id);
-}
-
-export function deleteGeneration(db: DatabaseSync, id: number): void {
-  db.prepare('DELETE FROM generations WHERE id = ?').run(id);
 }

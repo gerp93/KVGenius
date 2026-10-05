@@ -1,4 +1,4 @@
-import type { CleanupSettings, TrashMoveResult, TrashStats } from './cleanup';
+import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
 import type { PromptSlot } from './promptSlots';
 
 export interface GenerationParams {
@@ -263,8 +263,9 @@ export interface KVGeniusAPI {
   /** Opens a native file dialog for picking a video mode's source image.
    * Resolves the chosen local path, or null if cancelled. */
   chooseSourceImage: () => Promise<string | null>;
-  /** Deletes the generation's DB row and its output file on disk. */
-  deleteGeneration: (id: number, imagePath: string) => Promise<void>;
+  /** Puts an image on the clipboard as a picture (a GIF or other animation copies as one still frame).
+   * Rejects for a file the app does not serve or cannot read as an image. */
+  copyImageToClipboard: (imagePath: string) => Promise<void>;
   /** Reveals the generation's output file in the system file manager. */
   revealGenerationInFileManager: (imagePath: string) => Promise<void>;
   /** Explains why a video will not play (file layout, codec) and tries to repair it. */
@@ -280,24 +281,28 @@ export interface KVGeniusAPI {
   /** Every pinned generation, most recently pinned first; hidden ones only with `showHidden`. */
   listPinnedGenerations: (showHidden: boolean) => Promise<GenerationRecord[]>;
 
-  /** Library cleanup (Settings). Nothing runs by itself unless `autoEnabled` is turned on. */
+  /** Deleting is two steps: items go to the Trash (no confirmation - they can be restored), and emptying
+   * the Trash sends the files to the operating system's Recycle Bin. Both can also run on a schedule,
+   * each its own option and both off until turned on. */
   getCleanupSettings: () => Promise<CleanupSettings>;
   setCleanupSettings: (
-    patch: Partial<Pick<CleanupSettings, 'autoEnabled' | 'olderThanDays' | 'trashRetentionDays'>>
+    patch: Partial<Pick<CleanupSettings, 'autoTrashEnabled' | 'olderThanDays' | 'autoEmptyEnabled' | 'trashRetentionDays'>>
   ) => Promise<CleanupSettings>;
   /** How many items (and bytes) a cleanup of items older than `days` would move: not favorited, not pinned. */
   previewCleanup: (days: number) => Promise<TrashStats>;
-  /** Moves those items to the Trash. */
+  /** Moves those items to the Trash. Never a favorite or pinned item. */
   runCleanup: (days: number) => Promise<TrashMoveResult>;
-  /** Moves the given generations to the Trash. Favorites and pinned items are never moved. */
-  trashGenerations: (ids: number[]) => Promise<TrashMoveResult>;
+  /** Moves the given generations to the Trash. Favorites and pinned items are skipped unless
+   * `includeKept` - set it only for something the user deleted item by item. */
+  trashGenerations: (ids: number[], options?: { includeKept?: boolean }) => Promise<TrashMoveResult>;
   getTrashStats: () => Promise<TrashStats>;
   /** What is in the Trash, newest generation first: up to `limit` with an id below `beforeId`. */
   listTrashed: (limit: number, beforeId: number | null) => Promise<GenerationRecord[]>;
   restoreGenerations: (ids: number[]) => Promise<{ restored: number; failed: number }>;
-  /** Deletes from the Trash for good, files included. Resolves how many were deleted. */
-  deleteTrashed: (ids: number[]) => Promise<number>;
-  emptyTrash: () => Promise<number>;
+  /** Removes items from the Trash: their files go to the Recycle Bin and they can no longer be restored
+   * into the app. An item the Recycle Bin will not take stays in the Trash and counts as failed. */
+  deleteTrashed: (ids: number[]) => Promise<TrashEmptyResult>;
+  emptyTrash: () => Promise<TrashEmptyResult>;
 
   /** The Generate page's prompt "tabs" (whole form per tab), persisted across restarts. */
   getPromptSlots: () => Promise<{ slots: PromptSlot[]; activeId: string | null }>;

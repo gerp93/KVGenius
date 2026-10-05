@@ -42,6 +42,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const [selection, setSelection] = useState<Map<number, GenerationRef>>(new Map());
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // What the last Delete moved to the Trash, so its notice can offer to put it back.
+  const [trashNotice, setTrashNotice] = useState<{ text: string; ids: number[] } | null>(null);
+  // Bumped to make the list load again from the top (after an undo, or a change made elsewhere).
+  const [reloadKey, setReloadKey] = useState(0);
   const [infoId, setInfoId] = useState<number | null>(null);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   // Upscale jobs already merged into the list below (those finished before this page opened are in its load).
@@ -90,14 +94,14 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     setInfoId(null);
     setLightboxIndex(null);
     void loadPage(tab, null, favoritesOnly, showHidden, extension, token);
-  }, [tab, favoritesOnly, showHidden, extension, loadPage]);
+  }, [tab, favoritesOnly, showHidden, extension, reloadKey, loadPage]);
 
   useEffect(() => {
     window.kvgenius
       .countGenerations(favoritesOnly, showHidden, extension)
       .then(setCounts)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [favoritesOnly, showHidden, extension]);
+  }, [favoritesOnly, showHidden, extension, reloadKey]);
 
   // The file types offered in the filter. A type whose last image was deleted drops out of the list,
   // and the filter goes back to "all" if it was set to that type.
@@ -350,36 +354,60 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     }
   }
 
+  // Delete moves to the Trash with no confirmation: it can be undone right here, or restored later from
+  // Library > Trash. Favorites and pinned items go too - the user asked for these ones.
   async function handleDelete(record: GenerationRecord) {
-    const note = (record.favorite ? ' It is marked as a favorite.' : '') + (record.pinned ? ' It is pinned under Prompts.' : '');
-    if (!window.confirm(`Delete this generation? This removes the file from disk too.${note}`)) return;
     try {
-      await window.kvgenius.deleteGeneration(record.id, record.imagePath);
+      const result = await window.kvgenius.trashGenerations([record.id], { includeKept: true });
+      if (result.moved === 0) {
+        setError('Could not move it to the Trash.');
+        return;
+      }
       forgetIds([record.id], kindOf(record));
+      setTrashNotice({ text: 'Moved to the Trash.', ids: [record.id] });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function handleDeleteSelected() {
-    const toDelete = [...selection.values()];
-    if (toDelete.length === 0) return;
-    const favoriteCount = toDelete.filter((r) => r.favorite).length;
-    const pinnedCount = toDelete.filter((r) => r.pinned).length;
-    const note =
-      (favoriteCount > 0 ? ` ${favoriteCount} of them ${favoriteCount === 1 ? 'is a favorite' : 'are favorites'}.` : '') +
-      (pinnedCount > 0 ? ` ${pinnedCount} of them ${pinnedCount === 1 ? 'is' : 'are'} pinned under Prompts.` : '');
-    if (!window.confirm(`Delete ${toDelete.length} generation${toDelete.length === 1 ? '' : 's'}? This removes the files from disk too.${note}`)) {
-      return;
-    }
+    const ids = [...selection.keys()];
+    if (ids.length === 0) return;
     try {
-      await Promise.all(toDelete.map((r) => window.kvgenius.deleteGeneration(r.id, r.imagePath)));
-      forgetIds(toDelete.map((r) => r.id), tab);
+      const result = await window.kvgenius.trashGenerations(ids, { includeKept: true });
       exitSelectMode();
+      if (result.failed > 0) {
+        // Some could not be moved, and which ones is not known here: show the list as it now is.
+        setReloadKey((k) => k + 1);
+        setError(`${result.failed} item${result.failed === 1 ? '' : 's'} could not be moved to the Trash.`);
+      } else {
+        forgetIds(ids, tab);
+      }
+      if (result.moved > 0) setTrashNotice({ text: `Moved ${result.moved} item${result.moved === 1 ? '' : 's'} to the Trash.`, ids });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
+
+  async function handleUndoTrash() {
+    if (!trashNotice) return;
+    const ids = trashNotice.ids;
+    setTrashNotice(null);
+    try {
+      const result = await window.kvgenius.restoreGenerations(ids);
+      setReloadKey((k) => k + 1);
+      if (result.failed > 0) setError(`${result.failed} item${result.failed === 1 ? '' : 's'} could not be restored.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // The undo offer lapses after a while.
+  useEffect(() => {
+    if (!trashNotice) return;
+    const timer = setTimeout(() => setTrashNotice(null), 15000);
+    return () => clearTimeout(timer);
+  }, [trashNotice]);
 
   async function handleSaveAs(record: GenerationRecord) {
     try {
@@ -547,6 +575,14 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
         </div>
 
         {notice && <p className="library-notice">{notice}</p>}
+        {trashNotice && (
+          <p className="library-notice">
+            {trashNotice.text}{' '}
+            <button type="button" onClick={handleUndoTrash}>
+              ↶ Undo
+            </button>
+          </p>
+        )}
 
         <div className="tab-strip" role="tablist">
           <button

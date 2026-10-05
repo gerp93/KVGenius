@@ -47,7 +47,7 @@ const api: KVGeniusAPI = {
   setGenerationFavorite: (id: number, favorite: boolean) => ipcRenderer.invoke('setGenerationFavorite', id, favorite),
   imageUrlFor: (imagePath: string) => mediaUrlFor(imagePath),
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),
-  deleteGeneration: (id: number, imagePath: string) => ipcRenderer.invoke('deleteGeneration', id, imagePath),
+  copyImageToClipboard: (imagePath: string) => ipcRenderer.invoke('copyImageToClipboard', imagePath),
   revealGenerationInFileManager: (imagePath: string) => ipcRenderer.invoke('revealGenerationInFileManager', imagePath),
   diagnoseVideo: (imagePath: string) => ipcRenderer.invoke('diagnoseVideo', imagePath),
   openGenerationExternally: (imagePath: string) => ipcRenderer.invoke('openGenerationExternally', imagePath),
@@ -57,11 +57,15 @@ const api: KVGeniusAPI = {
   listPinnedGenerations: (showHidden: boolean) => ipcRenderer.invoke('listPinnedGenerations', showHidden),
 
   getCleanupSettings: () => ipcRenderer.invoke('getCleanupSettings'),
-  setCleanupSettings: (patch: { autoEnabled?: boolean; olderThanDays?: number; trashRetentionDays?: number }) =>
-    ipcRenderer.invoke('setCleanupSettings', patch),
+  setCleanupSettings: (patch: {
+    autoTrashEnabled?: boolean;
+    olderThanDays?: number;
+    autoEmptyEnabled?: boolean;
+    trashRetentionDays?: number;
+  }) => ipcRenderer.invoke('setCleanupSettings', patch),
   previewCleanup: (days: number) => ipcRenderer.invoke('previewCleanup', days),
   runCleanup: (days: number) => ipcRenderer.invoke('runCleanup', days),
-  trashGenerations: (ids: number[]) => ipcRenderer.invoke('trashGenerations', ids),
+  trashGenerations: (ids: number[], options?: { includeKept?: boolean }) => ipcRenderer.invoke('trashGenerations', ids, options),
   getTrashStats: () => ipcRenderer.invoke('getTrashStats'),
   listTrashed: (limit: number, beforeId: number | null) => ipcRenderer.invoke('listTrashed', limit, beforeId),
   restoreGenerations: (ids: number[]) => ipcRenderer.invoke('restoreGenerations', ids),

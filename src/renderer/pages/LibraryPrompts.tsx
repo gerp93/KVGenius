@@ -41,6 +41,10 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
   const [gridWidth, setGridWidth] = useState(0);
   const [infoId, setInfoId] = useState<number | null>(null);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
+  // The item the last Delete moved to the Trash, so its notice can offer to put it back; and a counter
+  // that makes the list load again after that.
+  const [trashedId, setTrashedId] = useState<number | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -60,7 +64,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     return () => {
       cancelled = true;
     };
-  }, [showHidden]);
+  }, [showHidden, reloadKey]);
 
   useEffect(() => {
     const el = gridRef.current;
@@ -151,16 +155,39 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     else patch(record.id, { hidden });
   }
 
+  // Delete moves to the Trash with no confirmation: undo it here, or restore it from Library > Trash.
   async function handleDelete(record: GenerationRecord) {
-    const note = (record.favorite ? ' It is marked as a favorite.' : '') + ' It is pinned under Prompts.';
-    if (!window.confirm(`Delete this generation? This removes the file from disk too.${note}`)) return;
     try {
-      await window.kvgenius.deleteGeneration(record.id, record.imagePath);
+      const result = await window.kvgenius.trashGenerations([record.id], { includeKept: true });
+      if (result.moved === 0) {
+        setError('Could not move it to the Trash.');
+        return;
+      }
       forget(record.id);
+      setTrashedId(record.id);
     } catch (err) {
       fail(err);
     }
   }
+
+  async function handleUndoTrash() {
+    if (trashedId === null) return;
+    const id = trashedId;
+    setTrashedId(null);
+    try {
+      await window.kvgenius.restoreGenerations([id]);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  // The undo offer lapses after a while.
+  useEffect(() => {
+    if (trashedId === null) return;
+    const timer = setTimeout(() => setTrashedId(null), 15000);
+    return () => clearTimeout(timer);
+  }, [trashedId]);
 
   async function handleSaveAs(record: GenerationRecord) {
     try {
@@ -253,6 +280,14 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
         </div>
 
         {notice && <p className="library-notice">{notice}</p>}
+        {trashedId !== null && (
+          <p className="library-notice">
+            Moved to the Trash.{' '}
+            <button type="button" onClick={handleUndoTrash}>
+              ↶ Undo
+            </button>
+          </p>
+        )}
 
         {loaded && records.length === 0 && (
           <p style={{ color: 'var(--color-text-muted)' }}>

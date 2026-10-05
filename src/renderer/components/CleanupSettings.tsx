@@ -4,13 +4,17 @@ import { CleanupSettings as Settings, TrashStats, normalizeDays } from '../../sh
 import { formatBytes } from '../utils/format';
 
 const muted = { color: 'var(--color-text-muted)', fontSize: 12 } as const;
+const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } as const;
 
 function plural(n: number): string {
   return `${n} item${n === 1 ? '' : 's'}`;
 }
 
-/** Settings > Library Cleanup: move items nobody kept to the Trash, empty the Trash, and (only if
- * asked) have both happen by themselves about once a day. */
+type Patch = Parameters<typeof window.kvgenius.setCleanupSettings>[0];
+
+/** Settings > Library Cleanup. Deleting is two steps: items go to the Trash (here, or by the Delete
+ * button anywhere in the app), and emptying the Trash sends the files to the Recycle Bin. Each step
+ * can also run by itself about once a day, but only if its own option is ticked (both start off). */
 export default function CleanupSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [ageDays, setAgeDays] = useState('30');
@@ -42,7 +46,7 @@ export default function CleanupSettings() {
   const age = normalizeDays(ageDays, settings?.olderThanDays ?? 30);
   const retention = normalizeDays(retentionDays, settings?.trashRetentionDays ?? 30);
 
-  async function save(patch: { autoEnabled?: boolean; olderThanDays?: number; trashRetentionDays?: number }) {
+  async function save(patch: Patch) {
     try {
       setSettings(await window.kvgenius.setCleanupSettings(patch));
     } catch (err) {
@@ -73,10 +77,9 @@ export default function CleanupSettings() {
     }
   }
 
+  // The preview is the check - it showed exactly what will move - and everything moved can be restored.
   async function handleMoveToTrash() {
     if (!preview || preview.stats.count === 0) return;
-    const { count, bytes } = preview.stats;
-    if (!window.confirm(`Move ${plural(count)} (${formatBytes(bytes)}) to the Trash? You can restore them from Library > Trash.`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -95,12 +98,21 @@ export default function CleanupSettings() {
 
   async function handleEmptyTrash() {
     if (trash.count === 0) return;
-    if (!window.confirm(`Permanently delete ${plural(trash.count)} (${formatBytes(trash.bytes)}) from the Trash? This cannot be undone.`)) return;
+    if (
+      !window.confirm(
+        `Send ${plural(trash.count)} (${formatBytes(trash.bytes)}) from the Trash to the Recycle Bin?\n\nThey can no longer be restored into the app, ` +
+          `but you can still get the files back from the Recycle Bin.`
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const deleted = await window.kvgenius.emptyTrash();
-      setMessage(`Deleted ${plural(deleted)} for good.`);
+      const result = await window.kvgenius.emptyTrash();
+      setMessage(
+        `Sent ${plural(result.deleted)} to the Recycle Bin.` + (result.failed > 0 ? ` ${plural(result.failed)} could not be sent and stay in the Trash.` : '')
+      );
       refreshTrash();
     } catch (err) {
       fail(err);
@@ -109,28 +121,17 @@ export default function CleanupSettings() {
     }
   }
 
-  async function handleToggleAuto(enabled: boolean) {
-    if (
-      enabled &&
-      !window.confirm(
-        `Turn on automatic cleanup?\n\nAbout once a day, items older than ${age} days that are not favorites or pinned will be moved to the Trash, ` +
-          `and items that have been in the Trash for ${retention} days will be deleted for good. The first run is a day from now.`
-      )
-    ) {
-      return;
-    }
-    await save({ autoEnabled: enabled, olderThanDays: age, trashRetentionDays: retention });
-  }
-
   return (
     <section style={{ marginBottom: 32 }}>
       <h3>Library Cleanup</h3>
       <p style={muted}>
-        Clear out old images and videos nobody kept. Favorites and pinned items are never touched. Nothing runs by itself
-        unless you turn on the automatic option below.
+        Deleting is two steps. Deleting an item anywhere in the app (or the cleanup below) only moves it to the Trash, so it
+        can always be restored. Emptying the Trash sends the files to your computer's Recycle Bin. Favorites and pinned items
+        are never cleaned up automatically. Nothing below runs by itself unless you tick its option.
       </p>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <h4 style={{ margin: '16px 0 6px' }}>1. Move old items to the Trash</h4>
+      <div style={row}>
         <label htmlFor="cleanup-age">Items older than</label>
         <input
           id="cleanup-age"
@@ -162,7 +163,24 @@ export default function CleanupSettings() {
         </div>
       )}
 
-      <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <label style={{ ...row, marginTop: 10 }}>
+        <input
+          type="checkbox"
+          checked={settings?.autoTrashEnabled ?? false}
+          disabled={!settings}
+          onChange={(e) => void save({ autoTrashEnabled: e.target.checked, olderThanDays: age, trashRetentionDays: retention })}
+        />
+        <span>Do this automatically, about once a day</span>
+      </label>
+      <p style={muted}>
+        Off unless ticked. Turning it on starts the clock, so nothing moves until a day later.
+        {settings?.lastAutoTrashRun
+          ? ` Last run: ${new Date(settings.lastAutoTrashRun).toLocaleString()}${settings.lastAutoTrashSummary ? ` - ${settings.lastAutoTrashSummary}` : ''}`
+          : ''}
+      </p>
+
+      <h4 style={{ margin: '20px 0 6px' }}>2. Empty the Trash</h4>
+      <div style={row}>
         <span>
           In the Trash: {plural(trash.count)}
           {trash.count > 0 ? ` (${formatBytes(trash.bytes)})` : ''}
@@ -171,45 +189,35 @@ export default function CleanupSettings() {
           Open Trash
         </Link>
         <button type="button" onClick={handleEmptyTrash} disabled={busy || trash.count === 0}>
-          Empty Trash
+          Empty Trash (to the Recycle Bin)
         </button>
       </div>
 
-      <div style={{ marginTop: 20 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            type="checkbox"
-            checked={settings?.autoEnabled ?? false}
-            disabled={!settings}
-            onChange={(e) => void handleToggleAuto(e.target.checked)}
-          />
-          <span>Clean up automatically, about once a day</span>
-        </label>
-        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <label htmlFor="cleanup-retention">Delete from the Trash for good after</label>
-          <input
-            id="cleanup-retention"
-            type="number"
-            min={1}
-            value={retentionDays}
-            onChange={(e) => setRetentionDays(e.target.value)}
-            onBlur={commitDays}
-            style={{ width: 80 }}
-          />
-          <span>days</span>
-        </div>
-        <p style={muted}>
-          Off unless you tick it. When on, the same rule as above runs by itself: old unkept items move to the Trash, and items
-          that have sat in the Trash for the number of days above are deleted for good. Turning it on starts the clock, so
-          nothing moves until a day later.
-        </p>
-        {settings?.lastAutoRun && (
-          <p style={muted}>
-            Last automatic run: {new Date(settings.lastAutoRun).toLocaleString()}
-            {settings.lastAutoSummary ? ` - ${settings.lastAutoSummary}` : ''}
-          </p>
-        )}
-      </div>
+      <label style={{ ...row, marginTop: 10 }}>
+        <input
+          type="checkbox"
+          checked={settings?.autoEmptyEnabled ?? false}
+          disabled={!settings}
+          onChange={(e) => void save({ autoEmptyEnabled: e.target.checked, olderThanDays: age, trashRetentionDays: retention })}
+        />
+        <span>Empty it automatically, about once a day: send items that have been in the Trash for</span>
+        <input
+          id="cleanup-retention"
+          type="number"
+          min={1}
+          value={retentionDays}
+          onChange={(e) => setRetentionDays(e.target.value)}
+          onBlur={commitDays}
+          style={{ width: 80 }}
+        />
+        <span>days to the Recycle Bin</span>
+      </label>
+      <p style={muted}>
+        Off unless ticked, and separate from step 1. Turning it on starts the clock, so nothing is sent until a day later.
+        {settings?.lastAutoEmptyRun
+          ? ` Last run: ${new Date(settings.lastAutoEmptyRun).toLocaleString()}${settings.lastAutoEmptySummary ? ` - ${settings.lastAutoEmptySummary}` : ''}`
+          : ''}
+      </p>
 
       {message && <p style={{ color: 'var(--color-accent-green)', fontSize: 13 }}>{message}</p>}
       {error && <p style={{ color: 'var(--color-accent-red)', fontSize: 13 }}>{error}</p>}

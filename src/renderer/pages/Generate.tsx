@@ -392,14 +392,15 @@ export default function Generate({
     }
   }
 
+  /** Delete: moves it to the Trash (no confirmation - it can be restored from Library > Trash). */
   async function handleDeleteResult(record: GenerationRecord) {
-    const note = (record.favorite ? ' It is marked as a favorite.' : '') + (record.pinned ? ' It is pinned under Prompts.' : '');
-    if (!window.confirm(`Delete this generation? This removes the file from disk too.${note}`)) return;
     try {
-      await window.kvgenius.deleteGeneration(record.id, record.imagePath);
+      await window.kvgenius.trashGenerations([record.id], { includeKept: true });
       queue.removeRecord(record.id);
-      // If it was the Source Image for a video, that file is gone.
+      // If it was the Source Image for a video, that file is no longer where the form expects it.
       setSourceImagePath((current) => (current === record.imagePath ? null : current));
+      setNotice('Moved to the Trash - restore it from Library > Trash.');
+      setTimeout(() => setNotice(null), 4000);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }

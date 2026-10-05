@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_CLEANUP_SETTINGS,
   MAX_CLEANUP_DAYS,
-  autoCleanupDue,
+  autoEmptyDue,
+  autoTrashDue,
   cutoffIso,
   normalizeCleanupSettings,
   normalizeDays,
@@ -12,8 +13,9 @@ import {
 
 const NOW = new Date('2026-10-05T12:00:00.000Z');
 
-test('cleanup starts out manual: the schedule is off by default', () => {
-  assert.equal(DEFAULT_CLEANUP_SETTINGS.autoEnabled, false);
+test('cleanup starts out manual: neither schedule is on by default', () => {
+  assert.equal(DEFAULT_CLEANUP_SETTINGS.autoTrashEnabled, false);
+  assert.equal(DEFAULT_CLEANUP_SETTINGS.autoEmptyEnabled, false);
   assert.deepEqual(normalizeCleanupSettings(undefined), DEFAULT_CLEANUP_SETTINGS);
   assert.deepEqual(normalizeCleanupSettings('nonsense'), DEFAULT_CLEANUP_SETTINGS);
 });
@@ -30,12 +32,13 @@ test('days are whole numbers within range, with a fallback for junk', () => {
   assert.equal(normalizeDays(undefined, 30), 30);
 });
 
-test('only an explicit true turns the schedule on, and stored dates must be real', () => {
-  assert.equal(normalizeCleanupSettings({ autoEnabled: 'yes' }).autoEnabled, false);
-  assert.equal(normalizeCleanupSettings({ autoEnabled: 1 }).autoEnabled, false);
-  assert.equal(normalizeCleanupSettings({ autoEnabled: true }).autoEnabled, true);
-  assert.equal(normalizeCleanupSettings({ lastAutoRun: 'not a date' }).lastAutoRun, null);
-  assert.equal(normalizeCleanupSettings({ lastAutoRun: NOW.toISOString() }).lastAutoRun, NOW.toISOString());
+test('only an explicit true turns a schedule on, and stored dates must be real', () => {
+  assert.equal(normalizeCleanupSettings({ autoTrashEnabled: 'yes' }).autoTrashEnabled, false);
+  assert.equal(normalizeCleanupSettings({ autoEmptyEnabled: 1 }).autoEmptyEnabled, false);
+  assert.equal(normalizeCleanupSettings({ autoTrashEnabled: true }).autoTrashEnabled, true);
+  assert.equal(normalizeCleanupSettings({ autoEmptyEnabled: true }).autoEmptyEnabled, true);
+  assert.equal(normalizeCleanupSettings({ lastAutoTrashRun: 'not a date' }).lastAutoTrashRun, null);
+  assert.equal(normalizeCleanupSettings({ lastAutoEmptyRun: NOW.toISOString() }).lastAutoEmptyRun, NOW.toISOString());
 });
 
 test('the cutoff is that many days back', () => {
@@ -43,31 +46,44 @@ test('the cutoff is that many days back', () => {
   assert.equal(cutoffIso(1, NOW), '2026-10-04T12:00:00.000Z');
 });
 
-test('turning the schedule on starts its clock, so nothing runs by surprise', () => {
-  const turnedOn = updateCleanupSettings(DEFAULT_CLEANUP_SETTINGS, { autoEnabled: true }, NOW);
-  assert.equal(turnedOn.autoEnabled, true);
-  assert.equal(turnedOn.lastAutoRun, NOW.toISOString());
-  assert.equal(autoCleanupDue(turnedOn, NOW), false, 'not due until a day has passed');
+test('the two schedules are independent', () => {
+  const trashOnly = updateCleanupSettings(DEFAULT_CLEANUP_SETTINGS, { autoTrashEnabled: true }, NOW);
+  assert.equal(trashOnly.autoTrashEnabled, true);
+  assert.equal(trashOnly.autoEmptyEnabled, false);
+  assert.equal(trashOnly.lastAutoEmptyRun, null);
+
+  const emptyOnly = updateCleanupSettings(DEFAULT_CLEANUP_SETTINGS, { autoEmptyEnabled: true }, NOW);
+  assert.equal(emptyOnly.autoTrashEnabled, false);
+  assert.equal(emptyOnly.lastAutoTrashRun, null);
+  assert.equal(emptyOnly.lastAutoEmptyRun, NOW.toISOString());
+});
+
+test('turning a schedule on starts its clock, so nothing runs by surprise', () => {
+  const turnedOn = updateCleanupSettings(DEFAULT_CLEANUP_SETTINGS, { autoTrashEnabled: true }, NOW);
+  assert.equal(turnedOn.lastAutoTrashRun, NOW.toISOString());
+  assert.equal(autoTrashDue(turnedOn, NOW), false, 'not due until a day has passed');
 
   // Changing a threshold while it is already on does not restart the clock.
   const later = new Date(NOW.getTime() + 3 * 60 * 60 * 1000);
   const changed = updateCleanupSettings(turnedOn, { olderThanDays: 14 }, later);
   assert.equal(changed.olderThanDays, 14);
-  assert.equal(changed.lastAutoRun, NOW.toISOString());
+  assert.equal(changed.lastAutoTrashRun, NOW.toISOString());
 
   // Turning it off keeps the thresholds; junk is cleaned up.
-  const off = updateCleanupSettings(changed, { autoEnabled: false, trashRetentionDays: 0 }, later);
-  assert.equal(off.autoEnabled, false);
+  const off = updateCleanupSettings(changed, { autoTrashEnabled: false, trashRetentionDays: 0 }, later);
+  assert.equal(off.autoTrashEnabled, false);
   assert.equal(off.trashRetentionDays, 1);
   assert.equal(off.olderThanDays, 14);
 });
 
-test('the schedule only runs when on, and not more than once a day', () => {
-  const on = { ...DEFAULT_CLEANUP_SETTINGS, autoEnabled: true };
-  assert.equal(autoCleanupDue(DEFAULT_CLEANUP_SETTINGS, NOW), false, 'off by default');
-  assert.equal(autoCleanupDue({ ...DEFAULT_CLEANUP_SETTINGS, lastAutoRun: null }, NOW), false, 'off stays off');
-  assert.equal(autoCleanupDue(on, NOW), true, 'never ran');
-  assert.equal(autoCleanupDue({ ...on, lastAutoRun: cutoffIso(0.5, NOW) }, NOW), false, 'ran 12 hours ago');
-  assert.equal(autoCleanupDue({ ...on, lastAutoRun: cutoffIso(1, NOW) }, NOW), true, 'ran exactly a day ago');
-  assert.equal(autoCleanupDue({ ...on, lastAutoRun: cutoffIso(3, NOW) }, NOW), true);
+test('each schedule only runs when on, and not more than once a day', () => {
+  const on = { ...DEFAULT_CLEANUP_SETTINGS, autoTrashEnabled: true, autoEmptyEnabled: true };
+  assert.equal(autoTrashDue(DEFAULT_CLEANUP_SETTINGS, NOW), false, 'off by default');
+  assert.equal(autoEmptyDue(DEFAULT_CLEANUP_SETTINGS, NOW), false, 'off by default');
+  assert.equal(autoTrashDue(on, NOW), true, 'never ran');
+  assert.equal(autoEmptyDue(on, NOW), true, 'never ran');
+  assert.equal(autoTrashDue({ ...on, lastAutoTrashRun: cutoffIso(0.5, NOW) }, NOW), false, 'ran 12 hours ago');
+  assert.equal(autoTrashDue({ ...on, lastAutoTrashRun: cutoffIso(1, NOW) }, NOW), true, 'ran exactly a day ago');
+  // One having just run says nothing about the other.
+  assert.equal(autoEmptyDue({ ...on, lastAutoTrashRun: NOW.toISOString() }, NOW), true);
 });

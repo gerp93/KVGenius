@@ -95,14 +95,25 @@ export default function LibraryTrash() {
     }
   }
 
+  /** Step two for one item: its file goes to the Recycle Bin and it leaves the app for good. */
   async function handleDelete(record: GenerationRecord) {
-    if (!window.confirm('Delete this for good? The file is removed from disk and cannot be recovered.')) return;
+    if (
+      !window.confirm(
+        'Send this to the Recycle Bin?\n\nIt can no longer be restored into the app, but you can still get the file back from the Recycle Bin.'
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await window.kvgenius.deleteTrashed([record.id]);
-      forget([record.id]);
-      setNotice(null);
+      const result = await window.kvgenius.deleteTrashed([record.id]);
+      if (result.deleted > 0) {
+        forget([record.id]);
+        setNotice('Sent to the Recycle Bin.');
+      } else {
+        setError('The Recycle Bin would not take that file, so it stays in the Trash.');
+      }
     } catch (err) {
       fail(err);
     } finally {
@@ -137,14 +148,22 @@ export default function LibraryTrash() {
 
   async function handleEmpty() {
     if (stats.count === 0) return;
-    if (!window.confirm(`Permanently delete ${plural(stats.count)} (${formatBytes(stats.bytes)}) from the Trash? This cannot be undone.`)) return;
+    if (
+      !window.confirm(
+        `Send ${plural(stats.count)} (${formatBytes(stats.bytes)}) from the Trash to the Recycle Bin?\n\nThey can no longer be restored into the app, ` +
+          `but you can still get the files back from the Recycle Bin.`
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const deleted = await window.kvgenius.emptyTrash();
-      setRecords([]);
-      setHasMore(false);
-      setNotice(`Deleted ${plural(deleted)} for good.`);
+      const result = await window.kvgenius.emptyTrash();
+      await load(null);
+      setNotice(
+        `Sent ${plural(result.deleted)} to the Recycle Bin.` + (result.failed > 0 ? ` ${plural(result.failed)} could not be sent and stay in the Trash.` : '')
+      );
       refreshStats();
     } catch (err) {
       fail(err);
@@ -169,7 +188,7 @@ export default function LibraryTrash() {
             Restore All
           </button>
           <button type="button" onClick={handleEmpty} disabled={busy || stats.count === 0}>
-            Empty Trash
+            Empty Trash (to Recycle Bin)
           </button>
         </div>
 
@@ -177,8 +196,8 @@ export default function LibraryTrash() {
 
         {loaded && records.length === 0 && (
           <p style={{ color: 'var(--color-text-muted)' }}>
-            The Trash is empty. Items you clean up from Settings (or discard after comparing) wait here until you restore or
-            delete them.
+            The Trash is empty. Anything you delete, or clean up from Settings, waits here until you restore it or
+            send it to the Recycle Bin.
           </p>
         )}
 
@@ -205,8 +224,8 @@ export default function LibraryTrash() {
                       <button type="button" className="primary" onClick={() => handleRestore(record)} disabled={busy} title="Put it back in the Library">
                         Restore
                       </button>
-                      <button type="button" onClick={() => handleDelete(record)} disabled={busy} title="Delete for good">
-                        🗑️ Delete
+                      <button type="button" onClick={() => handleDelete(record)} disabled={busy} title="Send to the Recycle Bin (it can no longer be restored into the app)">
+                        ♻️ Recycle
                       </button>
                     </div>
                   </div>

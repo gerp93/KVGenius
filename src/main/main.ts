@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeImage, protocol, shell } from 'electron';
+import { app, BrowserWindow, clipboard, ClipboardItem, ipcMain, dialog, nativeImage, protocol, shell } from 'electron';
 import { DatabaseSync } from 'node:sqlite';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -55,7 +55,6 @@ import {
   setGenerationHidden,
   applyHiddenRule,
   moveLegacyOutput,
-  deleteGeneration,
   setGenerationPinned,
   listPinnedGenerations,
 } from './db';
@@ -78,10 +77,9 @@ import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, 
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
-import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaRequest } from './mediaProtocol';
+import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaRequest, isAllowedMediaPath } from './mediaProtocol';
 import { MediaServer, startMediaServer } from './mediaServer';
 import { applyFavorite, syncFavoriteFiles } from './favorites';
-import { releaseSourceImage } from './sourceImages';
 import {
   deleteFromTrash,
   emptyTrash,
@@ -91,6 +89,7 @@ import {
   restoreFromTrash,
   runCleanup,
   trashStats,
+  Recycle,
 } from './trash';
 import { startCleanupSchedule } from './cleanupScheduler';
 import { uniqueNames, writeZip } from './zipWriter';
@@ -207,6 +206,9 @@ function videoFamilyList(): string[] {
 function mediaDirs(): string[] {
   return [getImagesDir(), getVideosDir(), getGifsDir(), getSourcesDir(), getTrashDir(), getLegacyOutputDir()];
 }
+
+/** Sends a file to the operating system's Recycle Bin / Trash. */
+const recycleFile: Recycle = (file) => shell.trashItem(path.resolve(file));
 
 /** Ids from the renderer, keeping only whole numbers. */
 function cleanIds(ids: unknown): number[] {
@@ -520,17 +522,15 @@ function registerIpcHandlers(): void {
     return result.filePaths[0];
   });
 
-  ipcMain.handle('deleteGeneration', (_event, id: number, imagePath: string) => {
-    if (!db) throw new Error('Database not initialized');
-    const keptSource = getGenerationById(db, id)?.sourceImagePath ?? null;
-    deleteGeneration(db, id);
-    // A video's kept source image goes with its last video.
-    releaseSourceImage(db, keptSource, getSourcesDir());
-    try {
-      fs.unlinkSync(imagePath);
-    } catch {
-      // Already gone (or never existed) - the DB row is still correctly deleted either way.
-    }
+  // Copies a picture to the clipboard so it can be pasted into other apps. Done here, from the file, so
+  // it works for whatever the app can show - but only for files the app itself serves, never any path.
+  ipcMain.handle('copyImageToClipboard', async (_event, imagePath: string) => {
+    const resolved = path.resolve(String(imagePath));
+    if (!isAllowedMediaPath(resolved, mediaDirs(), pickedSourceImages)) throw new Error('That file is not one the app can copy.');
+    const image = nativeImage.createFromPath(resolved);
+    if (image.isEmpty()) throw new Error('Could not read that file as an image (a video cannot be copied as a picture).');
+    // As a PNG whatever the file is, so any app that takes a pasted picture can use it.
+    await clipboard.write([new ClipboardItem({ 'image/png': new Blob([image.toPNG()], { type: 'image/png' }) })]);
   });
 
   ipcMain.handle('revealGenerationInFileManager', (_event, imagePath: string) => {
@@ -582,9 +582,11 @@ function registerIpcHandlers(): void {
     return runCleanup(db, normalizeDays(days, 30), getTrashDir());
   });
 
-  ipcMain.handle('trashGenerations', (_event, ids: number[]) => {
+  // Deleting in the app moves to the Trash (no confirmation: it can be restored from there). Favorites and
+  // pinned items are only moved when the caller says the user asked for that item specifically.
+  ipcMain.handle('trashGenerations', (_event, ids: number[], options?: { includeKept?: boolean }) => {
     if (!db) throw new Error('Database not initialized');
-    return moveToTrash(db, cleanIds(ids), getTrashDir());
+    return moveToTrash(db, cleanIds(ids), getTrashDir(), { includeKept: options?.includeKept === true });
   });
 
   ipcMain.handle('getTrashStats', () => {
@@ -603,14 +605,15 @@ function registerIpcHandlers(): void {
     return restoreFromTrash(db, cleanIds(ids));
   });
 
+  // Step two of a delete: the files go to the operating system's Recycle Bin.
   ipcMain.handle('deleteTrashed', (_event, ids: number[]) => {
     if (!db) throw new Error('Database not initialized');
-    return deleteFromTrash(db, cleanIds(ids), getSourcesDir());
+    return deleteFromTrash(db, cleanIds(ids), getSourcesDir(), recycleFile);
   });
 
   ipcMain.handle('emptyTrash', () => {
     if (!db) throw new Error('Database not initialized');
-    return emptyTrash(db, getSourcesDir());
+    return emptyTrash(db, getSourcesDir(), recycleFile);
   });
 
   ipcMain.handle('getPromptSlots', () => ({
@@ -846,6 +849,7 @@ app
       saveSettings: saveCleanupSettings,
       trashDir: getTrashDir,
       sourcesDir: getSourcesDir,
+      recycle: recycleFile,
     });
 
     registerImageProtocol();
