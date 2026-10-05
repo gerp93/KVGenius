@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, LibraryListOptions, VideoSourceRequest } from '../../shared/types';
+import CompareOverlay from '../components/CompareOverlay';
 import CopyButton from '../components/CopyButton';
 import GeneratedVideo from '../components/GeneratedVideo';
 import LibraryDetails from '../components/LibraryDetails';
@@ -33,6 +34,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const [grouped, setGrouped] = useState(false);
   // The prompt of the stack that was opened: the list then shows just that prompt's items.
   const [openPrompt, setOpenPrompt] = useState<string | null>(null);
+  // The A-or-B comparison of one prompt's items, while it is open.
+  const [compare, setCompare] = useState<{ prompt: string; records: GenerationRecord[] } | null>(null);
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [counts, setCounts] = useState<Record<GenerationKind, number>>({ image: 0, video: 0 });
   // Image tab only: show just one file type (e.g. 'gif'); null = all. `extensions` are the types present.
@@ -186,6 +189,40 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   function handleToggleGrouped() {
     setOpenPrompt(null);
     setGrouped((v) => !v);
+  }
+
+  /** Opens the A-or-B comparison for everything with this prompt (not just the part that is scrolled into view). */
+  async function handleCompare(prompt: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const items: GenerationRecord[] = [];
+      let before: number | null = null;
+      for (;;) {
+        const page: GenerationRecord[] = await window.kvgenius.listGenerations(
+          tab,
+          200,
+          before,
+          favoritesOnly,
+          showHidden,
+          tab === 'image' ? extension : null,
+          { prompt }
+        );
+        items.push(...page);
+        if (page.length < 200) break;
+        before = page[page.length - 1].id;
+      }
+      if (items.length < 2) {
+        setNotice('There need to be at least two items with this prompt to compare them.');
+        return;
+      }
+      setNotice(null);
+      setCompare({ prompt, records: items });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function toggleSelected(record: GenerationRecord) {
@@ -547,6 +584,9 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             <button type="button" onClick={() => setInfoId(record.id)} title="Details of the cover">
               ℹ️
             </button>
+            <button type="button" onClick={() => void handleCompare(record.prompt)} disabled={busy} title="Compare these two at a time - A or B? - to find the best">
+              ⚖️
+            </button>
             <button type="button" className="primary" onClick={() => setOpenPrompt(record.prompt)} title="Show the items with this prompt">
               Open {record.groupCount}
             </button>
@@ -694,6 +734,15 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             <span className="stack-header__count">
               {counts[tab]} item{counts[tab] === 1 ? '' : 's'}
             </span>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => void handleCompare(openPrompt)}
+              disabled={busy || counts[tab] < 2}
+              title="Pick the best of these: two at a time, A or B?"
+            >
+              ⚖️ Compare
+            </button>
           </div>
         )}
 
@@ -749,6 +798,18 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
         onToggleFavorite={handleToggleFavorite}
         onRerack={handleRecreate}
       />
+
+      {compare && (
+        <CompareOverlay
+          prompt={compare.prompt}
+          records={compare.records}
+          onClose={(changed) => {
+            setCompare(null);
+            // A favorite, pin or trash made in there: show the list as it now is.
+            if (changed) setReloadKey((k) => k + 1);
+          }}
+        />
+      )}
 
       {lightboxIndex !== null && records[lightboxIndex] && (
         <GalleryLightbox

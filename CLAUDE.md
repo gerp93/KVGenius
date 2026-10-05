@@ -86,3 +86,12 @@ implementation here is exactly the kind of drift it exists to prevent.
   automatic steps - move to Trash, empty Trash - are separate options, **both off by
   default** (Settings > Library Cleanup); turning one on starts its clock, so its first run
   is a day later.
+- **Group by prompt is an opt-in filter, not the default view** (`listPromptStacks` in
+  `db.ts`). Only *exactly* equal prompts stack. The cover is pinned > favorite > newest;
+  stacks are ordered and cursor-paged by their newest item (`groupNewestId`), and the
+  Library's filters apply to items before they are grouped. Images and videos stack
+  separately; trashed items are never in a stack.
+- **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
+  A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
+  history of states. Afterwards the rest can go to the Trash - never favorites or pinned
+  (it calls `trashGenerations` without `includeKept`).
