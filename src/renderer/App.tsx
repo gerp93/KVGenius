@@ -5,6 +5,7 @@ import { useGenerationQueue } from './hooks/useGenerationQueue';
 import LibraryLayout from './pages/LibraryLayout';
 import LibraryOutput from './pages/LibraryOutput';
 import LibraryPrompts from './pages/LibraryPrompts';
+import LibraryTrash from './pages/LibraryTrash';
 import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
@@ -106,6 +107,9 @@ export default function App() {
         <NavLink to="/library/prompts" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Prompts
         </NavLink>
+        <NavLink to="/library/trash" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
+          Trash
+        </NavLink>
         <span className="top-bar__separator" />
         <span className="top-bar__group-label">Stats</span>
         <NavLink to="/timing" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
@@ -187,6 +191,7 @@ export default function App() {
               />
             }
           />
+          <Route path="trash" element={<LibraryTrash />} />
         </Route>
         <Route path="/timing" element={<Timing />} />
         <Route path="/hardpoint" element={<Hardpoint />} />

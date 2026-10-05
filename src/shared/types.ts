@@ -1,3 +1,4 @@
+import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
 import type { PromptSlot } from './promptSlots';
 
 export interface GenerationParams {
@@ -38,10 +39,25 @@ export interface GenerationRecord {
   /** Video only: the app's kept copy of the image the video was made from, so Re-rack can re-run it
    * in place. Null for videos made before this was kept, and for everything that is not a video. */
   sourceImagePath: string | null;
+  /** When it was moved to the Trash (ISO), or null for everything in the Library. */
+  trashedAt: string | null;
   createdAt: string;
   /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
    * null for generations made before timing was tracked. */
   timing: TimingInfo | null;
+  /** Only in a Library listing grouped by prompt: this record is the cover of a stack, and this is how
+   * many items share its exact prompt (itself included). */
+  groupCount?: number;
+  /** Only in a grouped listing: the newest item of the stack. Stacks are ordered, and paged, by this. */
+  groupNewestId?: number;
+}
+
+/** Options for a Library listing beyond the usual filters. */
+export interface LibraryListOptions {
+  /** Collapse items whose prompt is exactly the same into one stack, shown by a cover item. */
+  grouped?: boolean;
+  /** Only the items whose prompt is exactly this (what opening a stack shows). */
+  prompt?: string | null;
 }
 
 /** The estimate shown for a run and how long it actually took, in milliseconds. */
@@ -232,15 +248,30 @@ export interface KVGeniusAPI {
     favoritesOnly: boolean,
     showHidden: boolean,
     /** Images only: show just this file type (e.g. 'gif'). */
-    extension?: string | null
+    extension?: string | null,
+    /** Grouping by prompt, or one prompt's items. A grouped page is cursored by the last record's `groupNewestId`. */
+    options?: LibraryListOptions
   ) => Promise<GenerationRecord[]>;
   /** Totals per kind, restricted to favorites when `favoritesOnly`; hidden ones only count when `showHidden`.
    * `imageExtension` (e.g. 'gif') narrows the image count only. */
-  countGenerations: (favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null) => Promise<Record<GenerationKind, number>>;
+  countGenerations: (
+    favoritesOnly: boolean,
+    showHidden: boolean,
+    imageExtension?: string | null,
+    /** With `grouped`, counts stacks (distinct prompts) rather than items. */
+    options?: LibraryListOptions
+  ) => Promise<Record<GenerationKind, number>>;
   /** File extensions present among the Library's images (lowercase, no dot), most common first. */
   listImageExtensions: () => Promise<string[]>;
   /** Every generation of the kind (newest first), for Select All across pages that aren't loaded. */
-  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null) => Promise<GenerationRef[]>;
+  listGenerationRefs: (
+    kind: GenerationKind,
+    favoritesOnly: boolean,
+    showHidden: boolean,
+    extension?: string | null,
+    /** Only `prompt` applies here: refs are always individual items, never stacks. */
+    options?: LibraryListOptions
+  ) => Promise<GenerationRef[]>;
   setGenerationHidden: (id: number, hidden: boolean) => Promise<void>;
   /** Words that, found in a prompt, mark the generation as hidden (see shared/hiddenWords.ts). */
   getHiddenWords: () => Promise<string[]>;
@@ -260,8 +291,9 @@ export interface KVGeniusAPI {
   /** Opens a native file dialog for picking a video mode's source image.
    * Resolves the chosen local path, or null if cancelled. */
   chooseSourceImage: () => Promise<string | null>;
-  /** Deletes the generation's DB row and its output file on disk. */
-  deleteGeneration: (id: number, imagePath: string) => Promise<void>;
+  /** Puts an image on the clipboard as a picture (a GIF or other animation copies as one still frame).
+   * Rejects for a file the app does not serve or cannot read as an image. */
+  copyImageToClipboard: (imagePath: string) => Promise<void>;
   /** Reveals the generation's output file in the system file manager. */
   revealGenerationInFileManager: (imagePath: string) => Promise<void>;
   /** Explains why a video will not play (file layout, codec) and tries to repair it. */
@@ -276,6 +308,29 @@ export interface KVGeniusAPI {
   setGenerationPinned: (id: number, pinned: boolean) => Promise<void>;
   /** Every pinned generation, most recently pinned first; hidden ones only with `showHidden`. */
   listPinnedGenerations: (showHidden: boolean) => Promise<GenerationRecord[]>;
+
+  /** Deleting is two steps: items go to the Trash (no confirmation - they can be restored), and emptying
+   * the Trash sends the files to the operating system's Recycle Bin. Both can also run on a schedule,
+   * each its own option and both off until turned on. */
+  getCleanupSettings: () => Promise<CleanupSettings>;
+  setCleanupSettings: (
+    patch: Partial<Pick<CleanupSettings, 'autoTrashEnabled' | 'olderThanDays' | 'autoEmptyEnabled' | 'trashRetentionDays'>>
+  ) => Promise<CleanupSettings>;
+  /** How many items (and bytes) a cleanup of items older than `days` would move: not favorited, not pinned. */
+  previewCleanup: (days: number) => Promise<TrashStats>;
+  /** Moves those items to the Trash. Never a favorite or pinned item. */
+  runCleanup: (days: number) => Promise<TrashMoveResult>;
+  /** Moves the given generations to the Trash. Favorites and pinned items are skipped unless
+   * `includeKept` - set it only for something the user deleted item by item. */
+  trashGenerations: (ids: number[], options?: { includeKept?: boolean }) => Promise<TrashMoveResult>;
+  getTrashStats: () => Promise<TrashStats>;
+  /** What is in the Trash, newest generation first: up to `limit` with an id below `beforeId`. */
+  listTrashed: (limit: number, beforeId: number | null) => Promise<GenerationRecord[]>;
+  restoreGenerations: (ids: number[]) => Promise<{ restored: number; failed: number }>;
+  /** Removes items from the Trash: their files go to the Recycle Bin and they can no longer be restored
+   * into the app. An item the Recycle Bin will not take stays in the Trash and counts as failed. */
+  deleteTrashed: (ids: number[]) => Promise<TrashEmptyResult>;
+  emptyTrash: () => Promise<TrashEmptyResult>;
 
   /** The Generate page's prompt "tabs" (whole form per tab), persisted across restarts. */
   getPromptSlots: () => Promise<{ slots: PromptSlot[]; activeId: string | null }>;

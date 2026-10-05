@@ -5,7 +5,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  deleteGeneration,
   getGenerationById,
   initDatabase,
   insertGeneration,
@@ -79,7 +78,7 @@ test('deleting a pinned generation takes its pin with it, and selection refs rep
   const refs = listGenerationRefs(db, ['wan22-i2v'], 'image', false, false);
   assert.deepEqual(refs.map((r) => [r.id, r.pinned]).sort(), [[a.id, true], [b.id, false]].sort());
 
-  deleteGeneration(db, a.id);
+  db.prepare('DELETE FROM generations WHERE id = ?').run(a.id);
   assert.deepEqual(listPinnedGenerations(db, true), []);
 });
 

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
 
 interface Props {
@@ -43,6 +44,7 @@ export default function GalleryLightbox({ src, kind, filePath, alt, hasPrev, has
       <button type="button" className="lightbox__close" title="Close (Esc)" onClick={onClose}>
         ✕
       </button>
+      {kind === 'image' && <CopyButton imagePath={filePath} compact className="lightbox__copy" title="Copy the image" />}
       {hasPrev && (
         <button
           type="button"

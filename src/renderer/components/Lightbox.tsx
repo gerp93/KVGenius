@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
 
 interface Props {
@@ -56,6 +57,7 @@ export default function ExpandButton({ src, kind, filePath, alt }: Props) {
             <button type="button" className="lightbox__close" title="Close" onClick={() => setOpen(false)}>
               ✕
             </button>
+            {kind === 'image' && filePath && <CopyButton imagePath={filePath} compact className="lightbox__copy" title="Copy the image" />}
             <div className="lightbox__media" onClick={(e) => e.stopPropagation()}>
               {kind === 'video' ? (
                 <GeneratedVideo src={src} filePath={filePath ?? ''} />

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isUpscaleFamily } from '../../shared/upscale';
-import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
+import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, LibraryListOptions, VideoSourceRequest } from '../../shared/types';
+import CompareOverlay from '../components/CompareOverlay';
+import CopyButton from '../components/CopyButton';
 import GeneratedVideo from '../components/GeneratedVideo';
 import LibraryDetails from '../components/LibraryDetails';
 import LibraryQueue from '../components/LibraryQueue';
@@ -28,6 +30,12 @@ function kindOf(record: GenerationRecord): GenerationKind {
 export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHidden }: Props) {
   const [tab, setTab] = useState<GenerationKind>('image');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  // Optional: collapse items with exactly the same prompt into one stack. Off, the list is every item as ever.
+  const [grouped, setGrouped] = useState(false);
+  // The prompt of the stack that was opened: the list then shows just that prompt's items.
+  const [openPrompt, setOpenPrompt] = useState<string | null>(null);
+  // The A-or-B comparison of one prompt's items, while it is open.
+  const [compare, setCompare] = useState<{ prompt: string; records: GenerationRecord[] } | null>(null);
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [counts, setCounts] = useState<Record<GenerationKind, number>>({ image: 0, video: 0 });
   // Image tab only: show just one file type (e.g. 'gif'); null = all. `extensions` are the types present.
@@ -42,6 +50,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const [selection, setSelection] = useState<Map<number, GenerationRef>>(new Map());
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // What the last Delete moved to the Trash, so its notice can offer to put it back.
+  const [trashNotice, setTrashNotice] = useState<{ text: string; ids: number[] } | null>(null);
+  // Bumped to make the list load again from the top (after an undo, or a change made elsewhere).
+  const [reloadKey, setReloadKey] = useState(0);
   const [infoId, setInfoId] = useState<number | null>(null);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   // Upscale jobs already merged into the list below (those finished before this page opened are in its load).
@@ -60,11 +72,16 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const anchorId = useRef<number | null>(null);
   const loadingRef = useRef(false);
 
-  const loadPage = useCallback(async (kind: GenerationKind, beforeId: number | null, favorites: boolean, hidden: boolean, ext: string | null, token: number) => {
+  // Showing stacks right now (grouping is on and none is open): items are stack covers, and the counts are stacks.
+  const stacking = grouped && openPrompt === null;
+  const listOptions = useMemo<LibraryListOptions>(() => ({ grouped: stacking, prompt: openPrompt }), [stacking, openPrompt]);
+
+  const loadPage = useCallback(
+    async (kind: GenerationKind, beforeId: number | null, favorites: boolean, hidden: boolean, ext: string | null, token: number, options: LibraryListOptions) => {
     loadingRef.current = true;
     setLoading(true);
     try {
-      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favorites, hidden, kind === 'image' ? ext : null);
+      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favorites, hidden, kind === 'image' ? ext : null, options);
       if (token !== requestToken.current) return;
       setRecords((prev) => (beforeId === null ? page : [...prev, ...page]));
       setHasMore(page.length === PAGE_SIZE);
@@ -78,7 +95,9 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
         setLoading(false);
       }
     }
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
     const token = ++requestToken.current;
@@ -89,15 +108,15 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     anchorId.current = null;
     setInfoId(null);
     setLightboxIndex(null);
-    void loadPage(tab, null, favoritesOnly, showHidden, extension, token);
-  }, [tab, favoritesOnly, showHidden, extension, loadPage]);
+    void loadPage(tab, null, favoritesOnly, showHidden, extension, token, listOptions);
+  }, [tab, favoritesOnly, showHidden, extension, reloadKey, listOptions, loadPage]);
 
   useEffect(() => {
     window.kvgenius
-      .countGenerations(favoritesOnly, showHidden, extension)
+      .countGenerations(favoritesOnly, showHidden, extension, listOptions)
       .then(setCounts)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [favoritesOnly, showHidden, extension]);
+  }, [favoritesOnly, showHidden, extension, reloadKey, listOptions]);
 
   // The file types offered in the filter. A type whose last image was deleted drops out of the list,
   // and the filter goes back to "all" if it was set to that type.
@@ -122,8 +141,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const loadMore = useCallback(() => {
     // The very first page belongs to the tab-change effect above.
     if (loadingRef.current || records.length === 0) return;
-    void loadPage(tab, records[records.length - 1].id, favoritesOnly, showHidden, extension, requestToken.current);
-  }, [records, tab, favoritesOnly, showHidden, extension, loadPage]);
+    const last = records[records.length - 1];
+    // Stacks are paged by their newest item; everything else by the item itself.
+    void loadPage(tab, stacking ? (last.groupNewestId ?? last.id) : last.id, favoritesOnly, showHidden, extension, requestToken.current, listOptions);
+  }, [records, tab, stacking, favoritesOnly, showHidden, extension, listOptions, loadPage]);
 
   // Infinite scroll: load the next page when the sentinel below the grid gets near the visible
   // area of the scrolling grid column. The observer is rebuilt after every load so it re-reports
@@ -159,7 +180,49 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const infoRecord = records.find((r) => r.id === infoId) ?? null;
 
   function handleTabChange(next: GenerationKind) {
-    if (next !== tab) setTab(next);
+    if (next === tab) return;
+    // An opened stack belongs to the tab it was opened in.
+    setOpenPrompt(null);
+    setTab(next);
+  }
+
+  function handleToggleGrouped() {
+    setOpenPrompt(null);
+    setGrouped((v) => !v);
+  }
+
+  /** Opens the A-or-B comparison for everything with this prompt (not just the part that is scrolled into view). */
+  async function handleCompare(prompt: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const items: GenerationRecord[] = [];
+      let before: number | null = null;
+      for (;;) {
+        const page: GenerationRecord[] = await window.kvgenius.listGenerations(
+          tab,
+          200,
+          before,
+          favoritesOnly,
+          showHidden,
+          tab === 'image' ? extension : null,
+          { prompt }
+        );
+        items.push(...page);
+        if (page.length < 200) break;
+        before = page[page.length - 1].id;
+      }
+      if (items.length < 2) {
+        setNotice('There need to be at least two items with this prompt to compare them.');
+        return;
+      }
+      setNotice(null);
+      setCompare({ prompt, records: items });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function toggleSelected(record: GenerationRecord) {
@@ -202,7 +265,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   async function handleSelectAll() {
     setBusy(true);
     try {
-      const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null);
+      // Items, never stacks (selecting is off while stacks are shown); inside an opened stack, just that prompt's.
+      const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, {
+        prompt: openPrompt,
+      });
       setSelection(new Map(refs.map((ref) => [ref.id, ref])));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -228,9 +294,14 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     }
   }
 
+  /** A stack of more than one item, as opposed to a lone item that happens to be shown while grouping. */
+  const isStack = (record: GenerationRecord) => stacking && (record.groupCount ?? 1) > 1;
+
   function handleCardClick(record: GenerationRecord, event: React.MouseEvent) {
     if (!selecting) {
-      setInfoId(record.id);
+      // Clicking a stack opens it; a lone item opens its details, as everywhere.
+      if (isStack(record)) setOpenPrompt(record.prompt);
+      else setInfoId(record.id);
       return;
     }
     // Select mode: a click toggles that card (so Ctrl/Cmd-click works the same), and Shift-click
@@ -271,6 +342,11 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   }
 
   function forgetIds(ids: number[], kind: GenerationKind) {
+    if (stacking) {
+      // Taking an item out of a stack changes its count and maybe its cover, so load the stacks again.
+      setReloadKey((k) => k + 1);
+      return;
+    }
     const gone = new Set(ids);
     setRecords((prev) => prev.filter((r) => !gone.has(r.id)));
     setCounts((prev) => ({ ...prev, [kind]: Math.max(0, prev[kind] - ids.length) }));
@@ -316,22 +392,35 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       if (made.hidden && !showHidden) continue;
       if (favoritesOnly) setNotice('An upscale finished - it is not a favorite, so turn off the Favorites filter to see it.');
       const fits = job.kind !== 'image' || matchesExtension(made);
+      if (stacking) {
+        // It has its source's prompt, so it joins a stack: load the stacks again to show that.
+        if (fits) setReloadKey((k) => k + 1);
+        continue;
+      }
+      // Inside an opened stack, only what has that prompt belongs.
+      if (openPrompt !== null && made.prompt !== openPrompt) continue;
       if (tab === job.kind && !favoritesOnly && fits) {
         setRecords((prev) => (prev.some((r) => r.id === made.id) ? prev : [made, ...prev]));
       }
       if (fits) setCounts((prev) => ({ ...prev, [job.kind]: prev[job.kind] + 1 }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue.jobs, tab, favoritesOnly, showHidden, extension]);
+  }, [queue.jobs, tab, favoritesOnly, showHidden, extension, stacking, openPrompt]);
 
   /** A GIF was made from a video: it is a new image, so fold it into the list as it is filtered. */
   function handleGifMade(made: GenerationRecord) {
     const fits = matchesExtension(made) && (!made.hidden || showHidden);
+    refreshExtensions();
+    if (stacking) {
+      // It has its source's prompt, so it joins a stack: load the stacks again to show that.
+      if (fits) setReloadKey((k) => k + 1);
+      return;
+    }
+    if (openPrompt !== null && made.prompt !== openPrompt) return;
     if (tab === 'image' && !favoritesOnly && fits) {
       setRecords((prev) => [made, ...prev]);
     }
     if (fits) setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
-    refreshExtensions();
   }
 
   async function handleToggleHidden(record: GenerationRecord) {
@@ -350,36 +439,60 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     }
   }
 
+  // Delete moves to the Trash with no confirmation: it can be undone right here, or restored later from
+  // Library > Trash. Favorites and pinned items go too - the user asked for these ones.
   async function handleDelete(record: GenerationRecord) {
-    const note = (record.favorite ? ' It is marked as a favorite.' : '') + (record.pinned ? ' It is pinned under Prompts.' : '');
-    if (!window.confirm(`Delete this generation? This removes the file from disk too.${note}`)) return;
     try {
-      await window.kvgenius.deleteGeneration(record.id, record.imagePath);
+      const result = await window.kvgenius.trashGenerations([record.id], { includeKept: true });
+      if (result.moved === 0) {
+        setError('Could not move it to the Trash.');
+        return;
+      }
       forgetIds([record.id], kindOf(record));
+      setTrashNotice({ text: 'Moved to the Trash.', ids: [record.id] });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function handleDeleteSelected() {
-    const toDelete = [...selection.values()];
-    if (toDelete.length === 0) return;
-    const favoriteCount = toDelete.filter((r) => r.favorite).length;
-    const pinnedCount = toDelete.filter((r) => r.pinned).length;
-    const note =
-      (favoriteCount > 0 ? ` ${favoriteCount} of them ${favoriteCount === 1 ? 'is a favorite' : 'are favorites'}.` : '') +
-      (pinnedCount > 0 ? ` ${pinnedCount} of them ${pinnedCount === 1 ? 'is' : 'are'} pinned under Prompts.` : '');
-    if (!window.confirm(`Delete ${toDelete.length} generation${toDelete.length === 1 ? '' : 's'}? This removes the files from disk too.${note}`)) {
-      return;
-    }
+    const ids = [...selection.keys()];
+    if (ids.length === 0) return;
     try {
-      await Promise.all(toDelete.map((r) => window.kvgenius.deleteGeneration(r.id, r.imagePath)));
-      forgetIds(toDelete.map((r) => r.id), tab);
+      const result = await window.kvgenius.trashGenerations(ids, { includeKept: true });
       exitSelectMode();
+      if (result.failed > 0) {
+        // Some could not be moved, and which ones is not known here: show the list as it now is.
+        setReloadKey((k) => k + 1);
+        setError(`${result.failed} item${result.failed === 1 ? '' : 's'} could not be moved to the Trash.`);
+      } else {
+        forgetIds(ids, tab);
+      }
+      if (result.moved > 0) setTrashNotice({ text: `Moved ${result.moved} item${result.moved === 1 ? '' : 's'} to the Trash.`, ids });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
+
+  async function handleUndoTrash() {
+    if (!trashNotice) return;
+    const ids = trashNotice.ids;
+    setTrashNotice(null);
+    try {
+      const result = await window.kvgenius.restoreGenerations(ids);
+      setReloadKey((k) => k + 1);
+      if (result.failed > 0) setError(`${result.failed} item${result.failed === 1 ? '' : 's'} could not be restored.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // The undo offer lapses after a while.
+  useEffect(() => {
+    if (!trashNotice) return;
+    const timer = setTimeout(() => setTrashNotice(null), 15000);
+    return () => clearTimeout(timer);
+  }, [trashNotice]);
 
   async function handleSaveAs(record: GenerationRecord) {
     try {
@@ -402,10 +515,11 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     const isVideo = kindOf(record) === 'video';
     const selected = selecting && selection.has(record.id);
     const active = !selecting && infoId === record.id;
+    const stack = isStack(record);
     return (
       <div
         key={record.id}
-        className={`library-card${selected ? ' library-card--selected' : ''}${active ? ' library-card--active' : ''}`}
+        className={`library-card${selected ? ' library-card--selected' : ''}${active ? ' library-card--active' : ''}${stack ? ' library-card--stack' : ''}`}
         style={{ width }}
       >
         {selecting && (
@@ -436,7 +550,12 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                 ⤢
               </button>
             )}
-            {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
+            {stack && (
+              <span className="library-card__stack-badge" title={`${record.groupCount} items have this exact prompt - click to open them`}>
+                × {record.groupCount}
+              </span>
+            )}
+            {record.hidden && <span className={`library-card__hidden-badge${stack ? ' library-card__hidden-badge--below' : ''}`}>Hidden</span>}
             {record.pinned && (
               <span className="library-card__pinned-badge" title="Pinned under Prompts">
                 📌
@@ -460,7 +579,20 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             {record.prompt}
           </div>
         </div>
-        {!selecting && (
+        {!selecting && stack && (
+          <div className="library-card__actions">
+            <button type="button" onClick={() => setInfoId(record.id)} title="Details of the cover">
+              ℹ️
+            </button>
+            <button type="button" onClick={() => void handleCompare(record.prompt)} disabled={busy} title="Compare these two at a time - A or B? - to find the best">
+              ⚖️
+            </button>
+            <button type="button" className="primary" onClick={() => setOpenPrompt(record.prompt)} title="Show the items with this prompt">
+              Open {record.groupCount}
+            </button>
+          </div>
+        )}
+        {!selecting && !stack && (
           <div className="library-card__actions">
             <button type="button" onClick={() => setInfoId(record.id)} title="Info">
               ℹ️
@@ -470,13 +602,14 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                 🎬
               </button>
             )}
+            {!isVideo && <CopyButton imagePath={record.imagePath} compact title="Copy the image" />}
             <button type="button" onClick={() => handleSaveAs(record)} title="Save As...">
               💾
             </button>
             <button type="button" onClick={() => handleReveal(record)} title="Show in File Manager">
               📂
             </button>
-            <button type="button" onClick={() => handleDelete(record)} title="Delete">
+            <button type="button" onClick={() => handleDelete(record)} title="Delete (moves to the Trash)">
               🗑️
             </button>
           </div>
@@ -525,6 +658,14 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
               >
                 {favoritesOnly ? '★' : '☆'} Favorites
               </button>
+              <button
+                type="button"
+                className={grouped ? 'primary' : undefined}
+                onClick={handleToggleGrouped}
+                title="Collapse items with exactly the same prompt into one stack (off: every item is shown)"
+              >
+                {grouped ? '📚 Grouped by prompt' : '📚 Group by prompt'}
+              </button>
               {tab === 'image' && extensions.length > 0 && (
                 <select
                   value={extension ?? ''}
@@ -539,7 +680,12 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                   ))}
                 </select>
               )}
-              <button type="button" onClick={() => setSelecting(true)} disabled={records.length === 0}>
+              <button
+                type="button"
+                onClick={() => setSelecting(true)}
+                disabled={records.length === 0 || stacking}
+                title={stacking ? 'Open a stack, or turn off grouping, to select items' : undefined}
+              >
                 Select Multiple
               </button>
             </>
@@ -547,6 +693,14 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
         </div>
 
         {notice && <p className="library-notice">{notice}</p>}
+        {trashNotice && (
+          <p className="library-notice">
+            {trashNotice.text}{' '}
+            <button type="button" onClick={handleUndoTrash}>
+              ↶ Undo
+            </button>
+          </p>
+        )}
 
         <div className="tab-strip" role="tablist">
           <button
@@ -556,7 +710,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             className={`tab-strip__tab${tab === 'image' ? ' active' : ''}`}
             onClick={() => handleTabChange('image')}
           >
-            🖼️ Images ({counts.image})
+            🖼️ Images ({counts.image}{stacking ? ' prompts' : ''})
           </button>
           <button
             type="button"
@@ -565,9 +719,32 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             className={`tab-strip__tab${tab === 'video' ? ' active' : ''}`}
             onClick={() => handleTabChange('video')}
           >
-            🎬 Videos ({counts.video})
+            🎬 Videos ({counts.video}{stacking ? ' prompts' : ''})
           </button>
         </div>
+
+        {openPrompt !== null && (
+          <div className="stack-header">
+            <button type="button" onClick={() => setOpenPrompt(null)} title="Back to the stacks">
+              ← All prompts
+            </button>
+            <span className="stack-header__prompt" title={openPrompt}>
+              {openPrompt}
+            </span>
+            <span className="stack-header__count">
+              {counts[tab]} item{counts[tab] === 1 ? '' : 's'}
+            </span>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => void handleCompare(openPrompt)}
+              disabled={busy || counts[tab] < 2}
+              title="Pick the best of these: two at a time, A or B?"
+            >
+              ⚖️ Compare
+            </button>
+          </div>
+        )}
 
         {!loading && records.length === 0 && (
           <p style={{ color: 'var(--color-text-muted)' }}>
@@ -621,6 +798,18 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
         onToggleFavorite={handleToggleFavorite}
         onRerack={handleRecreate}
       />
+
+      {compare && (
+        <CompareOverlay
+          prompt={compare.prompt}
+          records={compare.records}
+          onClose={(changed) => {
+            setCompare(null);
+            // A favorite, pin or trash made in there: show the list as it now is.
+            if (changed) setReloadKey((k) => k + 1);
+          }}
+        />
+      )}
 
       {lightboxIndex !== null && records[lightboxIndex] && (
         <GalleryLightbox

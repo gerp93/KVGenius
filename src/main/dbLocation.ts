@@ -5,6 +5,7 @@ import { app, shell, dialog } from 'electron';
 import { DEFAULT_COMFYUI_HOST } from './comfyui';
 import { PromptSlot, sanitizeSlots } from '../shared/promptSlots';
 import { normalizeHiddenWords } from '../shared/hiddenWords';
+import { CleanupSettings, normalizeCleanupSettings } from '../shared/cleanup';
 
 interface AppConfig {
   dbPath?: string;
@@ -14,6 +15,8 @@ interface AppConfig {
   theme?: string;
   promptSlots?: PromptSlot[];
   hiddenWords?: string[];
+  /** Library cleanup (Settings): the thresholds, and whether the automatic schedule is on (off by default). */
+  cleanup?: CleanupSettings;
   activePromptSlotId?: string;
   /** Whether the local control API (for MCP clients) is on. Off unless the user turns it on. */
   apiEnabled?: boolean;
@@ -229,6 +232,12 @@ export function getSourcesDir(): string {
   return path.join(getOutputDir(), 'sources');
 }
 
+/** Where items moved to the Trash keep their files until they are restored or deleted for good:
+ * KVGenius_Data/output/trash. */
+export function getTrashDir(): string {
+  return path.join(getOutputDir(), 'trash');
+}
+
 /** Before output was grouped under `output/`, both kinds were saved in KVGenius_Data/images. */
 export function getLegacyOutputDir(): string {
   return path.join(path.dirname(getEffectiveDbPath()), 'images');
@@ -301,5 +310,15 @@ export function getHiddenWords(): string[] {
 export function setHiddenWords(words: string[]): string[] {
   const cleaned = normalizeHiddenWords(words);
   writeConfig({ ...readConfig(), hiddenWords: cleaned });
+  return cleaned;
+}
+
+export function getCleanupSettings(): CleanupSettings {
+  return normalizeCleanupSettings(readConfig().cleanup);
+}
+
+export function saveCleanupSettings(settings: CleanupSettings): CleanupSettings {
+  const cleaned = normalizeCleanupSettings(settings);
+  writeConfig({ ...readConfig(), cleanup: cleaned });
   return cleaned;
 }

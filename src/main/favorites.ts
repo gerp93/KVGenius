@@ -36,7 +36,7 @@ function targetDirFor(currentDir: string, favorite: boolean, base: string, dirs:
 }
 
 /** Moves `from` into `toDir` (created if needed), picking `name-2.ext` etc. if the name is taken. */
-function moveFileUnique(from: string, toDir: string): string {
+export function moveFileUnique(from: string, toDir: string): string {
   fs.mkdirSync(toDir, { recursive: true });
   const ext = path.extname(from);
   const stem = path.basename(from, ext);

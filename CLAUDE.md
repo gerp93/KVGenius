@@ -74,3 +74,24 @@ implementation here is exactly the kind of drift it exists to prevent.
   on disk or move/vanish inside the Library, so without the copy Re-rack could not re-run
   a video in place. The copy is deleted with the last video that uses it; videos made
   before this have none and need a source chosen again.
+- **Deleting is two steps, and there is no delete confirmation** (`trash.ts`,
+  `cleanupScheduler.ts`, `shared/cleanup.ts`). Step 1: the Delete button anywhere (and the
+  cleanup, for unfavorited/unpinned items older than N days) only moves the item to
+  `output/trash` (record kept, `trashed_at` set), so it can be undone or restored. Step 2:
+  emptying the Trash sends the files to the OS Recycle Bin (`shell.trashItem`, injected as
+  `Recycle`), and an item the bin refuses stays in the Trash. There is no hard delete.
+  The automatic cleanup never trashes a favorite or pinned item (`moveToTrash` refuses
+  unless `includeKept`, which only an explicit per-item Delete sets). Every Library
+  listing, and the MCP `library` views, filter `trashed_at IS NULL` (`filterSql`). The two
+  automatic steps - move to Trash, empty Trash - are separate options, **both off by
+  default** (Settings > Library Cleanup); turning one on starts its clock, so its first run
+  is a day later.
+- **Group by prompt is an opt-in filter, not the default view** (`listPromptStacks` in
+  `db.ts`). Only *exactly* equal prompts stack. The cover is pinned > favorite > newest;
+  stacks are ordered and cursor-paged by their newest item (`groupNewestId`), and the
+  Library's filters apply to items before they are grouped. Images and videos stack
+  separately; trashed items are never in a stack.
+- **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
+  A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
+  history of states. Afterwards the rest can go to the Trash - never favorites or pinned
+  (it calls `trashGenerations` without `includeKept`).

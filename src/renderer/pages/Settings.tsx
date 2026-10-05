@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import CleanupSettings from '../components/CleanupSettings';
 import { ComfyUILauncherInfo, DbInfo, McpInfo, UpdateCheckResult } from '../../shared/types';
 import { THEME_NAMES, themeDisplayName } from '../../shared/themes';
 
@@ -338,6 +339,8 @@ export default function Settings({ theme, onThemeChange }: Props) {
         </p>
         {hiddenMessage && <p style={{ color: 'var(--color-accent-green)', fontSize: 13 }}>{hiddenMessage}</p>}
       </section>
+
+      <CleanupSettings />
 
       <section style={{ marginBottom: 32 }}>
         <h3>Database Location</h3>

@@ -234,6 +234,11 @@ button.copy-button.prompt-tile__copy {
   background: rgba(0, 0, 0, 0.55);
 }
 
+/* The image copy sits one button further along, beside the prompt copy. */
+button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
+  right: 74px;
+}
+
 .button-row {
   display: flex;
   gap: 8px;
@@ -852,6 +857,60 @@ button.copy-button.prompt-tile__copy {
   box-shadow: 0 0 0 2px var(--color-accent-blue);
 }
 
+/* A stack (items with the same prompt, when grouped): the card sits on two more behind it. */
+.library-card--stack {
+  margin: 0 8px 8px 0;
+  box-shadow:
+    4px 4px 0 -1px var(--color-surface),
+    4px 4px 0 0 var(--color-border),
+    8px 8px 0 -1px var(--color-surface),
+    8px 8px 0 0 var(--color-border);
+}
+
+.library-card--stack.library-card--active {
+  box-shadow:
+    0 0 0 2px var(--color-accent-blue),
+    4px 4px 0 0 var(--color-border),
+    8px 8px 0 0 var(--color-border);
+}
+
+.library-card__stack-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+/* Header over an opened stack: way back, the shared prompt, and how many items. */
+.stack-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stack-header__prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.stack-header__count {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 .library-card__actions {
   display: flex;
   gap: 4px;
@@ -885,6 +944,11 @@ button.copy-button.prompt-tile__copy {
 
 .library-card__fav--on {
   color: #ffd54a;
+}
+
+/* With a stack's count badge in the same corner, the Hidden badge sits just under it. */
+.library-card__hidden-badge.library-card__hidden-badge--below {
+  top: 34px;
 }
 
 .library-card__hidden-badge {
@@ -1128,6 +1192,163 @@ button.copy-button.prompt-tile__copy {
   height: 36px;
   padding: 0;
   border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* Compare: pick the better of two, again and again, until one is left (CompareOverlay). */
+.compare {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.95);
+}
+
+.compare__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.compare__prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.compare__progress {
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.compare__panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.compare__pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.compare__pane:hover {
+  border-color: var(--color-accent-blue);
+}
+
+.compare__pane img,
+.compare__pane video,
+.compare__winner img,
+.compare__winner video {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.compare__label {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  padding: 2px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.compare__meta {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 1;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.compare__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 16px;
+}
+
+.compare__result {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.compare__winner {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The copy button sits in the top-right of a compared picture. */
+button.copy-button.compare__copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  font-size: 15px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+/* Copy-the-image button, beside the close button. */
+button.copy-button.lightbox__copy {
+  position: absolute;
+  top: 12px;
+  right: 56px;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  font-size: 16px;
   color: #fff;
   background: rgba(0, 0, 0, 0.6);
 }

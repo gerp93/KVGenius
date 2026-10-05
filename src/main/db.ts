@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
 import * as path from 'path';
-import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef } from '../shared/types';
+import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, LibraryListOptions } from '../shared/types';
 import { TIMING_SCHEMA } from './timingStats';
 import { JOBS_SCHEMA } from './jobStore';
 import { IMPORTS_SCHEMA } from './library';
@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS generations (
   hidden INTEGER NOT NULL DEFAULT 0,
   pinned_at TEXT,
   source_image_path TEXT,
+  trashed_at TEXT,
+  trash_from TEXT,
   timing_id INTEGER,
   created_at TEXT NOT NULL
 );
@@ -56,6 +58,13 @@ function migrateSchema(db: DatabaseSync): void {
   }
   if (!columns.some((c) => c.name === 'source_image_path')) {
     db.exec('ALTER TABLE generations ADD COLUMN source_image_path TEXT;');
+  }
+  // Trash: when an item was moved there, and where its file came from so it can be put back.
+  if (!columns.some((c) => c.name === 'trashed_at')) {
+    db.exec('ALTER TABLE generations ADD COLUMN trashed_at TEXT;');
+  }
+  if (!columns.some((c) => c.name === 'trash_from')) {
+    db.exec('ALTER TABLE generations ADD COLUMN trash_from TEXT;');
   }
 }
 
@@ -157,7 +166,11 @@ interface GenerationRow {
   hidden: number;
   pinned_at: string | null;
   source_image_path: string | null;
+  trashed_at: string | null;
   created_at: string;
+  // Only in a listing grouped by prompt.
+  group_count?: number;
+  group_newest?: number;
   // Joined from timing_stats (null when the generation has no recorded timing).
   t_estimate_ms?: number | null;
   t_estimate_generate_ms?: number | null;
@@ -166,9 +179,11 @@ interface GenerationRow {
   t_load_ms?: number | null;
 }
 
+const TIMING_COLUMNS = `t.estimate_ms AS t_estimate_ms, t.estimate_generate_ms AS t_estimate_generate_ms,
+  t.actual_ms AS t_actual_ms, t.generate_ms AS t_generate_ms, t.load_ms AS t_load_ms`;
+
 /** A generation plus its timing (joined from the separate timing_stats table). */
-const GENERATION_SELECT = `SELECT g.*, t.estimate_ms AS t_estimate_ms, t.estimate_generate_ms AS t_estimate_generate_ms,
-  t.actual_ms AS t_actual_ms, t.generate_ms AS t_generate_ms, t.load_ms AS t_load_ms
+const GENERATION_SELECT = `SELECT g.*, ${TIMING_COLUMNS}
   FROM generations g LEFT JOIN timing_stats t ON t.id = g.timing_id`;
 
 function rowToRecord(row: GenerationRow): GenerationRecord {
@@ -188,6 +203,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     hidden: row.hidden === 1,
     pinned: row.pinned_at !== null,
     sourceImagePath: row.source_image_path,
+    trashedAt: row.trashed_at,
     createdAt: row.created_at,
     timing:
       row.t_actual_ms == null
@@ -199,6 +215,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
             generateMs: row.t_generate_ms ?? null,
             loadMs: row.t_load_ms ?? null,
           },
+    ...(row.group_count !== undefined ? { groupCount: row.group_count, groupNewestId: row.group_newest } : {}),
   };
 }
 
@@ -249,6 +266,7 @@ export function insertGeneration(
     hidden,
     pinned: false,
     sourceImagePath,
+    trashedAt: null,
     createdAt,
     timing: null,
   };
@@ -270,9 +288,50 @@ function extensionCondition(extension: string | null | undefined): { sql: string
   return { sql: 'AND LOWER(image_path) LIKE ? ', params: [`%.${extension.toLowerCase()}`] };
 }
 
-/** The Library's extra filters as SQL: favorites only, and hidden ones left out unless asked for. */
+/** The Library's filters as SQL: anything in the Trash is always left out, favorites only on request,
+ * and hidden ones left out unless asked for. */
 function filterSql(favoritesOnly: boolean, showHidden: boolean): string {
-  return (favoritesOnly ? 'AND favorite = 1 ' : '') + (showHidden ? '' : 'AND hidden = 0');
+  return 'AND trashed_at IS NULL ' + (favoritesOnly ? 'AND favorite = 1 ' : '') + (showHidden ? '' : 'AND hidden = 0');
+}
+
+/** Narrows a listing to the items whose prompt is exactly `prompt` (what opening a stack shows). */
+function promptCondition(prompt: string | null | undefined): { sql: string; params: string[] } {
+  return typeof prompt === 'string' ? { sql: 'AND prompt = ? ', params: [prompt] } : { sql: '', params: [] };
+}
+
+/**
+ * One cover per distinct prompt, newest stack first. Items whose prompt is exactly the same (not
+ * similar - exactly) collapse into a stack; the cover is the pinned item if there is one, else a
+ * favorite, else the newest, and carries how many items the stack holds. Stacks are ordered and paged
+ * by their newest item (`beforeNewest` is the previous page's last `groupNewestId`), so a stack with an
+ * old pinned cover still sits where its latest generation puts it. The Library's filters apply to the
+ * items first, so a stack only counts the items that pass them.
+ */
+function listPromptStacks(
+  db: DatabaseSync,
+  where: string,
+  whereParams: (string | number)[],
+  limit: number,
+  beforeNewest: number | null
+): GenerationRecord[] {
+  const params = [...whereParams];
+  if (beforeNewest !== null) params.push(beforeNewest);
+  params.push(limit);
+  const rows = db
+    .prepare(
+      `SELECT g.*, ${TIMING_COLUMNS}
+       FROM (
+         SELECT *,
+           COUNT(*) OVER (PARTITION BY prompt) AS group_count,
+           MAX(id) OVER (PARTITION BY prompt) AS group_newest,
+           ROW_NUMBER() OVER (PARTITION BY prompt ORDER BY (pinned_at IS NOT NULL) DESC, favorite DESC, id DESC) AS rn
+         FROM generations WHERE ${where}
+       ) g LEFT JOIN timing_stats t ON t.id = g.timing_id
+       WHERE g.rn = 1 ${beforeNewest === null ? '' : 'AND g.group_newest < ?'}
+       ORDER BY g.group_newest DESC LIMIT ?`
+    )
+    .all(...params) as unknown as GenerationRow[];
+  return rows.map(rowToRecord);
 }
 
 export function listGenerations(
@@ -283,12 +342,25 @@ export function listGenerations(
   beforeId: number | null,
   favoritesOnly: boolean,
   showHidden: boolean,
-  extension: string | null = null
+  extension: string | null = null,
+  options: LibraryListOptions = {}
 ): GenerationRecord[] {
   const condition = kindCondition(videoFamilies, kind);
   const ext = extensionCondition(extension);
-  const cursor = ext.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
-  const params: (string | number)[] = [...condition.params, ...ext.params];
+  const prompt = promptCondition(options.prompt);
+
+  if (options.grouped && prompt.sql === '') {
+    return listPromptStacks(
+      db,
+      `${condition.sql} ${ext.sql}${filterSql(favoritesOnly, showHidden)}`,
+      [...condition.params, ...ext.params],
+      limit,
+      beforeId
+    );
+  }
+
+  const cursor = ext.sql + prompt.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
+  const params: (string | number)[] = [...condition.params, ...ext.params, ...prompt.params];
   if (beforeId !== null) params.push(beforeId);
   params.push(limit);
   const rows = db
@@ -303,15 +375,17 @@ export function listGenerationRefs(
   kind: GenerationKind,
   favoritesOnly: boolean,
   showHidden: boolean,
-  extension: string | null = null
+  extension: string | null = null,
+  options: LibraryListOptions = {}
 ): GenerationRef[] {
   const condition = kindCondition(videoFamilies, kind);
   const ext = extensionCondition(extension);
+  const prompt = promptCondition(options.prompt);
   const rows = db
     .prepare(
-      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
+      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
     )
-    .all(...condition.params, ...ext.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
+    .all(...condition.params, ...ext.params, ...prompt.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
   return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1, pinned: r.pinned === 1 }));
 }
 
@@ -320,14 +394,20 @@ export function countGenerations(
   videoFamilies: string[],
   favoritesOnly: boolean,
   showHidden: boolean,
-  imageExtension: string | null = null
+  imageExtension: string | null = null,
+  options: LibraryListOptions = {}
 ): Record<GenerationKind, number> {
+  const prompt = promptCondition(options.prompt);
+  // Grouped, the number is stacks (distinct prompts); opened onto one prompt, it is that prompt's items.
+  const grouped = options.grouped === true && prompt.sql === '';
   const count = (kind: GenerationKind): number => {
     const condition = kindCondition(videoFamilies, kind);
     const ext = extensionCondition(kind === 'image' ? imageExtension : null);
     const row = db
-      .prepare(`SELECT COUNT(*) AS n FROM generations WHERE ${condition.sql} ${ext.sql}${filterSql(favoritesOnly, showHidden)}`)
-      .get(...condition.params, ...ext.params) as unknown as { n: number };
+      .prepare(
+        `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)}`
+      )
+      .get(...condition.params, ...ext.params, ...prompt.params) as unknown as { n: number };
     return row.n;
   };
   return { image: count('image'), video: count('video') };
@@ -341,7 +421,7 @@ export function listImageExtensions(db: DatabaseSync, videoFamilies: string[]): 
   const rows = db
     .prepare(
       `SELECT LOWER(REPLACE(image_path, RTRIM(image_path, REPLACE(image_path, '.', '')), '')) AS ext, COUNT(*) AS n
-       FROM generations WHERE ${condition.sql} GROUP BY ext ORDER BY n DESC, ext`
+       FROM generations WHERE ${condition.sql} AND trashed_at IS NULL GROUP BY ext ORDER BY n DESC, ext`
     )
     .all(...condition.params) as unknown as { ext: string }[];
   return rows.map((r) => r.ext).filter((ext) => /^[a-z0-9]{1,8}$/.test(ext));
@@ -414,7 +494,9 @@ export function setGenerationPinned(db: DatabaseSync, id: number, pinned: boolea
 /** Every pinned generation, most recently pinned first; hidden ones only when `showHidden`. */
 export function listPinnedGenerations(db: DatabaseSync, showHidden: boolean): GenerationRecord[] {
   const rows = db
-    .prepare(`${GENERATION_SELECT} WHERE g.pinned_at IS NOT NULL ${showHidden ? '' : 'AND g.hidden = 0'} ORDER BY g.pinned_at DESC, g.id DESC`)
+    .prepare(
+      `${GENERATION_SELECT} WHERE g.pinned_at IS NOT NULL AND g.trashed_at IS NULL ${showHidden ? '' : 'AND g.hidden = 0'} ORDER BY g.pinned_at DESC, g.id DESC`
+    )
     .all() as unknown as GenerationRow[];
   return rows.map(rowToRecord);
 }
@@ -456,11 +538,9 @@ export function getGenerationById(db: DatabaseSync, id: number): GenerationRecor
   return row ? rowToRecord(row) : null;
 }
 
+/** Favorites that are in the Library. One in the Trash keeps its flag (so restoring brings it back as a
+ * favorite) but its file belongs in the trash folder, so the startup sync must not touch it. */
 export function listFavoriteIds(db: DatabaseSync): number[] {
-  const rows = db.prepare('SELECT id FROM generations WHERE favorite = 1').all() as unknown as { id: number }[];
+  const rows = db.prepare('SELECT id FROM generations WHERE favorite = 1 AND trashed_at IS NULL').all() as unknown as { id: number }[];
   return rows.map((r) => r.id);
-}
-
-export function deleteGeneration(db: DatabaseSync, id: number): void {
-  db.prepare('DELETE FROM generations WHERE id = ?').run(id);
 }

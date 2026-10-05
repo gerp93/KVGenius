@@ -285,13 +285,20 @@ export default function LibraryDetails({
             🎬 Video
           </button>
         )}
+        {kindOf(record) === 'image' && (
+          <CopyButton
+            imagePath={record.imagePath}
+            compact
+            title={isGif(record) ? 'Copy the image (an animated GIF copies as one still frame)' : 'Copy the image'}
+          />
+        )}
         <button type="button" onClick={() => onSaveAs(record)} title="Save As...">
           💾
         </button>
         <button type="button" onClick={() => onReveal(record)} title="Show in File Manager">
           📂
         </button>
-        <button type="button" onClick={() => onDelete(record)} title="Delete">
+        <button type="button" onClick={() => onDelete(record)} title="Delete (moves to the Trash)">
           🗑️
         </button>
       </div>
