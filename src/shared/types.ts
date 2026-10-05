@@ -184,6 +184,8 @@ export interface DbInfo {
   path: string;
   isDefault: boolean;
   defaultPath: string;
+  /** Current database file's size in bytes, or null if the file doesn't exist yet. */
+  sizeBytes: number | null;
 }
 
 export interface UpdateCheckResult {
