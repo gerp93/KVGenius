@@ -246,6 +246,9 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             📌
           </button>
           <CopyButton compact className="prompt-tile__copy" text={record.prompt} title="Copy this prompt" />
+          {kindOf(record) === 'image' && (
+            <CopyButton compact className="prompt-tile__copy prompt-tile__copy--image" imagePath={record.imagePath} title="Copy the image" />
+          )}
           {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
           <div className="prompt-tile__prompt">{record.prompt}</div>
         </div>

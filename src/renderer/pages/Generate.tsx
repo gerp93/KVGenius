@@ -517,7 +517,7 @@ export default function Generate({
               </button>
               {sourceImagePath && (
                 <div className="source-image-preview-wrap">
-                  <ExpandButton src={window.kvgenius.imageUrlFor(sourceImagePath)} kind="image" alt="Source image" />
+                  <ExpandButton src={window.kvgenius.imageUrlFor(sourceImagePath)} kind="image" filePath={sourceImagePath} alt="Source image" />
                   <img
                     className="source-image-preview"
                     src={window.kvgenius.imageUrlFor(sourceImagePath)}

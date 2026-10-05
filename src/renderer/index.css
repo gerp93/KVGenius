@@ -234,6 +234,11 @@ button.copy-button.prompt-tile__copy {
   background: rgba(0, 0, 0, 0.55);
 }
 
+/* The image copy sits one button further along, beside the prompt copy. */
+button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
+  right: 74px;
+}
+
 .button-row {
   display: flex;
   gap: 8px;
@@ -1128,6 +1133,22 @@ button.copy-button.prompt-tile__copy {
   height: 36px;
   padding: 0;
   border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* Copy-the-image button, beside the close button. */
+button.copy-button.lightbox__copy {
+  position: absolute;
+  top: 12px;
+  right: 56px;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  font-size: 16px;
   color: #fff;
   background: rgba(0, 0, 0, 0.6);
 }

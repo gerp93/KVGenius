@@ -1,10 +1,13 @@
 import { MouseEvent, useEffect, useRef, useState } from 'react';
 
 interface Props {
-  text: string;
+  /** Copies this text to the clipboard... */
+  text?: string;
+  /** ...or, instead, the picture in this file (any file the app shows; it lands as an image). */
+  imagePath?: string;
   /** Words next to the icon; ignored when `compact`. */
   label?: string;
-  /** Icon only (📋, then ✓), for tight spots like a picture's corner. */
+  /** Icon only (📋 / 🖼️, then ✓), for tight spots like a picture's corner. */
   compact?: boolean;
   title?: string;
   className?: string;
@@ -36,32 +39,51 @@ async function writeClipboard(text: string): Promise<boolean> {
   }
 }
 
-/** A small "copy this text" button that confirms for a moment once it has copied. */
-export default function CopyButton({ text, label = 'Copy', compact = false, title = 'Copy the prompt', className }: Props) {
+/** A small "copy this" button - the prompt text, or a picture - that confirms for a moment once it has copied. */
+export default function CopyButton({ text, imagePath, label, compact = false, title, className }: Props) {
+  const isImage = imagePath !== undefined;
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [problem, setProblem] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   async function handleClick(event: MouseEvent) {
-    // Often sits on something clickable (a tile that opens the prompt): copying is all it should do.
+    // Often sits on something clickable (a tile that opens the item): copying is all it should do.
     event.stopPropagation();
-    const ok = await writeClipboard(text);
+    let ok: boolean;
+    setProblem(null);
+    if (isImage) {
+      try {
+        await window.kvgenius.copyImageToClipboard(imagePath);
+        ok = true;
+      } catch (err) {
+        // Electron prefixes errors thrown in an ipcMain handler with "Error invoking remote method".
+        const message = err instanceof Error ? err.message : String(err);
+        setProblem(message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+        ok = false;
+      }
+    } else {
+      ok = await writeClipboard(text ?? '');
+    }
     setState(ok ? 'copied' : 'failed');
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setState('idle'), FEEDBACK_MS);
   }
 
-  const idle = compact ? '📋' : `📋 ${label}`;
+  const icon = isImage ? '🖼️' : '📋';
+  const words = label ?? (isImage ? 'Copy image' : 'Copy');
+  const idle = compact ? icon : `${icon} ${words}`;
   const shown = state === 'copied' ? (compact ? '✓' : '✓ Copied') : state === 'failed' ? (compact ? '⚠' : 'Copy failed') : idle;
+  const baseTitle = title ?? (isImage ? 'Copy the image to the clipboard' : 'Copy the prompt');
 
   return (
     <button
       type="button"
       className={`copy-button${className ? ` ${className}` : ''}`}
       onClick={handleClick}
-      disabled={!text.trim()}
-      title={state === 'failed' ? 'Could not reach the clipboard' : title}
+      disabled={isImage ? !imagePath : !(text ?? '').trim()}
+      title={state === 'failed' ? (problem ?? 'Could not reach the clipboard') : baseTitle}
     >
       {shown}
     </button>

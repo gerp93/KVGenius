@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, VideoSourceRequest } from '../../shared/types';
+import CopyButton from '../components/CopyButton';
 import GeneratedVideo from '../components/GeneratedVideo';
 import LibraryDetails from '../components/LibraryDetails';
 import LibraryQueue from '../components/LibraryQueue';
@@ -498,13 +499,14 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                 🎬
               </button>
             )}
+            {!isVideo && <CopyButton imagePath={record.imagePath} compact title="Copy the image" />}
             <button type="button" onClick={() => handleSaveAs(record)} title="Save As...">
               💾
             </button>
             <button type="button" onClick={() => handleReveal(record)} title="Show in File Manager">
               📂
             </button>
-            <button type="button" onClick={() => handleDelete(record)} title="Delete">
+            <button type="button" onClick={() => handleDelete(record)} title="Delete (moves to the Trash)">
               🗑️
             </button>
           </div>

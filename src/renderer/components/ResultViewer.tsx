@@ -4,6 +4,7 @@ import { Job, JobKind, ProgressInfo } from '../hooks/useGenerationQueue';
 import { fitGrid } from '../utils/fitGrid';
 import { timingSentence } from '../utils/timingText';
 import RunProgress from './RunProgress';
+import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
 import ExpandButton from './Lightbox';
 
@@ -213,6 +214,7 @@ export default function ResultViewer({
             >
               {record.pinned ? '📌 Pinned' : '📌 Pin'}
             </button>
+            {current.kind === 'image' && <CopyButton imagePath={record.imagePath} />}
             {current.kind === 'image' && (
               <button
                 type="button"
@@ -222,7 +224,7 @@ export default function ResultViewer({
                 🎬 Convert to Video
               </button>
             )}
-            <button type="button" onClick={() => handleDelete(record)} title="Delete this generation and its file">
+            <button type="button" onClick={() => handleDelete(record)} title="Move this generation to the Trash">
               🗑️ Delete
             </button>
           </div>
