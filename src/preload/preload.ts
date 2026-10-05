@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { GenerationKind, GenerationParams, GenerationProgress, KVGeniusAPI } from '../shared/types';
+import { GenerationKind, GenerationParams, GenerationProgress, KVGeniusAPI, LibraryListOptions } from '../shared/types';
 import { PromptSlot } from '../shared/promptSlots';
 
 // Videos are served by a local HTTP server, everything else by the kvimage:// protocol - the same
@@ -31,13 +31,14 @@ const api: KVGeniusAPI = {
     beforeId: number | null,
     favoritesOnly: boolean,
     showHidden: boolean,
-    extension?: string | null
-  ) => ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly, showHidden, extension ?? null),
-  countGenerations: (favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null) =>
-    ipcRenderer.invoke('countGenerations', favoritesOnly, showHidden, imageExtension ?? null),
+    extension?: string | null,
+    options?: LibraryListOptions
+  ) => ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly, showHidden, extension ?? null, options),
+  countGenerations: (favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null, options?: LibraryListOptions) =>
+    ipcRenderer.invoke('countGenerations', favoritesOnly, showHidden, imageExtension ?? null, options),
   listImageExtensions: () => ipcRenderer.invoke('listImageExtensions'),
-  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null) =>
-    ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly, showHidden, extension ?? null),
+  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null, options?: LibraryListOptions) =>
+    ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly, showHidden, extension ?? null, options),
   setGenerationHidden: (id: number, hidden: boolean) => ipcRenderer.invoke('setGenerationHidden', id, hidden),
   getHiddenWords: () => ipcRenderer.invoke('getHiddenWords'),
   setHiddenWords: (words: string[]) => ipcRenderer.invoke('setHiddenWords', words),

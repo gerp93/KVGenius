@@ -45,6 +45,19 @@ export interface GenerationRecord {
   /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
    * null for generations made before timing was tracked. */
   timing: TimingInfo | null;
+  /** Only in a Library listing grouped by prompt: this record is the cover of a stack, and this is how
+   * many items share its exact prompt (itself included). */
+  groupCount?: number;
+  /** Only in a grouped listing: the newest item of the stack. Stacks are ordered, and paged, by this. */
+  groupNewestId?: number;
+}
+
+/** Options for a Library listing beyond the usual filters. */
+export interface LibraryListOptions {
+  /** Collapse items whose prompt is exactly the same into one stack, shown by a cover item. */
+  grouped?: boolean;
+  /** Only the items whose prompt is exactly this (what opening a stack shows). */
+  prompt?: string | null;
 }
 
 /** The estimate shown for a run and how long it actually took, in milliseconds. */
@@ -235,15 +248,30 @@ export interface KVGeniusAPI {
     favoritesOnly: boolean,
     showHidden: boolean,
     /** Images only: show just this file type (e.g. 'gif'). */
-    extension?: string | null
+    extension?: string | null,
+    /** Grouping by prompt, or one prompt's items. A grouped page is cursored by the last record's `groupNewestId`. */
+    options?: LibraryListOptions
   ) => Promise<GenerationRecord[]>;
   /** Totals per kind, restricted to favorites when `favoritesOnly`; hidden ones only count when `showHidden`.
    * `imageExtension` (e.g. 'gif') narrows the image count only. */
-  countGenerations: (favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null) => Promise<Record<GenerationKind, number>>;
+  countGenerations: (
+    favoritesOnly: boolean,
+    showHidden: boolean,
+    imageExtension?: string | null,
+    /** With `grouped`, counts stacks (distinct prompts) rather than items. */
+    options?: LibraryListOptions
+  ) => Promise<Record<GenerationKind, number>>;
   /** File extensions present among the Library's images (lowercase, no dot), most common first. */
   listImageExtensions: () => Promise<string[]>;
   /** Every generation of the kind (newest first), for Select All across pages that aren't loaded. */
-  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null) => Promise<GenerationRef[]>;
+  listGenerationRefs: (
+    kind: GenerationKind,
+    favoritesOnly: boolean,
+    showHidden: boolean,
+    extension?: string | null,
+    /** Only `prompt` applies here: refs are always individual items, never stacks. */
+    options?: LibraryListOptions
+  ) => Promise<GenerationRef[]>;
   setGenerationHidden: (id: number, hidden: boolean) => Promise<void>;
   /** Words that, found in a prompt, mark the generation as hidden (see shared/hiddenWords.ts). */
   getHiddenWords: () => Promise<string[]>;

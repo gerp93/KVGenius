@@ -857,6 +857,60 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   box-shadow: 0 0 0 2px var(--color-accent-blue);
 }
 
+/* A stack (items with the same prompt, when grouped): the card sits on two more behind it. */
+.library-card--stack {
+  margin: 0 8px 8px 0;
+  box-shadow:
+    4px 4px 0 -1px var(--color-surface),
+    4px 4px 0 0 var(--color-border),
+    8px 8px 0 -1px var(--color-surface),
+    8px 8px 0 0 var(--color-border);
+}
+
+.library-card--stack.library-card--active {
+  box-shadow:
+    0 0 0 2px var(--color-accent-blue),
+    4px 4px 0 0 var(--color-border),
+    8px 8px 0 0 var(--color-border);
+}
+
+.library-card__stack-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+/* Header over an opened stack: way back, the shared prompt, and how many items. */
+.stack-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stack-header__prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.stack-header__count {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 .library-card__actions {
   display: flex;
   gap: 4px;
@@ -890,6 +944,11 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 
 .library-card__fav--on {
   color: #ffd54a;
+}
+
+/* With a stack's count badge in the same corner, the Hidden badge sits just under it. */
+.library-card__hidden-badge.library-card__hidden-badge--below {
+  top: 34px;
 }
 
 .library-card__hidden-badge {

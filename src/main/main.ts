@@ -73,7 +73,7 @@ import { LocalApi, removeDiscoveryFile, startLocalApi, writeDiscoveryFile } from
 import { FfmpegPaths, findFfmpeg, planGif, probeMedia, runFfmpeg } from './mediaTools';
 import { GIF_FAMILY } from '../shared/gif';
 import { detectComfyUIProgram, launchComfyUIProgram } from './comfyLauncher';
-import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, McpInfo } from '../shared/types';
+import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, LibraryListOptions, McpInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
@@ -209,6 +209,11 @@ function mediaDirs(): string[] {
 
 /** Sends a file to the operating system's Recycle Bin / Trash. */
 const recycleFile: Recycle = (file) => shell.trashItem(path.resolve(file));
+
+/** Library list options from the renderer, with anything unexpected dropped. */
+function cleanListOptions(options: LibraryListOptions | undefined): LibraryListOptions {
+  return { grouped: options?.grouped === true, prompt: typeof options?.prompt === 'string' ? options.prompt : null };
+}
 
 /** Ids from the renderer, keeping only whole numbers. */
 function cleanIds(ids: unknown): number[] {
@@ -403,16 +408,35 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'listGenerations',
-    (_event, kind: GenerationKind, limit: number, beforeId: number | null, favoritesOnly: boolean, showHidden: boolean, extension?: string | null) => {
+    (
+      _event,
+      kind: GenerationKind,
+      limit: number,
+      beforeId: number | null,
+      favoritesOnly: boolean,
+      showHidden: boolean,
+      extension?: string | null,
+      options?: LibraryListOptions
+    ) => {
       if (!db) throw new Error('Database not initialized');
       const safeLimit = Math.min(Math.max(Math.floor(limit) || 0, 1), 200);
-      return listGenerations(db, videoFamilies, kind === 'video' ? 'video' : 'image', safeLimit, beforeId, !!favoritesOnly, !!showHidden, extension ?? null);
+      return listGenerations(
+        db,
+        videoFamilies,
+        kind === 'video' ? 'video' : 'image',
+        safeLimit,
+        beforeId,
+        !!favoritesOnly,
+        !!showHidden,
+        extension ?? null,
+        cleanListOptions(options)
+      );
     }
   );
 
-  ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null) => {
+  ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null, options?: LibraryListOptions) => {
     if (!db) throw new Error('Database not initialized');
-    return countGenerations(db, videoFamilies, !!favoritesOnly, !!showHidden, imageExtension ?? null);
+    return countGenerations(db, videoFamilies, !!favoritesOnly, !!showHidden, imageExtension ?? null, cleanListOptions(options));
   });
 
   ipcMain.handle('listImageExtensions', () => {
@@ -420,10 +444,13 @@ function registerIpcHandlers(): void {
     return listImageExtensions(db, videoFamilies);
   });
 
-  ipcMain.handle('listGenerationRefs', (_event, kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null) => {
-    if (!db) throw new Error('Database not initialized');
-    return listGenerationRefs(db, videoFamilies, kind === 'video' ? 'video' : 'image', !!favoritesOnly, !!showHidden, extension ?? null);
-  });
+  ipcMain.handle(
+    'listGenerationRefs',
+    (_event, kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null, options?: LibraryListOptions) => {
+      if (!db) throw new Error('Database not initialized');
+      return listGenerationRefs(db, videoFamilies, kind === 'video' ? 'video' : 'image', !!favoritesOnly, !!showHidden, extension ?? null, cleanListOptions(options));
+    }
+  );
 
   ipcMain.handle('setGenerationHidden', (_event, id: number, hidden: boolean) => {
     if (!db) throw new Error('Database not initialized');
