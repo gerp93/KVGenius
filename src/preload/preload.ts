@@ -56,6 +56,18 @@ const api: KVGeniusAPI = {
   setGenerationPinned: (id: number, pinned: boolean) => ipcRenderer.invoke('setGenerationPinned', id, pinned),
   listPinnedGenerations: (showHidden: boolean) => ipcRenderer.invoke('listPinnedGenerations', showHidden),
 
+  getCleanupSettings: () => ipcRenderer.invoke('getCleanupSettings'),
+  setCleanupSettings: (patch: { autoEnabled?: boolean; olderThanDays?: number; trashRetentionDays?: number }) =>
+    ipcRenderer.invoke('setCleanupSettings', patch),
+  previewCleanup: (days: number) => ipcRenderer.invoke('previewCleanup', days),
+  runCleanup: (days: number) => ipcRenderer.invoke('runCleanup', days),
+  trashGenerations: (ids: number[]) => ipcRenderer.invoke('trashGenerations', ids),
+  getTrashStats: () => ipcRenderer.invoke('getTrashStats'),
+  listTrashed: (limit: number, beforeId: number | null) => ipcRenderer.invoke('listTrashed', limit, beforeId),
+  restoreGenerations: (ids: number[]) => ipcRenderer.invoke('restoreGenerations', ids),
+  deleteTrashed: (ids: number[]) => ipcRenderer.invoke('deleteTrashed', ids),
+  emptyTrash: () => ipcRenderer.invoke('emptyTrash'),
+
   getPromptSlots: () => ipcRenderer.invoke('getPromptSlots'),
   savePromptSlots: (slots: PromptSlot[], activeId: string) => ipcRenderer.invoke('savePromptSlots', slots, activeId),
 

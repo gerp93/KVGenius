@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS generations (
   hidden INTEGER NOT NULL DEFAULT 0,
   pinned_at TEXT,
   source_image_path TEXT,
+  trashed_at TEXT,
+  trash_from TEXT,
   timing_id INTEGER,
   created_at TEXT NOT NULL
 );
@@ -56,6 +58,13 @@ function migrateSchema(db: DatabaseSync): void {
   }
   if (!columns.some((c) => c.name === 'source_image_path')) {
     db.exec('ALTER TABLE generations ADD COLUMN source_image_path TEXT;');
+  }
+  // Trash: when an item was moved there, and where its file came from so it can be put back.
+  if (!columns.some((c) => c.name === 'trashed_at')) {
+    db.exec('ALTER TABLE generations ADD COLUMN trashed_at TEXT;');
+  }
+  if (!columns.some((c) => c.name === 'trash_from')) {
+    db.exec('ALTER TABLE generations ADD COLUMN trash_from TEXT;');
   }
 }
 
@@ -157,6 +166,7 @@ interface GenerationRow {
   hidden: number;
   pinned_at: string | null;
   source_image_path: string | null;
+  trashed_at: string | null;
   created_at: string;
   // Joined from timing_stats (null when the generation has no recorded timing).
   t_estimate_ms?: number | null;
@@ -188,6 +198,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     hidden: row.hidden === 1,
     pinned: row.pinned_at !== null,
     sourceImagePath: row.source_image_path,
+    trashedAt: row.trashed_at,
     createdAt: row.created_at,
     timing:
       row.t_actual_ms == null
@@ -249,6 +260,7 @@ export function insertGeneration(
     hidden,
     pinned: false,
     sourceImagePath,
+    trashedAt: null,
     createdAt,
     timing: null,
   };
@@ -270,9 +282,10 @@ function extensionCondition(extension: string | null | undefined): { sql: string
   return { sql: 'AND LOWER(image_path) LIKE ? ', params: [`%.${extension.toLowerCase()}`] };
 }
 
-/** The Library's extra filters as SQL: favorites only, and hidden ones left out unless asked for. */
+/** The Library's filters as SQL: anything in the Trash is always left out, favorites only on request,
+ * and hidden ones left out unless asked for. */
 function filterSql(favoritesOnly: boolean, showHidden: boolean): string {
-  return (favoritesOnly ? 'AND favorite = 1 ' : '') + (showHidden ? '' : 'AND hidden = 0');
+  return 'AND trashed_at IS NULL ' + (favoritesOnly ? 'AND favorite = 1 ' : '') + (showHidden ? '' : 'AND hidden = 0');
 }
 
 export function listGenerations(
@@ -341,7 +354,7 @@ export function listImageExtensions(db: DatabaseSync, videoFamilies: string[]): 
   const rows = db
     .prepare(
       `SELECT LOWER(REPLACE(image_path, RTRIM(image_path, REPLACE(image_path, '.', '')), '')) AS ext, COUNT(*) AS n
-       FROM generations WHERE ${condition.sql} GROUP BY ext ORDER BY n DESC, ext`
+       FROM generations WHERE ${condition.sql} AND trashed_at IS NULL GROUP BY ext ORDER BY n DESC, ext`
     )
     .all(...condition.params) as unknown as { ext: string }[];
   return rows.map((r) => r.ext).filter((ext) => /^[a-z0-9]{1,8}$/.test(ext));
@@ -414,7 +427,9 @@ export function setGenerationPinned(db: DatabaseSync, id: number, pinned: boolea
 /** Every pinned generation, most recently pinned first; hidden ones only when `showHidden`. */
 export function listPinnedGenerations(db: DatabaseSync, showHidden: boolean): GenerationRecord[] {
   const rows = db
-    .prepare(`${GENERATION_SELECT} WHERE g.pinned_at IS NOT NULL ${showHidden ? '' : 'AND g.hidden = 0'} ORDER BY g.pinned_at DESC, g.id DESC`)
+    .prepare(
+      `${GENERATION_SELECT} WHERE g.pinned_at IS NOT NULL AND g.trashed_at IS NULL ${showHidden ? '' : 'AND g.hidden = 0'} ORDER BY g.pinned_at DESC, g.id DESC`
+    )
     .all() as unknown as GenerationRow[];
   return rows.map(rowToRecord);
 }

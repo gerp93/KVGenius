@@ -1,3 +1,4 @@
+import type { CleanupSettings, TrashMoveResult, TrashStats } from './cleanup';
 import type { PromptSlot } from './promptSlots';
 
 export interface GenerationParams {
@@ -38,6 +39,8 @@ export interface GenerationRecord {
   /** Video only: the app's kept copy of the image the video was made from, so Re-rack can re-run it
    * in place. Null for videos made before this was kept, and for everything that is not a video. */
   sourceImagePath: string | null;
+  /** When it was moved to the Trash (ISO), or null for everything in the Library. */
+  trashedAt: string | null;
   createdAt: string;
   /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
    * null for generations made before timing was tracked. */
@@ -276,6 +279,25 @@ export interface KVGeniusAPI {
   setGenerationPinned: (id: number, pinned: boolean) => Promise<void>;
   /** Every pinned generation, most recently pinned first; hidden ones only with `showHidden`. */
   listPinnedGenerations: (showHidden: boolean) => Promise<GenerationRecord[]>;
+
+  /** Library cleanup (Settings). Nothing runs by itself unless `autoEnabled` is turned on. */
+  getCleanupSettings: () => Promise<CleanupSettings>;
+  setCleanupSettings: (
+    patch: Partial<Pick<CleanupSettings, 'autoEnabled' | 'olderThanDays' | 'trashRetentionDays'>>
+  ) => Promise<CleanupSettings>;
+  /** How many items (and bytes) a cleanup of items older than `days` would move: not favorited, not pinned. */
+  previewCleanup: (days: number) => Promise<TrashStats>;
+  /** Moves those items to the Trash. */
+  runCleanup: (days: number) => Promise<TrashMoveResult>;
+  /** Moves the given generations to the Trash. Favorites and pinned items are never moved. */
+  trashGenerations: (ids: number[]) => Promise<TrashMoveResult>;
+  getTrashStats: () => Promise<TrashStats>;
+  /** What is in the Trash, newest generation first: up to `limit` with an id below `beforeId`. */
+  listTrashed: (limit: number, beforeId: number | null) => Promise<GenerationRecord[]>;
+  restoreGenerations: (ids: number[]) => Promise<{ restored: number; failed: number }>;
+  /** Deletes from the Trash for good, files included. Resolves how many were deleted. */
+  deleteTrashed: (ids: number[]) => Promise<number>;
+  emptyTrash: () => Promise<number>;
 
   /** The Generate page's prompt "tabs" (whole form per tab), persisted across restarts. */
   getPromptSlots: () => Promise<{ slots: PromptSlot[]; activeId: string | null }>;

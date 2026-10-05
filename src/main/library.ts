@@ -170,8 +170,9 @@ export function getItem(db: DatabaseSync, id: string, options: { clientOnly?: bo
   const ref = parseItemId(id);
   if (!ref) return null;
   if (ref.table === 'gen') {
+    // Anything in the Trash no longer exists as far as clients are concerned.
     const row = db
-      .prepare(`${GEN_SELECT} WHERE g.id = ?${options.clientOnly ? ` AND ${FROM_CLIENT}` : ''}`)
+      .prepare(`${GEN_SELECT} WHERE g.id = ? AND g.trashed_at IS NULL${options.clientOnly ? ` AND ${FROM_CLIENT}` : ''}`)
       .get(ref.n) as unknown as GenRow | undefined;
     return row ? genToItem(row) : null;
   }
@@ -194,7 +195,8 @@ export function listItems(db: DatabaseSync, filter: ItemFilter = {}): ItemView[]
   const items: ItemView[] = [];
 
   if ((filter.origin === undefined || filter.origin === 'generated') && filter.kind !== 'audio') {
-    const where: string[] = filter.clientOnly ? [FROM_CLIENT] : [];
+    const where: string[] = ['g.trashed_at IS NULL'];
+    if (filter.clientOnly) where.push(FROM_CLIENT);
     const args: (string | number)[] = [];
     const videoFamilies = Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'video');
     if (filter.kind === 'video') {

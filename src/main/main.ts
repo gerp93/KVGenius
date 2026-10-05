@@ -37,8 +37,12 @@ import {
   setComfyUILaunchPath,
   getHiddenWords,
   setHiddenWords,
+  getTrashDir,
+  getCleanupSettings,
+  saveCleanupSettings,
 } from './dbLocation';
 import { compileHiddenMatcher } from '../shared/hiddenWords';
+import { normalizeDays, updateCleanupSettings } from '../shared/cleanup';
 import { PromptSlot } from '../shared/promptSlots';
 import {
   initDatabase,
@@ -78,6 +82,17 @@ import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaReq
 import { MediaServer, startMediaServer } from './mediaServer';
 import { applyFavorite, syncFavoriteFiles } from './favorites';
 import { releaseSourceImage } from './sourceImages';
+import {
+  deleteFromTrash,
+  emptyTrash,
+  listTrashed,
+  moveToTrash,
+  previewCleanup,
+  restoreFromTrash,
+  runCleanup,
+  trashStats,
+} from './trash';
+import { startCleanupSchedule } from './cleanupScheduler';
 import { uniqueNames, writeZip } from './zipWriter';
 import { diagnoseVideo } from './videoDiagnostics';
 
@@ -188,9 +203,14 @@ function videoFamilyList(): string[] {
   return Object.keys(FAMILY_KIND).filter((family) => FAMILY_KIND[family] === 'video');
 }
 
-/** Every folder the renderer may be shown files from: the output folders, and the kept source images. */
+/** Every folder the renderer may be shown files from: the output folders, the kept source images, and the Trash. */
 function mediaDirs(): string[] {
-  return [getImagesDir(), getVideosDir(), getGifsDir(), getSourcesDir(), getLegacyOutputDir()];
+  return [getImagesDir(), getVideosDir(), getGifsDir(), getSourcesDir(), getTrashDir(), getLegacyOutputDir()];
+}
+
+/** Ids from the renderer, keeping only whole numbers. */
+function cleanIds(ids: unknown): number[] {
+  return Array.isArray(ids) ? ids.filter((id): id is number => Number.isInteger(id)) : [];
 }
 
 function registerImageProtocol(): void {
@@ -545,6 +565,54 @@ function registerIpcHandlers(): void {
     return listPinnedGenerations(db, !!showHidden);
   });
 
+  // Library cleanup and the Trash.
+  ipcMain.handle('getCleanupSettings', () => getCleanupSettings());
+
+  ipcMain.handle('setCleanupSettings', (_event, patch: Parameters<typeof updateCleanupSettings>[1]) =>
+    saveCleanupSettings(updateCleanupSettings(getCleanupSettings(), patch ?? {}, new Date()))
+  );
+
+  ipcMain.handle('previewCleanup', (_event, days: number) => {
+    if (!db) throw new Error('Database not initialized');
+    return previewCleanup(db, normalizeDays(days, 30));
+  });
+
+  ipcMain.handle('runCleanup', (_event, days: number) => {
+    if (!db) throw new Error('Database not initialized');
+    return runCleanup(db, normalizeDays(days, 30), getTrashDir());
+  });
+
+  ipcMain.handle('trashGenerations', (_event, ids: number[]) => {
+    if (!db) throw new Error('Database not initialized');
+    return moveToTrash(db, cleanIds(ids), getTrashDir());
+  });
+
+  ipcMain.handle('getTrashStats', () => {
+    if (!db) throw new Error('Database not initialized');
+    return trashStats(db);
+  });
+
+  ipcMain.handle('listTrashed', (_event, limit: number, beforeId: number | null) => {
+    if (!db) throw new Error('Database not initialized');
+    const safeLimit = Math.min(Math.max(Math.floor(limit) || 0, 1), 200);
+    return listTrashed(db, safeLimit, Number.isInteger(beforeId) ? beforeId : null);
+  });
+
+  ipcMain.handle('restoreGenerations', (_event, ids: number[]) => {
+    if (!db) throw new Error('Database not initialized');
+    return restoreFromTrash(db, cleanIds(ids));
+  });
+
+  ipcMain.handle('deleteTrashed', (_event, ids: number[]) => {
+    if (!db) throw new Error('Database not initialized');
+    return deleteFromTrash(db, cleanIds(ids), getSourcesDir());
+  });
+
+  ipcMain.handle('emptyTrash', () => {
+    if (!db) throw new Error('Database not initialized');
+    return emptyTrash(db, getSourcesDir());
+  });
+
   ipcMain.handle('getPromptSlots', () => ({
     slots: getPromptSlots(),
     activeId: getActivePromptSlotId(),
@@ -771,6 +839,14 @@ app
     moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), getImagesDir(), getVideosDir());
     // Favorited before the favorites folder existed: move those files into it.
     syncFavoriteFiles(db, outputDirs(), videoFamilyList());
+    // The automatic cleanup does nothing unless the user turned it on in Settings (it is off by default).
+    startCleanupSchedule({
+      getDb: () => db,
+      getSettings: getCleanupSettings,
+      saveSettings: saveCleanupSettings,
+      trashDir: getTrashDir,
+      sourcesDir: getSourcesDir,
+    });
 
     registerImageProtocol();
     mediaServer = await startMediaServer(mediaDirs, pickedSourceImages);

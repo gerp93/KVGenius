@@ -74,3 +74,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   on disk or move/vanish inside the Library, so without the copy Re-rack could not re-run
   a video in place. The copy is deleted with the last video that uses it; videos made
   before this have none and need a source chosen again.
+- **Trash, not delete, for cleanup** (`trash.ts`, `cleanupScheduler.ts`, `shared/cleanup.ts`).
+  Cleanup moves unfavorited, unpinned items older than N days to `output/trash` (record kept,
+  `trashed_at` set) and only deleting *from the Trash* is for good. Favorites and pinned
+  items are never trashed - `moveToTrash` enforces that itself, whoever calls it. Every
+  Library listing, and the MCP `library` views, filter `trashed_at IS NULL` (`filterSql`).
+  The automatic schedule is **off by default** (Settings > Library Cleanup); turning it on
+  starts its clock, so the first run is a day later.
