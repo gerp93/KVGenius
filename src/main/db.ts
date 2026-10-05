@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS generations (
   favorite INTEGER NOT NULL DEFAULT 0,
   hidden INTEGER NOT NULL DEFAULT 0,
   pinned_at TEXT,
+  source_image_path TEXT,
   timing_id INTEGER,
   created_at TEXT NOT NULL
 );
@@ -52,6 +53,9 @@ function migrateSchema(db: DatabaseSync): void {
   }
   if (!columns.some((c) => c.name === 'pinned_at')) {
     db.exec('ALTER TABLE generations ADD COLUMN pinned_at TEXT;');
+  }
+  if (!columns.some((c) => c.name === 'source_image_path')) {
+    db.exec('ALTER TABLE generations ADD COLUMN source_image_path TEXT;');
   }
 }
 
@@ -152,6 +156,7 @@ interface GenerationRow {
   favorite: number;
   hidden: number;
   pinned_at: string | null;
+  source_image_path: string | null;
   created_at: string;
   // Joined from timing_stats (null when the generation has no recorded timing).
   t_estimate_ms?: number | null;
@@ -182,6 +187,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     favorite: row.favorite === 1,
     hidden: row.hidden === 1,
     pinned: row.pinned_at !== null,
+    sourceImagePath: row.source_image_path,
     createdAt: row.created_at,
     timing:
       row.t_actual_ms == null
@@ -202,13 +208,15 @@ export function insertGeneration(
   modelFamily: string,
   imagePath: string,
   timingId: number | null = null,
-  hidden = false
+  hidden = false,
+  /** A video's kept copy of its source image (see sourceImages.ts), so it can be re-run in place. */
+  sourceImagePath: string | null = null
 ): GenerationRecord {
   const createdAt = new Date().toISOString();
   const length = params.length ?? null;
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, timing_id, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, timing_id, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -221,6 +229,7 @@ export function insertGeneration(
     modelFamily,
     imagePath,
     hidden ? 1 : 0,
+    sourceImagePath,
     timingId,
     createdAt
   );
@@ -239,6 +248,7 @@ export function insertGeneration(
     favorite: false,
     hidden,
     pinned: false,
+    sourceImagePath,
     createdAt,
     timing: null,
   };

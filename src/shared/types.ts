@@ -35,6 +35,9 @@ export interface GenerationRecord {
   hidden: boolean;
   /** Marked as the representative example of its prompt - these make up Library > Prompts. */
   pinned: boolean;
+  /** Video only: the app's kept copy of the image the video was made from, so Re-rack can re-run it
+   * in place. Null for videos made before this was kept, and for everything that is not a video. */
+  sourceImagePath: string | null;
   createdAt: string;
   /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
    * null for generations made before timing was tracked. */

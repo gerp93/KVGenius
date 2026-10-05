@@ -68,3 +68,9 @@ implementation here is exactly the kind of drift it exists to prevent.
   in `db.ts`, with any prompt that had no matching image written to
   `saved-prompts-unpinned.txt` beside the database). Deleting a pinned
   generation removes the pin with it.
+- **A video keeps its own copy of its source image** (`source_image_path`, files in
+  `output/sources`, named by content hash so one picture is stored once - see
+  `sourceImages.ts`). The original is only ever uploaded to ComfyUI and may be anywhere
+  on disk or move/vanish inside the Library, so without the copy Re-rack could not re-run
+  a video in place. The copy is deleted with the last video that uses it; videos made
+  before this have none and need a source chosen again.

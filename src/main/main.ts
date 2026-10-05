@@ -15,6 +15,7 @@ import {
   getImagesDir,
   getVideosDir,
   getGifsDir,
+  getSourcesDir,
   getLegacyOutputDir,
   dbPathInsideFolder,
   enforceDevDatabaseIsolation,
@@ -76,6 +77,7 @@ import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
 import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaRequest } from './mediaProtocol';
 import { MediaServer, startMediaServer } from './mediaServer';
 import { applyFavorite, syncFavoriteFiles } from './favorites';
+import { releaseSourceImage } from './sourceImages';
 import { uniqueNames, writeZip } from './zipWriter';
 import { diagnoseVideo } from './videoDiagnostics';
 
@@ -186,8 +188,13 @@ function videoFamilyList(): string[] {
   return Object.keys(FAMILY_KIND).filter((family) => FAMILY_KIND[family] === 'video');
 }
 
+/** Every folder the renderer may be shown files from: the output folders, and the kept source images. */
+function mediaDirs(): string[] {
+  return [getImagesDir(), getVideosDir(), getGifsDir(), getSourcesDir(), getLegacyOutputDir()];
+}
+
 function registerImageProtocol(): void {
-  protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, [getImagesDir(), getVideosDir(), getGifsDir(), getLegacyOutputDir()], pickedSourceImages));
+  protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, mediaDirs(), pickedSourceImages));
 }
 
 let mediaServer: MediaServer | null = null;
@@ -495,7 +502,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('deleteGeneration', (_event, id: number, imagePath: string) => {
     if (!db) throw new Error('Database not initialized');
+    const keptSource = getGenerationById(db, id)?.sourceImagePath ?? null;
     deleteGeneration(db, id);
+    // A video's kept source image goes with its last video.
+    releaseSourceImage(db, keptSource, getSourcesDir());
     try {
       fs.unlinkSync(imagePath);
     } catch {
@@ -763,10 +773,7 @@ app
     syncFavoriteFiles(db, outputDirs(), videoFamilyList());
 
     registerImageProtocol();
-    mediaServer = await startMediaServer(
-      () => [getImagesDir(), getVideosDir(), getGifsDir(), getLegacyOutputDir()],
-      pickedSourceImages
-    );
+    mediaServer = await startMediaServer(mediaDirs, pickedSourceImages);
     // The preload script asks for this synchronously while the window is loading.
     ipcMain.on('getMediaBase', (event) => {
       event.returnValue = mediaServer?.base ?? '';
