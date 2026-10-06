@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CopyButton from '../components/CopyButton';
-import QueuePanel from '../components/QueuePanel';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
 import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { usePromptSlots } from '../hooks/usePromptSlots';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
+import { useFavoriteChanges } from '../utils/favoriteChanges';
 import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
 import { FAMILY_KIND, GenerationRecord, TimeEstimate, VideoSourceRequest } from '../../shared/types';
 import { VIDEO_QUALITY_SETTINGS, VideoQuality, videoQualityFromCfg } from '../../shared/videoQuality';
@@ -147,7 +147,6 @@ export default function Generate({
     setRenamingSlotId(null);
   }
 
-  const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // A short confirmation under the buttons (pinned, or a recall that had to reuse this tab).
   const [notice, setNotice] = useState<string | null>(null);
@@ -366,6 +365,12 @@ export default function Generate({
     if (runningJob) queue.cancelJob(runningJob.id);
   }
 
+  // Favorited from the queue panel (which lives in the app shell): the file moved, so a source
+  // image pointing at it follows. The queue's own jobs were already updated by the panel's handler.
+  useFavoriteChanges(({ oldPath, imagePath }) =>
+    setSourceImagePath((current) => (current === oldPath ? imagePath : current))
+  );
+
   async function handleToggleFavorite(record: GenerationRecord) {
     const favorite = !record.favorite;
     try {
@@ -412,7 +417,7 @@ export default function Generate({
 
   return (
     <div className="page generate-page">
-      <div className={`generate-layout${queueCollapsed ? ' generate-layout--queue-collapsed' : ''}`}>
+      <div className="generate-layout">
         <div className="generate-sidebar-group">
           <div className="prompt-slots-rail" role="tablist">
             <div className="prompt-slots-rail__list">
@@ -774,19 +779,6 @@ export default function Generate({
             onCancelJob={queue.cancelJob}
           />
         </div>
-
-        <QueuePanel
-          jobs={queue.jobs}
-          now={queue.now}
-          progressInfo={queue.progressInfo}
-          collapsed={queueCollapsed}
-          onToggle={() => setQueueCollapsed((v) => !v)}
-          onCancelJob={queue.cancelJob}
-          onClearQueued={queue.clearQueued}
-          onDismissFailed={queue.dismissFailed}
-          onToggleFavorite={handleToggleFavorite}
-          onRerack={rerackInNewTab}
-        />
       </div>
 
     </div>

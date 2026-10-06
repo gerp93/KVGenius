@@ -177,6 +177,11 @@ export default function LibraryDetails({
     <aside className="library-panel">
       <div className="library-panel__header">
         <strong>Details</strong>
+        <span className="library-panel__window-buttons">
+          <button type="button" onClick={onClose} title="Close">
+            ✕
+          </button>
+        </span>
         <span className="library-panel__header-buttons">
           <button type="button" onClick={() => onToggleFavorite(record)}>
             {record.favorite ? '★ Favorited' : '☆ Favorite'}
@@ -194,9 +199,6 @@ export default function LibraryDetails({
           </button>
           <button type="button" onClick={() => onToggleHidden(record)}>
             {record.hidden ? 'Unhide' : 'Hide'}
-          </button>
-          <button type="button" onClick={onClose} title="Close">
-            ✕
           </button>
         </span>
       </div>
