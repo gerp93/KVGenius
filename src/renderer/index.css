@@ -21,6 +21,13 @@ body {
   height: 100%;
 }
 
+/* Below the top bar: the page, and - to its right - the app-wide details panel when one is open. */
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 .app-content {
   flex: 1;
   min-width: 0;
@@ -1838,6 +1845,14 @@ textarea:disabled {
   border-radius: 6px;
   overflow: hidden;
   background: var(--color-bg-hover);
+}
+
+.queue-done__open {
+  cursor: pointer;
+}
+
+.queue-done--active {
+  border-color: var(--color-accent-blue);
 }
 
 .queue-done__media {

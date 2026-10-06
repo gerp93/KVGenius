@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, NavLink, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Generate from './pages/Generate';
 import QueuePanel from './components/QueuePanel';
+import LibraryDetails from './components/LibraryDetails';
+import GalleryLightbox from './components/GalleryLightbox';
 import { useGenerationQueue } from './hooks/useGenerationQueue';
 import LibraryLayout from './pages/LibraryLayout';
 import LibraryOutput from './pages/LibraryOutput';
@@ -10,8 +12,8 @@ import LibraryTrash from './pages/LibraryTrash';
 import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
-import { GenerationRecord, VideoSourceRequest } from '../shared/types';
-import { announceGenerationChange } from './utils/generationChanges';
+import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../shared/types';
+import { announceGenerationChange, useGenerationChanges } from './utils/generationChanges';
 import { pinNotice } from './utils/library';
 
 const CONNECTION_POLL_MS = 15000;
@@ -50,6 +52,16 @@ export default function App() {
   const [queueNotice, setQueueNotice] = useState<string | null>(null);
   // One queue for the whole app: Generate and the Library's Upscale both feed it.
   const queue = useGenerationQueue();
+  // The finished queue result whose details panel is open (the panel docks to the right of any page).
+  const [detailsId, setDetailsId] = useState<number | null>(null);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  // Looked up in the queue each time, so favorites / pins made in the panel show at once, and the
+  // panel closes by itself if the result goes away.
+  const detailsRecord = queue.jobs.find((j) => j.record?.id === detailsId)?.record ?? null;
+  // Only one details panel at a time: a Library page opening its own closes this one.
+  useGenerationChanges((change) => {
+    if (change.kind === 'libraryDetailsOpened') setDetailsId(null);
+  });
 
   useEffect(() => {
     window.kvgenius.getTheme().then(setThemeState);
@@ -125,6 +137,38 @@ export default function App() {
   function showQueueNotice(text: string | null) {
     setQueueNotice(text);
     if (text) setTimeout(() => setQueueNotice((current) => (current === text ? null : current)), 4000);
+  }
+
+  function openQueueDetails(record: GenerationRecord) {
+    const closing = detailsId === record.id;
+    setDetailsId(closing ? null : record.id);
+    if (!closing) announceGenerationChange({ kind: 'queueDetailsOpened' });
+  }
+
+  /** The details panel's Hide / Unhide. */
+  async function handleQueueHide(record: GenerationRecord) {
+    const hidden = !record.hidden;
+    try {
+      await window.kvgenius.setGenerationHidden(record.id, hidden);
+      queue.updateRecord(record.id, { hidden });
+      announceGenerationChange({ kind: 'hidden', id: record.id, hidden });
+    } catch (err) {
+      showQueueNotice(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** Save as / show in the file manager, from the details panel. */
+  async function runFileAction(action: () => Promise<unknown>) {
+    try {
+      await action();
+    } catch (err) {
+      showQueueNotice(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function handleQueueImageToVideo(record: GenerationRecord) {
+    setVideoSource({ imagePath: record.imagePath, width: record.width, height: record.height });
+    navigate('/');
   }
 
   function handleQueueRerack(record: GenerationRecord) {
@@ -234,59 +278,81 @@ export default function App() {
           </Link>
         )}
       </div>
-      <div className="app-content">
-        {/* Generate stays mounted across navigation (instead of going through <Routes>) so its
-            in-progress prompt/settings survive a trip to Library or Settings and back - only
-            hidden via CSS, never unmounted and reset. Library/Settings still mount fresh on each
-            visit via <Routes>, which is what keeps Library's list in sync with new generations. */}
-        {/* display: contents keeps this wrapper out of the flex box model entirely when visible,
-            so Generate's own .page div is still the direct flex child of .app-content, same as
-            when it rendered through <Routes> - needed for its flex: 1 height to keep working. */}
-        <div style={{ display: location.pathname === '/' ? 'contents' : 'none' }}>
-          <Generate
-            queue={queue}
-            recallRecord={recallRecord}
-            onRecalled={() => setRecallRecord(null)}
-            recallPrompt={recallPrompt}
-            onPromptRecalled={() => setRecallPrompt(null)}
-            videoSource={videoSource}
-            onVideoSourceHandled={() => setVideoSource(null)}
-          />
+      <div className="app-body">
+        <div className="app-content">
+          {/* Generate stays mounted across navigation (instead of going through <Routes>) so its
+              in-progress prompt/settings survive a trip to Library or Settings and back - only
+              hidden via CSS, never unmounted and reset. Library/Settings still mount fresh on each
+              visit via <Routes>, which is what keeps Library's list in sync with new generations. */}
+          {/* display: contents keeps this wrapper out of the flex box model entirely when visible,
+              so Generate's own .page div is still the direct flex child of .app-content, same as
+              when it rendered through <Routes> - needed for its flex: 1 height to keep working. */}
+          <div style={{ display: location.pathname === '/' ? 'contents' : 'none' }}>
+            <Generate
+              queue={queue}
+              recallRecord={recallRecord}
+              onRecalled={() => setRecallRecord(null)}
+              recallPrompt={recallPrompt}
+              onPromptRecalled={() => setRecallPrompt(null)}
+              videoSource={videoSource}
+              onVideoSourceHandled={() => setVideoSource(null)}
+            />
+          </div>
+          <Routes>
+            <Route path="/library" element={<LibraryLayout />}>
+              <Route index element={<Navigate to="output" replace />} />
+              <Route
+                path="output"
+                element={
+                  <LibraryOutput
+                    queue={queue}
+                    onRecall={setRecallRecord}
+                    onImageToVideo={setVideoSource}
+                    showHidden={showHidden}
+                    onShowQueue={() => setQueueCollapsed(false)}
+                  />
+                }
+              />
+              <Route
+                path="prompts"
+                element={
+                  <LibraryPrompts
+                    queue={queue}
+                    onRecallPrompt={setRecallPrompt}
+                    onRecall={setRecallRecord}
+                    onImageToVideo={setVideoSource}
+                    showHidden={showHidden}
+                    onShowQueue={() => setQueueCollapsed(false)}
+                  />
+                }
+              />
+              <Route path="trash" element={<LibraryTrash />} />
+            </Route>
+            <Route path="/timing" element={<Timing />} />
+            <Route path="/hardpoint" element={<Hardpoint />} />
+            <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
+          </Routes>
         </div>
-        <Routes>
-          <Route path="/library" element={<LibraryLayout />}>
-            <Route index element={<Navigate to="output" replace />} />
-            <Route
-              path="output"
-              element={
-                <LibraryOutput
-                  queue={queue}
-                  onRecall={setRecallRecord}
-                  onImageToVideo={setVideoSource}
-                  showHidden={showHidden}
-                  onShowQueue={() => setQueueCollapsed(false)}
-                />
-              }
-            />
-            <Route
-              path="prompts"
-              element={
-                <LibraryPrompts
-                  queue={queue}
-                  onRecallPrompt={setRecallPrompt}
-                  onRecall={setRecallRecord}
-                  onImageToVideo={setVideoSource}
-                  showHidden={showHidden}
-                  onShowQueue={() => setQueueCollapsed(false)}
-                />
-              }
-            />
-            <Route path="trash" element={<LibraryTrash />} />
-          </Route>
-          <Route path="/timing" element={<Timing />} />
-          <Route path="/hardpoint" element={<Hardpoint />} />
-          <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
-        </Routes>
+        {detailsRecord && (
+          <LibraryDetails
+            record={detailsRecord}
+            queue={queue}
+            onClose={() => setDetailsId(null)}
+            onExpand={() => setDetailsExpanded(true)}
+            onToggleFavorite={handleQueueFavorite}
+            onTogglePinned={handleQueuePin}
+            onToggleHidden={handleQueueHide}
+            onDelete={handleQueueDelete}
+            onRerack={handleQueueRerack}
+            onImageToVideo={handleQueueImageToVideo}
+            onSaveAs={(r) => void runFileAction(() => window.kvgenius.saveGenerationAs(r.imagePath))}
+            onReveal={(r) => void runFileAction(() => window.kvgenius.revealGenerationInFileManager(r.imagePath))}
+            onUpscaleQueued={() => setQueueCollapsed(false)}
+            onGifMade={(made) => announceGenerationChange({ kind: 'created', id: made.id })}
+            onError={(message) => message && showQueueNotice(message)}
+            onNotice={(message) => message && showQueueNotice(message)}
+          />
+        )}
       </div>
       <QueuePanel
         jobs={queue.jobs}
@@ -298,11 +364,26 @@ export default function App() {
         onClearQueued={queue.clearQueued}
         onDismissFailed={queue.dismissFailed}
         notice={queueNotice}
+        activeDetailsId={detailsRecord ? detailsRecord.id : null}
+        onOpenDetails={openQueueDetails}
         onToggleFavorite={handleQueueFavorite}
         onTogglePinned={handleQueuePin}
         onDelete={handleQueueDelete}
         onRerack={handleQueueRerack}
       />
+      {detailsExpanded && detailsRecord && (
+        <GalleryLightbox
+          src={window.kvgenius.imageUrlFor(detailsRecord.imagePath)}
+          kind={FAMILY_KIND[detailsRecord.modelFamily] === 'video' ? 'video' : 'image'}
+          filePath={detailsRecord.imagePath}
+          alt={detailsRecord.prompt}
+          hasPrev={false}
+          hasNext={false}
+          onPrev={() => undefined}
+          onNext={() => undefined}
+          onClose={() => setDetailsExpanded(false)}
+        />
+      )}
     </div>
   );
 }

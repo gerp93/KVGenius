@@ -7,7 +7,15 @@ export type GenerationChange =
   | { kind: 'favorite'; id: number; favorite: boolean; oldPath: string; imagePath: string }
   | { kind: 'pinned'; id: number; pinned: boolean }
   /** Moved to the Trash: it has left the Library. */
-  | { kind: 'trashed'; id: number; imagePath: string };
+  | { kind: 'trashed'; id: number; imagePath: string }
+  /** Hidden or unhidden, so it may have to enter or leave a Library list. */
+  | { kind: 'hidden'; id: number; hidden: boolean }
+  /** A new item was made from another (a GIF from a video). */
+  | { kind: 'created'; id: number }
+  /** The app-wide details panel opened for a queue result: a Library page closes its own. */
+  | { kind: 'queueDetailsOpened' }
+  /** A Library page opened its own details panel: the app-wide one closes. */
+  | { kind: 'libraryDetailsOpened' };
 
 const EVENT = 'kvgenius:generation-changed';
 
