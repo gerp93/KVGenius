@@ -195,7 +195,7 @@ export default function ResultViewer({
             />
             {renderMedia(current, false)}
           </div>
-          <div className="button-row">
+          <div className="button-row button-row--uniform">
             <button
               type="button"
               onClick={() => onToggleFavorite(record)}

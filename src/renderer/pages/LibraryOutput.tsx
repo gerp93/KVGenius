@@ -4,12 +4,14 @@ import { isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, LibraryListOptions, VideoSourceRequest } from '../../shared/types';
 import CompareOverlay from '../components/CompareOverlay';
 import CopyButton from '../components/CopyButton';
-import GeneratedVideo from '../components/GeneratedVideo';
+import CycleMedia from '../components/CycleMedia';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
+import { useCycleIndex } from '../hooks/useCycleIndex';
 import GalleryLightbox from '../components/GalleryLightbox';
 import { useFavoriteChanges } from '../utils/favoriteChanges';
 import { justifyRows } from '../utils/justifiedRows';
+import { isUpscale, pinNotice } from '../utils/library';
 
 const PAGE_SIZE = 60;
 const TARGET_ROW_HEIGHT = 260;
@@ -27,6 +29,25 @@ interface Props {
 
 function kindOf(record: GenerationRecord): GenerationKind {
   return FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
+}
+
+function refOf(record: GenerationRecord): GenerationRef {
+  return { id: record.id, imagePath: record.imagePath, favorite: record.favorite, pinned: record.pinned };
+}
+
+/** A card's picture box. A stack's card cycles through its pictures - resting while the pointer is over
+ * it - and any other card just shows its own. Overlays (buttons, badges) go in as children. */
+function CardMedia({ record, isVideo, height, children }: { record: GenerationRecord; isVideo: boolean; height: number; children: React.ReactNode }) {
+  const paths = record.groupPreviewPaths ?? [record.imagePath];
+  const [hovered, setHovered] = useState(false);
+  const index = useCycleIndex(paths.length, hovered);
+  return (
+    <div className="library-card__media" style={{ height }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+      <CycleMedia paths={paths} index={index} isVideo={isVideo} alt={record.prompt} />
+      {isVideo && <span className="library-card__play-badge">▶</span>}
+      {children}
+    </div>
+  );
 }
 
 export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHidden, onShowQueue }: Props) {
@@ -56,6 +77,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const [trashNotice, setTrashNotice] = useState<{ text: string; ids: number[] } | null>(null);
   // Bumped to make the list load again from the top (after an undo, or a change made elsewhere).
   const [reloadKey, setReloadKey] = useState(0);
+  // While selecting among stacks, how many items (not stacks) there are to select.
+  const [itemCounts, setItemCounts] = useState<Record<GenerationKind, number> | null>(null);
   const [infoId, setInfoId] = useState<number | null>(null);
   // Upscale jobs already merged into the list below (those finished before this page opened are in its load).
   const mergedUpscales = useRef<Set<number> | null>(null);
@@ -119,6 +142,23 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [favoritesOnly, showHidden, extension, reloadKey, listOptions]);
 
+  useEffect(() => {
+    if (!(stacking && selecting)) {
+      setItemCounts(null);
+      return;
+    }
+    let cancelled = false;
+    window.kvgenius
+      .countGenerations(favoritesOnly, showHidden, extension, {})
+      .then((c) => {
+        if (!cancelled) setItemCounts(c);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [stacking, selecting, favoritesOnly, showHidden, extension, reloadKey]);
+
   // The file types offered in the filter. A type whose last image was deleted drops out of the list,
   // and the filter goes back to "all" if it was set to that type.
   const refreshExtensions = useCallback(() => {
@@ -179,6 +219,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     GRID_GAP
   );
   const infoRecord = records.find((r) => r.id === infoId) ?? null;
+  // How many things Select All would pick: items, which while stacks are shown is not what the tab counts.
+  const selectableTotal = stacking ? (itemCounts?.[tab] ?? null) : counts[tab];
 
   function handleTabChange(next: GenerationKind) {
     if (next === tab) return;
@@ -226,17 +268,38 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     }
   }
 
-  function toggleSelected(record: GenerationRecord) {
+  /** Everything a card stands for: a stack is every item with its prompt (as the list is filtered, not
+   * just the ones cycling on its card); anything else is just itself. */
+  async function refsFor(record: GenerationRecord): Promise<GenerationRef[]> {
+    if (!isStack(record)) return [refOf(record)];
+    return window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, { prompt: record.prompt });
+  }
+
+  /** Selects what a card stands for, or - when all of it is already selected - deselects it. */
+  function toggleRefs(refs: GenerationRef[]) {
     setSelection((prev) => {
       const next = new Map(prev);
-      if (next.has(record.id)) next.delete(record.id);
-      else next.set(record.id, { id: record.id, imagePath: record.imagePath, favorite: record.favorite, pinned: record.pinned });
+      const allSelected = refs.every((ref) => next.has(ref.id));
+      for (const ref of refs) {
+        if (allSelected) next.delete(ref.id);
+        else next.set(ref.id, ref);
+      }
       return next;
     });
   }
 
+  function toggleSelected(record: GenerationRecord) {
+    if (!isStack(record)) {
+      toggleRefs([refOf(record)]);
+      return;
+    }
+    refsFor(record)
+      .then(toggleRefs)
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  }
+
   /** Shift-click: selects every card from the last one clicked to this one, in the order they are
-   * shown. Cards already selected stay selected; nothing is deselected. */
+   * shown (a stack brings all of its items). Cards already selected stay selected; nothing is deselected. */
   function selectRangeTo(record: GenerationRecord) {
     const from = records.findIndex((r) => r.id === anchorId.current);
     const to = records.findIndex((r) => r.id === record.id);
@@ -246,13 +309,15 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       return;
     }
     const [lo, hi] = from < to ? [from, to] : [to, from];
-    setSelection((prev) => {
-      const next = new Map(prev);
-      for (const r of records.slice(lo, hi + 1)) {
-        next.set(r.id, { id: r.id, imagePath: r.imagePath, favorite: r.favorite, pinned: r.pinned });
-      }
-      return next;
-    });
+    Promise.all(records.slice(lo, hi + 1).map(refsFor))
+      .then((groups) =>
+        setSelection((prev) => {
+          const next = new Map(prev);
+          for (const ref of groups.flat()) next.set(ref.id, ref);
+          return next;
+        })
+      )
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   function exitSelectMode() {
@@ -266,7 +331,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   async function handleSelectAll() {
     setBusy(true);
     try {
-      // Items, never stacks (selecting is off while stacks are shown); inside an opened stack, just that prompt's.
+      // Every item (while stacks are shown, that is every item in every stack); inside an opened stack, just that prompt's.
       const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, {
         prompt: openPrompt,
       });
@@ -318,8 +383,9 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   /** Pins (or unpins) a generation as the example of its prompt - the Library > Prompts gallery. */
   async function handleTogglePinned(record: GenerationRecord) {
     const pinned = !record.pinned;
+    let groupSize: number;
     try {
-      await window.kvgenius.setGenerationPinned(record.id, pinned);
+      ({ groupSize } = await window.kvgenius.setGenerationPinned(record.id, pinned));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return;
@@ -329,7 +395,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       const ref = prev.get(record.id);
       return ref ? new Map(prev).set(record.id, { ...ref, pinned }) : prev;
     });
-    setNotice(pinned ? 'Pinned - find it under Library > Prompts.' : null);
+    setNotice(pinned ? pinNotice(groupSize) : null);
   }
 
   function handleRecreate(record: GenerationRecord) {
@@ -525,7 +591,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   }
 
   function renderCard(record: GenerationRecord, index: number, width: number, height: number) {
-    const url = window.kvgenius.imageUrlFor(record.imagePath);
     const isVideo = kindOf(record) === 'video';
     const selected = selecting && selection.has(record.id);
     const active = !selecting && infoId === record.id;
@@ -542,15 +607,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
           </span>
         )}
         <div onClick={(e) => handleCardClick(record, e)} style={{ cursor: 'pointer' }}>
-          <div className="library-card__media" style={{ height }}>
-            {isVideo ? (
-              <>
-                <GeneratedVideo src={url} filePath={record.imagePath} thumbnail />
-                <span className="library-card__play-badge">▶</span>
-              </>
-            ) : (
-              <img src={url} alt={record.prompt} loading="lazy" decoding="async" />
-            )}
+          <CardMedia record={record} isVideo={isVideo} height={height}>
             {!selecting && (
               <button
                 type="button"
@@ -564,12 +621,20 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                 ⤢
               </button>
             )}
-            {stack && (
-              <span className="library-card__stack-badge" title={`${record.groupCount} items have this exact prompt - click to open them`}>
-                × {record.groupCount}
-              </span>
-            )}
-            {record.hidden && <span className={`library-card__hidden-badge${stack ? ' library-card__hidden-badge--below' : ''}`}>Hidden</span>}
+            {/* Beside the expand button / checkbox in the corner, never under it. */}
+            <div className="library-card__badges">
+              {stack && (
+                <span className="library-card__stack-badge" title={`${record.groupCount} items have this exact prompt - click to open them`}>
+                  × {record.groupCount}
+                </span>
+              )}
+              {isUpscale(record) && (
+                <span className="library-card__upscale-badge" title="An enlarged copy of another picture, not generated from the prompt">
+                  Upscaled
+                </span>
+              )}
+              {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
+            </div>
             {record.pinned && (
               <span className="library-card__pinned-badge" title="Pinned under Prompts">
                 📌
@@ -588,7 +653,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                 {record.favorite ? '★' : '☆'}
               </button>
             )}
-          </div>
+          </CardMedia>
           <div className="library-card__info" title={record.prompt}>
             {record.prompt}
           </div>
@@ -636,19 +701,23 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     <div className="library-output">
 
       <div className="library-output__main">
+        {/* Stays at the top of the list while scrolling, so the filters and Select Multiple are always at hand. */}
+        <div className="library-sticky">
         {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
 
         <div className="library-toolbar">
           {selecting ? (
             <>
-              <span className="library-toolbar__hint">Click to select, Shift-click for a range</span>
+              <span className="library-toolbar__hint">
+                {stacking ? 'Click a stack to select everything in it, Shift-click for a range' : 'Click to select, Shift-click for a range'}
+              </span>
               <button
                 type="button"
                 onClick={handleSelectAll}
-                disabled={busy || counts[tab] === 0 || selection.size === counts[tab]}
+                disabled={busy || counts[tab] === 0 || (selectableTotal !== null && selection.size === selectableTotal)}
                 title="Select every item in this tab, including ones not scrolled into view yet"
               >
-                Select All ({counts[tab]})
+                Select All{selectableTotal !== null ? ` (${selectableTotal})` : ''}
               </button>
               <button type="button" onClick={() => setSelection(new Map())} disabled={busy || selection.size === 0}>
                 Clear Selection
@@ -698,8 +767,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
               <button
                 type="button"
                 onClick={() => setSelecting(true)}
-                disabled={records.length === 0 || stacking}
-                title={stacking ? 'Open a stack, or turn off grouping, to select items' : undefined}
+                disabled={records.length === 0}
+                title={stacking ? 'Select stacks (everything in each) or turn grouping off to pick single items' : undefined}
               >
                 Select Multiple
               </button>
@@ -716,6 +785,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             </button>
           </p>
         )}
+        </div>
 
         <div className="tab-strip" role="tablist">
           <button

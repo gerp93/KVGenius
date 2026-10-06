@@ -55,6 +55,7 @@ const api: KVGeniusAPI = {
   saveGenerationAs: (imagePath: string) => ipcRenderer.invoke('saveGenerationAs', imagePath),
 
   setGenerationPinned: (id: number, pinned: boolean) => ipcRenderer.invoke('setGenerationPinned', id, pinned),
+  findDuplicateGeneration: (family: string, params: GenerationParams) => ipcRenderer.invoke('findDuplicateGeneration', family, params),
   listPinnedGenerations: (showHidden: boolean) => ipcRenderer.invoke('listPinnedGenerations', showHidden),
 
   getCleanupSettings: () => ipcRenderer.invoke('getCleanupSettings'),

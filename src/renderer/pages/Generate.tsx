@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import CopyButton from '../components/CopyButton';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
+import GalleryLightbox from '../components/GalleryLightbox';
+import { isUpscale, pinNotice } from '../utils/library';
 import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { usePromptSlots } from '../hooks/usePromptSlots';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
@@ -187,6 +189,44 @@ export default function Generate({
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
 
+  // Something already in the Library that this run would only repeat: same model, prompt, size, seed and
+  // every other setting. A random seed is new every time, so only a locked one can match. Looked up in the
+  // library itself (not just "the last run in this tab"), so a Re-rack, or a result from earlier, counts too.
+  const [duplicate, setDuplicate] = useState<GenerationRecord | null>(null);
+  const [viewingDuplicate, setViewingDuplicate] = useState(false);
+  // Bumped when something leaves the Library, which can turn a match into no match.
+  const [libraryChanges, setLibraryChanges] = useState(0);
+  useEffect(() => {
+    if (!seedLocked || !prompt.trim() || (mode === 'video' && !sourceImagePath)) {
+      setDuplicate(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      window.kvgenius
+        .findDuplicateGeneration(FAMILY_FOR_MODE[mode], {
+          prompt,
+          width,
+          height,
+          seed,
+          steps: runSteps,
+          cfg: runCfg,
+          ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
+        })
+        .then((found) => {
+          if (!cancelled) setDuplicate(found);
+        })
+        .catch(() => {
+          if (!cancelled) setDuplicate(null);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [seedLocked, mode, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, finishedRuns, libraryChanges]);
+  const blocked = repeatsLastRun || duplicate !== null;
+
   function handleModeChange(newMode: Mode) {
     setMode(newMode);
     setCustomSize(false);
@@ -257,6 +297,11 @@ export default function Generate({
       setTimeout(() => setNotice(null), 4000);
     }
     applyRecord(record, slotId ?? activeSlotId);
+    if (isUpscale(record)) {
+      // The form gets the picture's own size, which for an upscale is the enlarged one, not what was generated.
+      setNotice(`That is an upscaled copy, so its size (${record.width} × ${record.height}) is the enlarged one - pick a smaller size to generate it fresh.`);
+      setTimeout(() => setNotice(null), 8000);
+    }
   }
 
   /** A prompt picked in Library > Prompts goes into a new tab too (or this one, if all are in use). */
@@ -337,7 +382,7 @@ export default function Generate({
       setError('Choose a source image first.');
       return;
     }
-    if (repeatsLastRun) return;
+    if (blocked) return;
     setError(null);
 
     const seeds = seedLocked ? [seed] : uniqueRandomSeeds(effectiveBatch);
@@ -388,10 +433,10 @@ export default function Generate({
   async function handleTogglePinned(record: GenerationRecord) {
     const pinned = !record.pinned;
     try {
-      await window.kvgenius.setGenerationPinned(record.id, pinned);
+      const { groupSize } = await window.kvgenius.setGenerationPinned(record.id, pinned);
       queue.updateRecord(record.id, { pinned });
-      setNotice(pinned ? 'Pinned - find it under Library > Prompts.' : null);
-      setTimeout(() => setNotice(null), 3000);
+      setNotice(pinned ? pinNotice(groupSize) : null);
+      setTimeout(() => setNotice(null), 4000);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -402,6 +447,7 @@ export default function Generate({
     try {
       await window.kvgenius.trashGenerations([record.id], { includeKept: true });
       queue.removeRecord(record.id);
+      setLibraryChanges((n) => n + 1);
       // If it was the Source Image for a video, that file is no longer where the form expects it.
       setSourceImagePath((current) => (current === record.imagePath ? null : current));
       setNotice('Moved to the Trash - restore it from Library > Trash.');
@@ -739,8 +785,14 @@ export default function Generate({
               type="button"
               className="primary generate-actions__go"
               onClick={handleGenerate}
-              disabled={(mode === 'video' && !sourceImagePath) || repeatsLastRun}
-              title={repeatsLastRun ? 'Nothing has changed since the last run and the seed is locked' : undefined}
+              disabled={(mode === 'video' && !sourceImagePath) || blocked}
+              title={
+                duplicate
+                  ? 'This exact result is already in your Library'
+                  : repeatsLastRun
+                    ? 'Nothing has changed since the last run and the seed is locked'
+                    : undefined
+              }
             >
               {busy ? '＋ Queue Another' : 'Generate'}
               {effectiveBatch > 1 ? ` (${effectiveBatch})` : ''}
@@ -754,11 +806,22 @@ export default function Generate({
 
           <p className="generate-estimate">{estimateText}</p>
 
-          {repeatsLastRun && (
-            <p className="generate-repeat-hint">
-              Nothing has changed since the last run and the seed is locked, so it would make the exact same result.
-              Change a setting, or switch the seed to 🎲 Random.
+          {duplicate ? (
+            <p className="generate-repeat-hint" role="alert">
+              This exact {FAMILY_KIND[duplicate.modelFamily] === 'video' ? 'video' : 'image'} is already in your Library - same prompt, size, seed
+              and settings - so generating it again would only make the same result.{' '}
+              <button type="button" className="link-button" onClick={() => setViewingDuplicate(true)}>
+                View it
+              </button>
+              . Or change a setting, or switch the seed to 🎲 Random.
             </p>
+          ) : (
+            repeatsLastRun && (
+              <p className="generate-repeat-hint">
+                Nothing has changed since the last run and the seed is locked, so it would make the exact same result.
+                Change a setting, or switch the seed to 🎲 Random.
+              </p>
+            )
           )}
           {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
           {notice && <p style={{ color: 'var(--color-accent-green)' }}>{notice}</p>}
@@ -781,6 +844,19 @@ export default function Generate({
         </div>
       </div>
 
+      {viewingDuplicate && duplicate && (
+        <GalleryLightbox
+          src={window.kvgenius.imageUrlFor(duplicate.imagePath)}
+          kind={FAMILY_KIND[duplicate.modelFamily] === 'video' ? 'video' : 'image'}
+          filePath={duplicate.imagePath}
+          alt={duplicate.prompt}
+          hasPrev={false}
+          hasNext={false}
+          onPrev={() => undefined}
+          onNext={() => undefined}
+          onClose={() => setViewingDuplicate(false)}
+        />
+      )}
     </div>
   );
 }

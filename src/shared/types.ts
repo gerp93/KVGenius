@@ -50,6 +50,9 @@ export interface GenerationRecord {
   groupCount?: number;
   /** Only in a grouped listing: the newest item of the stack. Stacks are ordered, and paged, by this. */
   groupNewestId?: number;
+  /** Only in a grouped listing, on a stack of more than one: the files of some of its items, the cover
+   * first, for the stack's card to cycle through. */
+  groupPreviewPaths?: string[];
 }
 
 /** Options for a Library listing beyond the usual filters. */
@@ -307,7 +310,11 @@ export interface KVGeniusAPI {
   saveGenerationAs: (imagePath: string) => Promise<boolean>;
 
   /** Pins a generation as a representative example of its prompt (Library > Prompts), or unpins it. */
-  setGenerationPinned: (id: number, pinned: boolean) => Promise<void>;
+  /** Pins or unpins. `groupSize` is how many pinned items now have this exact prompt (they share one
+   * tile under Library > Prompts); 1 means this is the only one, 0 means it was unpinned. */
+  setGenerationPinned: (id: number, pinned: boolean) => Promise<{ groupSize: number }>;
+  /** An existing Library item that generating these settings again would only repeat, or null. */
+  findDuplicateGeneration: (family: string, params: GenerationParams) => Promise<GenerationRecord | null>;
   /** Every pinned generation, most recently pinned first; hidden ones only with `showHidden`. */
   listPinnedGenerations: (showHidden: boolean) => Promise<GenerationRecord[]>;
 
