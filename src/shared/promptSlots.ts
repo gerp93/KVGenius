@@ -65,12 +65,15 @@ export function newPromptSlot(mode: GenerationKind = 'image'): PromptSlot {
   return { id: randomSlotId(), name: null, data: defaultSlotData(mode) };
 }
 
+/** Most characters of the prompt a tab shows (the rail gives it a few lines; CSS clips the rest). */
+const SLOT_LABEL_CHARS = 60;
+
 /** What "derive from the prompt" actually shows for a slot with no explicit name. */
 export function slotLabel(slot: Pick<PromptSlot, 'name'>, prompt: string): string {
   if (slot.name) return slot.name;
   const text = prompt.trim();
   if (!text) return 'Untitled';
-  return text.length > 24 ? `${text.slice(0, 24)}…` : text;
+  return text.length > SLOT_LABEL_CHARS ? `${text.slice(0, SLOT_LABEL_CHARS)}…` : text;
 }
 
 function isValidData(data: unknown): data is PromptSlotData {

@@ -459,7 +459,7 @@ export default function Generate({
                       onDoubleClick={() => startRenameSlot(slot)}
                       title={`${slotLabelFor(slot)} (double-click to rename)`}
                     >
-                      {slotLabelFor(slot)}
+                      <span className="prompt-slot-row__text">{slotLabelFor(slot)}</span>
                     </button>
                   )}
                   {slots.length > 1 && (

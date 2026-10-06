@@ -20,13 +20,14 @@ const STARTUP_TIMEOUT_MS = 4 * 60 * 1000;
 
 type ConnectionStatus = 'checking' | 'connected' | 'unreachable' | 'starting';
 
-const QUEUE_COLLAPSED_KEY = 'kvgenius-queue-collapsed';
+const QUEUE_COLLAPSED_KEY = 'kvgenius-queue-bar-collapsed';
 
 function loadQueueCollapsed(): boolean {
   try {
-    return localStorage.getItem(QUEUE_COLLAPSED_KEY) === '1';
+    // Folded to the slim bar unless it was last left open.
+    return localStorage.getItem(QUEUE_COLLAPSED_KEY) !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -42,7 +43,7 @@ export default function App() {
   const [showHidden, setShowHidden] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  // The queue panel is part of the shell, so it is there on every page; open or folded is remembered.
+  // The queue bar is part of the shell (along the bottom), so it is there on every page; open or folded is remembered.
   const [queueCollapsed, setQueueCollapsedState] = useState(loadQueueCollapsed);
   // One queue for the whole app: Generate and the Library's Upscale both feed it.
   const queue = useGenerationQueue();
@@ -200,76 +201,72 @@ export default function App() {
           </Link>
         )}
       </div>
-      <div className="app-body">
-        <div className={`queue-dock${queueCollapsed ? ' queue-dock--collapsed' : ''}`}>
-          <QueuePanel
-            jobs={queue.jobs}
-            now={queue.now}
-            progressInfo={queue.progressInfo}
-            collapsed={queueCollapsed}
-            onToggle={() => setQueueCollapsed(!queueCollapsed)}
-            onCancelJob={queue.cancelJob}
-            onClearQueued={queue.clearQueued}
-            onDismissFailed={queue.dismissFailed}
-            onToggleFavorite={handleQueueFavorite}
-            onRerack={handleQueueRerack}
+      <div className="app-content">
+        {/* Generate stays mounted across navigation (instead of going through <Routes>) so its
+            in-progress prompt/settings survive a trip to Library or Settings and back - only
+            hidden via CSS, never unmounted and reset. Library/Settings still mount fresh on each
+            visit via <Routes>, which is what keeps Library's list in sync with new generations. */}
+        {/* display: contents keeps this wrapper out of the flex box model entirely when visible,
+            so Generate's own .page div is still the direct flex child of .app-content, same as
+            when it rendered through <Routes> - needed for its flex: 1 height to keep working. */}
+        <div style={{ display: location.pathname === '/' ? 'contents' : 'none' }}>
+          <Generate
+            queue={queue}
+            recallRecord={recallRecord}
+            onRecalled={() => setRecallRecord(null)}
+            recallPrompt={recallPrompt}
+            onPromptRecalled={() => setRecallPrompt(null)}
+            videoSource={videoSource}
+            onVideoSourceHandled={() => setVideoSource(null)}
           />
         </div>
-        <div className="app-content">
-          {/* Generate stays mounted across navigation (instead of going through <Routes>) so its
-              in-progress prompt/settings survive a trip to Library or Settings and back - only
-              hidden via CSS, never unmounted and reset. Library/Settings still mount fresh on each
-              visit via <Routes>, which is what keeps Library's list in sync with new generations. */}
-          {/* display: contents keeps this wrapper out of the flex box model entirely when visible,
-              so Generate's own .page div is still the direct flex child of .app-content, same as
-              when it rendered through <Routes> - needed for its flex: 1 height to keep working. */}
-          <div style={{ display: location.pathname === '/' ? 'contents' : 'none' }}>
-            <Generate
-              queue={queue}
-              recallRecord={recallRecord}
-              onRecalled={() => setRecallRecord(null)}
-              recallPrompt={recallPrompt}
-              onPromptRecalled={() => setRecallPrompt(null)}
-              videoSource={videoSource}
-              onVideoSourceHandled={() => setVideoSource(null)}
+        <Routes>
+          <Route path="/library" element={<LibraryLayout />}>
+            <Route index element={<Navigate to="output" replace />} />
+            <Route
+              path="output"
+              element={
+                <LibraryOutput
+                  queue={queue}
+                  onRecall={setRecallRecord}
+                  onImageToVideo={setVideoSource}
+                  showHidden={showHidden}
+                  onShowQueue={() => setQueueCollapsed(false)}
+                />
+              }
             />
-          </div>
-          <Routes>
-            <Route path="/library" element={<LibraryLayout />}>
-              <Route index element={<Navigate to="output" replace />} />
-              <Route
-                path="output"
-                element={
-                  <LibraryOutput
-                    queue={queue}
-                    onRecall={setRecallRecord}
-                    onImageToVideo={setVideoSource}
-                    showHidden={showHidden}
-                    onShowQueue={() => setQueueCollapsed(false)}
-                  />
-                }
-              />
-              <Route
-                path="prompts"
-                element={
-                  <LibraryPrompts
-                    queue={queue}
-                    onRecallPrompt={setRecallPrompt}
-                    onRecall={setRecallRecord}
-                    onImageToVideo={setVideoSource}
-                    showHidden={showHidden}
-                    onShowQueue={() => setQueueCollapsed(false)}
-                  />
-                }
-              />
-              <Route path="trash" element={<LibraryTrash />} />
-            </Route>
-            <Route path="/timing" element={<Timing />} />
-            <Route path="/hardpoint" element={<Hardpoint />} />
-            <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
-          </Routes>
-        </div>
+            <Route
+              path="prompts"
+              element={
+                <LibraryPrompts
+                  queue={queue}
+                  onRecallPrompt={setRecallPrompt}
+                  onRecall={setRecallRecord}
+                  onImageToVideo={setVideoSource}
+                  showHidden={showHidden}
+                  onShowQueue={() => setQueueCollapsed(false)}
+                />
+              }
+            />
+            <Route path="trash" element={<LibraryTrash />} />
+          </Route>
+          <Route path="/timing" element={<Timing />} />
+          <Route path="/hardpoint" element={<Hardpoint />} />
+          <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
+        </Routes>
       </div>
+      <QueuePanel
+        jobs={queue.jobs}
+        now={queue.now}
+        progressInfo={queue.progressInfo}
+        collapsed={queueCollapsed}
+        onToggle={() => setQueueCollapsed(!queueCollapsed)}
+        onCancelJob={queue.cancelJob}
+        onClearQueued={queue.clearQueued}
+        onDismissFailed={queue.dismissFailed}
+        onToggleFavorite={handleQueueFavorite}
+        onRerack={handleQueueRerack}
+      />
     </div>
   );
 }
