@@ -21,6 +21,37 @@ body {
   height: 100%;
 }
 
+/* Below the top bar: the queue dock on the left of every page, then the page itself. */
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Open or folded, the queue is docked flush against the window edge and the top bar - no margin
+   or padding around it, just a divider line on its inner side. */
+.queue-dock {
+  flex: none;
+  display: flex;
+  width: 300px;
+}
+
+.queue-dock--collapsed {
+  width: 48px;
+}
+
+.queue-dock > * {
+  flex: 1;
+}
+
 .top-bar {
   display: flex;
   align-items: center;
@@ -130,9 +161,10 @@ button.top-bar__connection:disabled {
 }
 
 .page {
+  --page-pad: 24px;
   flex: 1;
   overflow: auto;
-  padding: 24px;
+  padding: var(--page-pad);
 }
 
 button {
@@ -285,13 +317,18 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   display: grid;
   /* First column is the prompt-tabs rail + the settings form side by side (see
      .generate-sidebar-group) - 108px rail + 12px gap + the form's original 380px. */
-  grid-template-columns: 500px minmax(0, 1fr) 300px;
-  gap: 24px;
+  grid-template-columns: calc(500px + 2 * var(--page-pad)) minmax(0, 1fr);
   height: 100%;
 }
 
-.generate-layout--queue-collapsed {
-  grid-template-columns: 500px minmax(0, 1fr) 44px;
+/* The page has no padding of its own (see .generate-page), so the preview can run edge to edge;
+   the form column carries the padding instead. */
+.generate-page {
+  padding: 0;
+}
+
+.generate-page .generate-sidebar-group {
+  padding: var(--page-pad);
 }
 
 .generate-form {
@@ -329,8 +366,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 .generate-preview {
   display: flex;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-left: 1px solid var(--color-border);
   min-height: 400px;
   min-width: 0;
   overflow: hidden;
@@ -515,30 +551,147 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   min-height: 0;
   min-width: 0;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-right: 1px solid var(--color-border);
   overflow: hidden;
 }
 
-.queue-panel--collapsed {
-  align-items: center;
-  background: transparent;
-  border: none;
-}
-
-.queue-panel--collapsed button {
+/* The collapsed queue: a slim strip flush with the window edge - no card, no margin - that opens
+   when clicked. It sits in the queue dock (see .queue-dock). */
+.side-rail {
+  display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 10px;
+  min-width: 0;
   min-height: 0;
-  height: 100%;
-  width: 100%;
-  padding: 12px 0;
+  padding: 8px 0;
+  overflow: hidden;
+  background: var(--color-surface);
+  cursor: pointer;
+  transition: background 0.15s ease;
 }
 
-.queue-panel__vertical {
+.side-rail:hover {
+  background: var(--color-bg-hover);
+}
+
+.side-rail--left {
+  border-right: 1px solid var(--color-border);
+}
+
+.side-rail__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-height: 0;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.side-rail:hover .side-rail__toggle {
+  color: var(--color-text);
+}
+
+.side-rail__label {
   writing-mode: vertical-rl;
-  font-size: 13px;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* The overall count, then a small tile per job - running first, then waiting in order, then failed. */
+.queue-rail__count {
+  min-width: 26px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--color-primary-action-text, var(--color-text));
+  background: var(--color-primary-action);
+}
+
+.queue-rail__tiles {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.queue-rail__tile {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-hover);
+  overflow: hidden;
+}
+
+/* The running tile fills from the bottom as the job progresses (or pulses while that is unknowable). */
+.queue-rail__tile--running {
+  border-color: var(--color-accent-blue);
+}
+
+.queue-rail__tile--running::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--queue-tile-fill, 0%);
+  background: var(--color-accent-blue);
+  opacity: 0.4;
+  transition: height 0.4s ease;
+}
+
+.queue-rail__tile--pulse {
+  animation: queue-tile-pulse 1.4s ease-in-out infinite;
+}
+
+.queue-rail__tile--failed {
+  border-color: var(--color-accent-red);
+  color: var(--color-accent-red);
+}
+
+.queue-rail__tile-icon {
+  position: relative;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.queue-rail__tile-position {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.queue-rail__more {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+@keyframes queue-tile-pulse {
+  50% {
+    opacity: 0.55;
+  }
 }
 
 .queue-panel__header {
@@ -792,6 +945,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 0;
 }
 
 .library-page__body {
@@ -806,13 +960,15 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 16px;
 }
 
+/* The page itself has no padding (see .library-page), so the details panel can sit flush against
+   the right edge; the scrolling list carries the padding instead. */
 .library-output__main {
   flex: 1;
   min-width: 0;
   overflow: auto;
+  padding: var(--page-pad);
 }
 
 /* Justified rows: Library's justifyRows() picks each row's height so its cards (each keeping
@@ -1071,26 +1227,12 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   text-overflow: ellipsis;
 }
 
-/* The queue beside the Library: pops out while upscales (or anything else) are queued. */
-.library-queue {
-  flex: none;
-  width: 300px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.library-queue--collapsed {
-  width: 44px;
-}
-
-.library-queue .queue-panel {
-  flex: 1;
-}
-
 .library-panel {
   flex: none;
-  width: 360px;
+  /* 360px on a normal window, then growing with the screen (0.45 of every pixel past 1400px
+     wide) so a very wide monitor gets a roomy panel - about 37% of a 3440px screen, 40% of 5120px
+     - and never more than 45% of the window. */
+  width: clamp(360px, calc(360px + (100vw - 1400px) * 0.45), 45vw);
   /* Full height of the page; contents only scroll once they no longer fit. */
   overflow-y: auto;
   display: flex;
@@ -1098,8 +1240,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   gap: 12px;
   padding: 12px;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-left: 1px solid var(--color-border);
 }
 
 .library-panel__header {
@@ -1110,12 +1251,10 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   gap: 8px;
 }
 
-/* Wraps rather than running off the panel's edge (and cutting off the close button) when the
-   labels are long, e.g. "Favorited" + "Pinned" + "Unhide". */
-.library-panel__header-buttons {
+/* Fold-away and close sit on the title row; the actions get a row of their own, sharing it
+   evenly, so long labels ("Favorited" + "Pinned" + "Unhide") never push anything off the edge. */
+.library-panel__window-buttons {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 6px;
   margin-left: auto;
 }
@@ -1149,6 +1288,23 @@ button.link-button {
 
 button.link-button:hover:not(:disabled) {
   background: none;
+}
+
+.library-panel__window-buttons button {
+  min-height: 0;
+  padding: 2px 10px;
+}
+
+.library-panel__header-buttons {
+  flex: 1 0 100%;
+  display: flex;
+  gap: 6px;
+}
+
+.library-panel__header-buttons button {
+  flex: 1;
+  min-width: 0;
+  padding-inline: 8px;
 }
 
 /* The media takes whatever height the panel has left after the text below it, so a long prompt

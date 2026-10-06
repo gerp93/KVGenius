@@ -5,9 +5,9 @@ import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
 import GalleryLightbox from '../components/GalleryLightbox';
 import LibraryDetails from '../components/LibraryDetails';
-import LibraryQueue from '../components/LibraryQueue';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
+import { useFavoriteChanges } from '../utils/favoriteChanges';
 import { justifyRows } from '../utils/justifiedRows';
 import { isUpscale, pinNotice } from '../utils/library';
 
@@ -23,6 +23,8 @@ interface Props {
   onImageToVideo: (request: VideoSourceRequest) => void;
   /** The app-wide "Show hidden" switch (top bar). Hidden items (Settings > Hidden Content) are left out unless it is on. */
   showHidden: boolean;
+  /** Open the app-wide queue panel (an upscale was just queued). */
+  onShowQueue: () => void;
 }
 
 function kindOf(record: GenerationRecord): GenerationKind {
@@ -148,7 +150,7 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
  * share a prompt share a card, which cycles through their pictures. Clicking a card opens the same
  * details panel as Library > Output.
  */
-export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImageToVideo, showHidden }: Props) {
+export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImageToVideo, showHidden, onShowQueue }: Props) {
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -156,7 +158,6 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
   const [search, setSearch] = useState('');
   const [gridWidth, setGridWidth] = useState(0);
   const [infoId, setInfoId] = useState<number | null>(null);
-  const [queueCollapsed, setQueueCollapsed] = useState(false);
   // The item the last Delete moved to the Trash, so its notice can offer to put it back; and a counter
   // that makes the list load again after that.
   const [trashedId, setTrashedId] = useState<number | null>(null);
@@ -221,6 +222,9 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
   function patch(id: number, changes: Partial<GenerationRecord>) {
     setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...changes } : r)));
   }
+
+  // Favorited from the queue panel: bring this list in line with it.
+  useFavoriteChanges(({ id, favorite, imagePath }) => patch(id, { favorite, imagePath }));
 
   function handleUse(record: GenerationRecord) {
     onRecallPrompt(record.prompt);
@@ -331,6 +335,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
 
   return (
     <div className="library-output">
+
       <div className="library-output__main prompt-library">
         {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
 
@@ -410,21 +415,13 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
           onImageToVideo={handleImageToVideo}
           onSaveAs={handleSaveAs}
           onReveal={handleReveal}
-          onUpscaleQueued={() => setQueueCollapsed(false)}
+          onUpscaleQueued={onShowQueue}
           // A GIF is a new image, not a pinned one: it lives in Library > Output.
           onGifMade={() => undefined}
           onError={setError}
           onNotice={setNotice}
         />
       )}
-
-      <LibraryQueue
-        queue={queue}
-        collapsed={queueCollapsed}
-        onToggle={() => setQueueCollapsed((v) => !v)}
-        onToggleFavorite={handleToggleFavorite}
-        onRerack={handleRerack}
-      />
 
       {lightboxIndex !== null && visible[lightboxIndex] && (
         <GalleryLightbox

@@ -6,10 +6,10 @@ import CompareOverlay from '../components/CompareOverlay';
 import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
 import LibraryDetails from '../components/LibraryDetails';
-import LibraryQueue from '../components/LibraryQueue';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
 import GalleryLightbox from '../components/GalleryLightbox';
+import { useFavoriteChanges } from '../utils/favoriteChanges';
 import { justifyRows } from '../utils/justifiedRows';
 import { isUpscale, pinNotice } from '../utils/library';
 
@@ -23,6 +23,8 @@ interface Props {
   onImageToVideo: (request: VideoSourceRequest) => void;
   /** The app-wide "Show hidden" switch (top bar). Hidden items (Settings > Hidden Content) are left out unless it is on. */
   showHidden: boolean;
+  /** Open the app-wide queue panel (an upscale was just queued). */
+  onShowQueue: () => void;
 }
 
 function kindOf(record: GenerationRecord): GenerationKind {
@@ -48,7 +50,7 @@ function CardMedia({ record, isVideo, height, children }: { record: GenerationRe
   );
 }
 
-export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHidden }: Props) {
+export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHidden, onShowQueue }: Props) {
   const [tab, setTab] = useState<GenerationKind>('image');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   // Optional: collapse items with exactly the same prompt into one stack. Off, the list is every item as ever.
@@ -78,7 +80,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   // While selecting among stacks, how many items (not stacks) there are to select.
   const [itemCounts, setItemCounts] = useState<Record<GenerationKind, number> | null>(null);
   const [infoId, setInfoId] = useState<number | null>(null);
-  const [queueCollapsed, setQueueCollapsed] = useState(false);
   // Upscale jobs already merged into the list below (those finished before this page opened are in its load).
   const mergedUpscales = useRef<Set<number> | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
@@ -422,6 +423,19 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     setLightboxIndex((prev) => (prev !== null && gone.has(records[prev]?.id) ? null : prev));
   }
 
+  // Favorited from the queue panel: bring this list in line with it.
+  useFavoriteChanges(({ id, favorite, imagePath }) => {
+    if (favoritesOnly && !favorite) {
+      setReloadKey((k) => k + 1);
+      return;
+    }
+    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, favorite, imagePath } : r)));
+    setSelection((prev) => {
+      const ref = prev.get(id);
+      return ref ? new Map(prev).set(id, { ...ref, imagePath, favorite }) : prev;
+    });
+  });
+
   async function handleToggleFavorite(record: GenerationRecord) {
     const favorite = !record.favorite;
     let imagePath: string;
@@ -685,6 +699,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
 
   return (
     <div className="library-output">
+
       <div className="library-output__main">
         {/* Stays at the top of the list while scrolling, so the filters and Select Multiple are always at hand. */}
         <div className="library-sticky">
@@ -854,20 +869,12 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
           onImageToVideo={handleImageToVideo}
           onSaveAs={handleSaveAs}
           onReveal={handleReveal}
-          onUpscaleQueued={() => setQueueCollapsed(false)}
+          onUpscaleQueued={onShowQueue}
           onGifMade={handleGifMade}
           onError={setError}
           onNotice={setNotice}
         />
       )}
-
-      <LibraryQueue
-        queue={queue}
-        collapsed={queueCollapsed}
-        onToggle={() => setQueueCollapsed((v) => !v)}
-        onToggleFavorite={handleToggleFavorite}
-        onRerack={handleRecreate}
-      />
 
       {compare && (
         <CompareOverlay

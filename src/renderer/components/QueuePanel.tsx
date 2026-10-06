@@ -27,6 +27,9 @@ interface Props {
  * right where it just finished without switching over to the result viewer. */
 const MAX_COMPLETED_SHOWN = 5;
 
+/** Job tiles on the collapsed strip before the rest are summed up as "+N". */
+const MAX_RAIL_TILES = 8;
+
 type DoneJob = Job & { record: GenerationRecord; imageUrl: string; kind: JobKind };
 
 function isDone(job: Job): job is DoneJob {
@@ -43,7 +46,7 @@ function describe(job: Job): string {
   return parts.join(' · ');
 }
 
-/** Right-hand, collapsible list of what is generating and what is waiting, with cancel controls. */
+/** Left-hand, collapsible list of what is generating and what is waiting, with cancel controls. */
 export default function QueuePanel({
   jobs,
   now,
@@ -66,21 +69,24 @@ export default function QueuePanel({
   const done = allDone.slice(-MAX_COMPLETED_SHOWN).reverse();
   const olderDoneCount = allDone.length - done.length;
 
+  const runningDisplay = running
+    ? describeProgress({
+        progress: progressInfo?.progress ?? null,
+        estimate: running.estimate ?? null,
+        elapsedMs: now - (running.startedAt ?? now),
+        lastStepAtMs: progressInfo?.lastStepAt != null ? progressInfo.lastStepAt - (running.startedAt ?? now) : null,
+      })
+    : null;
+
   // How long everything still to run should take: what is left of the running job plus the
   // estimates of those waiting. Jobs without an estimate are left out and counted.
   let queueTotal: { text: string } | null = null;
   if (pending > 0) {
     let remaining = 0;
     let unknown = 0;
-    if (running) {
-      const display = describeProgress({
-        progress: progressInfo?.progress ?? null,
-        estimate: running.estimate ?? null,
-        elapsedMs: now - (running.startedAt ?? now),
-        lastStepAtMs: progressInfo?.lastStepAt != null ? progressInfo.lastStepAt - (running.startedAt ?? now) : null,
-      });
-      if (display.remainingMs !== null) remaining += display.remainingMs;
-      else if (!display.overrunning) unknown++;
+    if (runningDisplay) {
+      if (runningDisplay.remainingMs !== null) remaining += runningDisplay.remainingMs;
+      else if (!runningDisplay.overrunning) unknown++;
     }
     for (const job of queued) {
       if (job.estimate) remaining += job.estimate.totalMs;
@@ -94,13 +100,52 @@ export default function QueuePanel({
   }
 
   if (collapsed) {
+    // A slim strip down the window edge: a tile per running / waiting / failed job and the count
+    // on top. The whole strip opens the queue; the button is there for the keyboard (its click
+    // bubbles up to the strip's handler).
+    const tiles = [...(running ? [running] : []), ...queued, ...failed];
+    const shown = tiles.slice(0, MAX_RAIL_TILES);
+    const hiddenCount = tiles.length - shown.length;
     return (
-      <aside className="queue-panel queue-panel--collapsed">
-        <button type="button" onClick={onToggle} title="Show the queue">
-          ◀
-          <span className="queue-panel__vertical">Queue</span>
-          {pending > 0 && <span className="queue-panel__badge">{pending}</span>}
+      <aside className="side-rail side-rail--left queue-rail" onClick={onToggle}>
+        <button type="button" className="side-rail__toggle" title="Show the queue" aria-expanded="false">
+          ▶
         </button>
+        {pending > 0 && (
+          <span className="queue-rail__count" title={`${pending} in the queue`}>
+            {pending}
+          </span>
+        )}
+        <div className="queue-rail__tiles">
+          {shown.map((job) => {
+            const isRunning = job.status === 'running';
+            const position = job.status === 'queued' ? queued.indexOf(job) + 1 : 0;
+            const status = isRunning
+              ? (runningDisplay?.label ?? 'Generating')
+              : job.status === 'failed'
+                ? 'Failed'
+                : `Waiting - #${position}`;
+            const fillStyle =
+              isRunning && runningDisplay?.determinate
+                ? ({ '--queue-tile-fill': `${Math.round(runningDisplay.fraction * 100)}%` } as React.CSSProperties)
+                : undefined;
+            return (
+              <span
+                key={job.id}
+                className={`queue-rail__tile queue-rail__tile--${job.status}${
+                  isRunning && !runningDisplay?.determinate ? ' queue-rail__tile--pulse' : ''
+                }`}
+                style={fillStyle}
+                title={`${status}\n${job.params.prompt}`}
+              >
+                <span className="queue-rail__tile-icon">{job.status === 'failed' ? '⚠' : job.kind === 'video' ? '🎬' : '🖼️'}</span>
+                {position > 0 && <span className="queue-rail__tile-position">{position}</span>}
+              </span>
+            );
+          })}
+          {hiddenCount > 0 && <span className="queue-rail__more">+{hiddenCount}</span>}
+        </div>
+        <span className="side-rail__label">Queue</span>
       </aside>
     );
   }
@@ -142,7 +187,7 @@ export default function QueuePanel({
           {pending > 0 && <span className="queue-panel__badge">{pending}</span>}
         </strong>
         <button type="button" onClick={onToggle} title="Hide the queue">
-          ▶
+          ✕
         </button>
       </div>
 
