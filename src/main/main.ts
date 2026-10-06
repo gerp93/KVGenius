@@ -56,6 +56,8 @@ import {
   applyHiddenRule,
   moveLegacyOutput,
   setGenerationPinned,
+  countPinnedWithPrompt,
+  findDuplicateGeneration,
   listPinnedGenerations,
 } from './db';
 import {
@@ -585,6 +587,24 @@ function registerIpcHandlers(): void {
   ipcMain.handle('setGenerationPinned', (_event, id: number, pinned: boolean) => {
     if (!db) throw new Error('Database not initialized');
     setGenerationPinned(db, id, !!pinned);
+    const record = getGenerationById(db, id);
+    return { groupSize: pinned && record ? countPinnedWithPrompt(db, record.prompt) : 0 };
+  });
+
+  // Would generating these settings only repeat something already in the Library? (Generate's button asks.)
+  ipcMain.handle('findDuplicateGeneration', (_event, family: string, params: GenerationParams) => {
+    if (!db) throw new Error('Database not initialized');
+    if (typeof family !== 'string' || !params || typeof params.prompt !== 'string') return null;
+    return findDuplicateGeneration(db, family, {
+      prompt: params.prompt,
+      width: params.width,
+      height: params.height,
+      seed: params.seed,
+      steps: params.steps,
+      cfg: params.cfg,
+      length: params.length ?? null,
+      sourceImagePath: params.sourceImagePath ?? null,
+    });
   });
 
   ipcMain.handle('listPinnedGenerations', (_event, showHidden: boolean) => {

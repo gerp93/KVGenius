@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, VideoSourceRequest } from '../../shared/types';
 import CopyButton from '../components/CopyButton';
+import CycleMedia from '../components/CycleMedia';
 import GalleryLightbox from '../components/GalleryLightbox';
-import GeneratedVideo from '../components/GeneratedVideo';
 import LibraryDetails from '../components/LibraryDetails';
 import LibraryQueue from '../components/LibraryQueue';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
+import { useCycleIndex } from '../hooks/useCycleIndex';
 import { justifyRows } from '../utils/justifiedRows';
+import { isUpscale, pinNotice } from '../utils/library';
 
 const TARGET_ROW_HEIGHT = 240;
 const GRID_GAP = 12;
@@ -27,10 +29,124 @@ function kindOf(record: GenerationRecord): GenerationKind {
   return FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
 }
 
+/** The pinned pictures that share one exact prompt - they make one card, which cycles through them. */
+interface PinnedGroup {
+  prompt: string;
+  items: GenerationRecord[];
+}
+
+/** What makes two pins the same picture: with every one of these equal the output would be identical. */
+function settingsKey(r: GenerationRecord): string {
+  return [r.modelFamily, r.width, r.height, r.seed, r.steps, r.cfg, r.length].join('|');
+}
+
 /**
- * The pinned generations: one picture per "look", chosen in the Library or on the Generate page.
- * There is no separate saved prompt - a tile's prompt is just the prompt of the generation shown.
- * Clicking a tile opens the same details panel as Library > Output.
+ * Pinned items grouped by exact prompt (a video and an image with the same prompt stay apart), in the
+ * order the first of each group was pinned. A pin whose settings are identical to one already in its group
+ * is the same picture, so it joins the group without being shown twice.
+ */
+function groupPinned(records: GenerationRecord[]): PinnedGroup[] {
+  const groups = new Map<string, PinnedGroup>();
+  const seen = new Set<string>();
+  for (const record of records) {
+    const key = `${kindOf(record)}\u0000${record.prompt}`;
+    const picture = `${key}\u0000${settingsKey(record)}`;
+    if (seen.has(picture)) continue;
+    seen.add(picture);
+    const group = groups.get(key);
+    if (group) group.items.push(record);
+    else groups.set(key, { prompt: record.prompt, items: [record] });
+  }
+  return [...groups.values()];
+}
+
+interface TileProps {
+  group: PinnedGroup;
+  width: number;
+  height: number;
+  active: boolean;
+  onOpen: (record: GenerationRecord) => void;
+  onExpand: (record: GenerationRecord) => void;
+  onUnpin: (record: GenerationRecord) => void;
+  onUse: (record: GenerationRecord) => void;
+  onRerack: (record: GenerationRecord) => void;
+}
+
+/** One card of the Prompts gallery. With several pinned pictures it cycles through them (resting while the
+ * pointer is over it), and everything on it - open, expand, unpin, copy, re-rack - applies to the one on show. */
+function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, onUse, onRerack }: TileProps) {
+  const [hovered, setHovered] = useState(false);
+  const index = useCycleIndex(group.items.length, hovered);
+  const record = group.items[index] ?? group.items[0];
+  const isVideo = kindOf(record) === 'video';
+  return (
+    <div className={`library-card prompt-tile${active ? ' library-card--active' : ''}`} style={{ width }}>
+      <div
+        className="library-card__media"
+        style={{ height, cursor: 'pointer' }}
+        onClick={() => onOpen(record)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        title="Click for details"
+      >
+        <CycleMedia paths={group.items.map((r) => r.imagePath)} index={index} isVideo={isVideo} alt={record.prompt} />
+        {isVideo && <span className="library-card__play-badge">▶</span>}
+        <button
+          type="button"
+          className="expand-button"
+          title="Expand"
+          onClick={(e) => {
+            e.stopPropagation();
+            onExpand(record);
+          }}
+        >
+          ⤢
+        </button>
+        <button
+          type="button"
+          className="library-card__fav library-card__fav--on"
+          title="Unpin - the image stays in the Library"
+          onClick={(e) => {
+            e.stopPropagation();
+            onUnpin(record);
+          }}
+        >
+          📌
+        </button>
+        <CopyButton compact className="prompt-tile__copy" text={record.prompt} title="Copy this prompt" />
+        {!isVideo && <CopyButton compact className="prompt-tile__copy prompt-tile__copy--image" imagePath={record.imagePath} title="Copy the image" />}
+        <div className="library-card__badges">
+          {group.items.length > 1 && (
+            <span className="library-card__stack-badge" title={`${group.items.length} pinned pictures share this exact prompt - this card cycles through them`}>
+              {index + 1} / {group.items.length}
+            </span>
+          )}
+          {isUpscale(record) && (
+            <span className="library-card__upscale-badge" title="An enlarged copy of another picture, not generated from the prompt">
+              Upscaled
+            </span>
+          )}
+          {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
+        </div>
+        <div className="prompt-tile__prompt">{record.prompt}</div>
+      </div>
+      <div className="library-card__actions library-card__actions--labeled">
+        <button type="button" className="primary" onClick={() => onUse(record)} title="Put this prompt on the Generate page">
+          Use prompt
+        </button>
+        <button type="button" onClick={() => onRerack(record)} title="Load this picture's prompt and settings (size, seed, steps)">
+          ↺ Re-rack
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The pinned generations, one card per exact prompt, chosen in the Library or on the Generate page.
+ * There is no separate saved prompt - a card's prompt is just the prompt of the picture shown. Pins that
+ * share a prompt share a card, which cycles through their pictures. Clicking a card opens the same
+ * details panel as Library > Output.
  */
 export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImageToVideo, showHidden }: Props) {
   const [records, setRecords] = useState<GenerationRecord[]>([]);
@@ -75,13 +191,17 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     return () => observer.disconnect();
   }, []);
 
-  const visible = useMemo(() => {
+  const groups = useMemo(() => groupPinned(records), [records]);
+  const visibleGroups = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return needle ? records.filter((r) => r.prompt.toLowerCase().includes(needle)) : records;
-  }, [records, search]);
+    return needle ? groups.filter((g) => g.prompt.toLowerCase().includes(needle)) : groups;
+  }, [groups, search]);
+  // Every picture on show, in card order: what the full-window viewer steps through.
+  const visible = useMemo(() => visibleGroups.flatMap((g) => g.items), [visibleGroups]);
 
+  // Each card is as big as its first picture; the others in the group are fitted into that box.
   const rows = justifyRows(
-    visible.map((r) => ({ aspect: r.width / Math.max(r.height, 1) })),
+    visibleGroups.map((g) => ({ aspect: g.items[0].width / Math.max(g.items[0].height, 1) })),
     gridWidth,
     TARGET_ROW_HEIGHT,
     GRID_GAP
@@ -120,15 +240,19 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
 
   async function handleTogglePinned(record: GenerationRecord) {
     const pinned = !record.pinned;
+    let groupSize: number;
     try {
-      await window.kvgenius.setGenerationPinned(record.id, pinned);
+      ({ groupSize } = await window.kvgenius.setGenerationPinned(record.id, pinned));
     } catch (err) {
       fail(err);
       return;
     }
     // Unpinned: it no longer belongs on this page (the image stays in Library > Output).
     if (!pinned) forget(record.id);
-    else patch(record.id, { pinned });
+    else {
+      patch(record.id, { pinned });
+      setNotice(pinNotice(groupSize));
+    }
   }
 
   async function handleToggleFavorite(record: GenerationRecord) {
@@ -205,65 +329,6 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     }
   }
 
-  function renderTile(record: GenerationRecord, index: number, width: number, height: number) {
-    const url = window.kvgenius.imageUrlFor(record.imagePath);
-    return (
-      <div key={record.id} className={`library-card prompt-tile${infoId === record.id ? ' library-card--active' : ''}`} style={{ width }}>
-        <div
-          className="library-card__media"
-          style={{ height, cursor: 'pointer' }}
-          onClick={() => setInfoId(record.id)}
-          title="Click for details"
-        >
-          {kindOf(record) === 'video' ? (
-            <>
-              <GeneratedVideo src={url} filePath={record.imagePath} thumbnail />
-              <span className="library-card__play-badge">▶</span>
-            </>
-          ) : (
-            <img src={url} alt={record.prompt} loading="lazy" decoding="async" />
-          )}
-          <button
-            type="button"
-            className="expand-button"
-            title="Expand"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLightboxIndex(index);
-            }}
-          >
-            ⤢
-          </button>
-          <button
-            type="button"
-            className="library-card__fav library-card__fav--on"
-            title="Unpin - the image stays in the Library"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleTogglePinned(record);
-            }}
-          >
-            📌
-          </button>
-          <CopyButton compact className="prompt-tile__copy" text={record.prompt} title="Copy this prompt" />
-          {kindOf(record) === 'image' && (
-            <CopyButton compact className="prompt-tile__copy prompt-tile__copy--image" imagePath={record.imagePath} title="Copy the image" />
-          )}
-          {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
-          <div className="prompt-tile__prompt">{record.prompt}</div>
-        </div>
-        <div className="library-card__actions">
-          <button type="button" className="primary" onClick={() => handleUse(record)} title="Put this prompt on the Generate page">
-            Use prompt
-          </button>
-          <button type="button" onClick={() => handleRerack(record)} title="Load this picture's prompt and settings (size, seed, steps)">
-            ↺ Re-rack
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="library-output">
       <div className="library-output__main prompt-library">
@@ -278,7 +343,10 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             onChange={(e) => setSearch(e.target.value)}
           />
           <span className="prompt-library__count">
-            {visible.length === records.length ? `${records.length} pinned` : `${visible.length} of ${records.length}`}
+            {visibleGroups.length === groups.length
+              ? `${groups.length} prompt${groups.length === 1 ? '' : 's'}`
+              : `${visibleGroups.length} of ${groups.length}`}
+            {visible.length !== visibleGroups.length ? ` - ${visible.length} pictures` : ''}
           </span>
         </div>
 
@@ -305,8 +373,24 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
         {/* Always rendered so the width observer attaches on mount. */}
         <div className="library-rows" ref={gridRef}>
           {rows.map((row) => (
-            <div key={visible[row.items[0].index].id} className="library-row">
-              {row.items.map(({ index, width }) => renderTile(visible[index], index, width, row.height))}
+            <div key={visibleGroups[row.items[0].index].items[0].id} className="library-row">
+              {row.items.map(({ index, width }) => {
+                const group = visibleGroups[index];
+                return (
+                  <PinnedTile
+                    key={group.items[0].id}
+                    group={group}
+                    width={width}
+                    height={row.height}
+                    active={group.items.some((r) => r.id === infoId)}
+                    onOpen={(record) => setInfoId(record.id)}
+                    onExpand={(record) => setLightboxIndex(visible.findIndex((r) => r.id === record.id))}
+                    onUnpin={handleTogglePinned}
+                    onUse={handleUse}
+                    onRerack={handleRerack}
+                  />
+                );
+              })}
             </div>
           ))}
         </div>

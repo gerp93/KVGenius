@@ -299,6 +299,9 @@ function promptCondition(prompt: string | null | undefined): { sql: string; para
   return typeof prompt === 'string' ? { sql: 'AND prompt = ? ', params: [prompt] } : { sql: '', params: [] };
 }
 
+/** How many pictures a stack's card cycles through (a stack of hundreds would otherwise load them all). */
+const STACK_PREVIEW_LIMIT = 12;
+
 /**
  * One cover per distinct prompt, newest stack first. Items whose prompt is exactly the same (not
  * similar - exactly) collapse into a stack; the cover is the pinned item if there is one, else a
@@ -331,7 +334,29 @@ function listPromptStacks(
        ORDER BY g.group_newest DESC LIMIT ?`
     )
     .all(...params) as unknown as GenerationRow[];
-  return rows.map(rowToRecord);
+  const records = rows.map(rowToRecord);
+
+  // What each stack's card cycles through: the cover first, then the stack's newest other items.
+  const stacks = records.filter((r) => (r.groupCount ?? 1) > 1);
+  if (stacks.length > 0) {
+    const marks = stacks.map(() => '?').join(', ');
+    const members = db
+      .prepare(
+        `SELECT prompt, image_path FROM (
+           SELECT prompt, image_path,
+             ROW_NUMBER() OVER (PARTITION BY prompt ORDER BY id DESC) AS rn
+           FROM generations WHERE ${where} AND prompt IN (${marks})
+         ) WHERE rn <= ? ORDER BY prompt, rn`
+      )
+      .all(...whereParams, ...stacks.map((r) => r.prompt), STACK_PREVIEW_LIMIT + 1) as unknown as { prompt: string; image_path: string }[];
+    const byPrompt = new Map<string, string[]>();
+    for (const m of members) byPrompt.set(m.prompt, [...(byPrompt.get(m.prompt) ?? []), m.image_path]);
+    for (const stack of stacks) {
+      const others = (byPrompt.get(stack.prompt) ?? []).filter((p) => p !== stack.imagePath);
+      stack.groupPreviewPaths = [stack.imagePath, ...others].slice(0, STACK_PREVIEW_LIMIT);
+    }
+  }
+  return records;
 }
 
 export function listGenerations(
@@ -489,6 +514,60 @@ export function setGenerationPinned(db: DatabaseSync, id: number, pinned: boolea
   } else {
     db.prepare('UPDATE generations SET pinned_at = NULL WHERE id = ?').run(id);
   }
+}
+
+/** How many pinned generations (in the Library) have exactly this prompt - the size of the group
+ * they form under Library > Prompts, where one tile cycles through them. */
+export function countPinnedWithPrompt(db: DatabaseSync, prompt: string): number {
+  const row = db
+    .prepare('SELECT COUNT(*) AS n FROM generations WHERE pinned_at IS NOT NULL AND trashed_at IS NULL AND prompt = ?')
+    .get(prompt) as unknown as { n: number };
+  return row.n;
+}
+
+/** The settings that make a run produce the same output. */
+export interface DuplicateQuery {
+  prompt: string;
+  width: number;
+  height: number;
+  seed: number;
+  steps: number;
+  cfg: number;
+  /** Video only: frame count. */
+  length?: number | null;
+  /** Video only: the kept copy of the source image. Videos from a different source are different output. */
+  sourceImagePath?: string | null;
+}
+
+/**
+ * An existing Library item (not in the Trash) that running these settings again would only repeat:
+ * the same model family, prompt, size, seed, steps, CFG and - for a video - length and source image.
+ * The newest one, or null. Prompts compare ignoring leading/trailing whitespace, as the form does.
+ */
+export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, query: DuplicateQuery): GenerationRecord | null {
+  const isVideo = query.length !== undefined && query.length !== null;
+  // A video's picture depends on its source image, which is only comparable once there is one.
+  if (isVideo && !query.sourceImagePath) return null;
+  const row = db
+    .prepare(
+      `${GENERATION_SELECT}
+       WHERE g.model_family = ? AND g.trashed_at IS NULL AND TRIM(g.prompt) = ? AND g.width = ? AND g.height = ?
+         AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ?
+         ${isVideo ? 'AND g.source_image_path = ?' : ''}
+       ORDER BY g.id DESC LIMIT 1`
+    )
+    .get(
+      modelFamily,
+      query.prompt.trim(),
+      query.width,
+      query.height,
+      query.seed,
+      query.steps,
+      query.cfg,
+      isVideo ? (query.length as number) : null,
+      ...(isVideo ? [query.sourceImagePath as string] : [])
+    ) as unknown as GenerationRow | undefined;
+  return row ? rowToRecord(row) : null;
 }
 
 /** Every pinned generation, most recently pinned first; hidden ones only when `showHidden`. */

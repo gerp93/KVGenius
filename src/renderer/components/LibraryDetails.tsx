@@ -4,6 +4,7 @@ import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_
 import { FAMILY_KIND, GenerationKind, GenerationRecord } from '../../shared/types';
 import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { formatBytes, formatDifference, formatDuration } from '../utils/format';
+import { isUpscale } from '../utils/library';
 import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
 
@@ -76,6 +77,8 @@ export default function LibraryDetails({
   const [upscaleModels, setUpscaleModels] = useState<string[] | null>(null);
   const [upscaleModel, setUpscaleModelState] = useState(lastUpscaleModel);
   const [upscaleFactor, setUpscaleFactorState] = useState(lastUpscaleFactor);
+  // ComfyUI did not answer when the models were asked for.
+  const [upscaleUnreachable, setUpscaleUnreachable] = useState(false);
   // GIF conversion controls, for a video.
   const [gifWidth, setGifWidth] = useState(DEFAULT_GIF_WIDTH);
   const [gifFps, setGifFps] = useState(DEFAULT_GIF_FPS);
@@ -106,12 +109,14 @@ export default function LibraryDetails({
     };
   }, [imagePath]);
 
-  useEffect(() => {
-    let cancelled = false;
+  /** Asks ComfyUI which upscale models it has. If it cannot be reached, says so both at the top of the page
+   * (onError) and right under the Upscale controls, where the person is looking. */
+  function loadUpscaleModels(isCancelled: () => boolean = () => false) {
+    setUpscaleUnreachable(false);
     window.kvgenius
       .listUpscaleModels()
       .then((models) => {
-        if (cancelled) return;
+        if (isCancelled()) return;
         setUpscaleModels(models);
         setUpscaleModelState((prev) => {
           const next = models.includes(prev) ? prev : (models[0] ?? '');
@@ -120,8 +125,15 @@ export default function LibraryDetails({
         });
       })
       .catch(() => {
-        if (!cancelled) onError('Could not reach ComfyUI to list upscale models.');
+        if (isCancelled()) return;
+        setUpscaleUnreachable(true);
+        onError('Could not reach ComfyUI to list upscale models.');
       });
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    loadUpscaleModels(() => cancelled);
     return () => {
       cancelled = true;
     };
@@ -176,7 +188,14 @@ export default function LibraryDetails({
   return (
     <aside className="library-panel">
       <div className="library-panel__header">
-        <strong>Details</strong>
+        <span className="library-panel__title">
+          <strong>Details</strong>
+          {isUpscale(record) && (
+            <span className="library-card__upscale-badge" title="An enlarged copy of another picture, not generated from the prompt">
+              Upscaled
+            </span>
+          )}
+        </span>
         <span className="library-panel__header-buttons">
           <button type="button" onClick={() => onToggleFavorite(record)}>
             {record.favorite ? '★ Favorited' : '☆ Favorite'}
@@ -273,10 +292,19 @@ export default function LibraryDetails({
                 </option>
               ))}
             </select>
-            <button type="button" onClick={handleUpscale} disabled={!upscaleModel}>
+            <button type="button" onClick={handleUpscale} disabled={!upscaleModel || upscaleUnreachable}>
               Upscale
             </button>
           </div>
+          {upscaleUnreachable && (
+            <p className="library-panel__warning" role="alert">
+              ⚠ ComfyUI is not reachable, so there are no upscale models to choose from. Start ComfyUI (top right), then{' '}
+              <button type="button" className="link-button" onClick={() => loadUpscaleModels()}>
+                try again
+              </button>
+              .
+            </p>
+          )}
         </div>
       )}
       <div className="library-panel__actions">
@@ -315,7 +343,7 @@ export default function LibraryDetails({
         <dt>Type</dt>
         <dd>{kindOf(record) === 'video' ? 'Video' : 'Image'}</dd>
         <dt>Model</dt>
-        <dd>{record.modelFamily}</dd>
+        <dd>{isUpscale(record) ? `Upscale (${record.modelFamily}) - enlarged from another picture` : record.modelFamily}</dd>
         <dt>Dimensions</dt>
         <dd>
           {record.width} × {record.height}

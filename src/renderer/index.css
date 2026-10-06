@@ -250,6 +250,27 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   min-width: 130px;
 }
 
+/* Every button the same size, however long its label, wrapping to a new line only when they no longer fit.
+   Copy buttons are small by default (they sit in tight spots); in a row of full buttons they match them. */
+.button-row--uniform {
+  width: 100%;
+  max-width: 820px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.button-row--uniform button,
+.button-row button.copy-button {
+  min-height: 38px;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+.button-row--uniform button {
+  min-width: 0;
+}
+
 .button-row--even {
   display: flex;
   gap: 8px;
@@ -695,6 +716,20 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   margin-bottom: 12px;
 }
 
+/* The toolbar (and the messages under it) stay at the top of the scrolling list, over the cards. Opaque,
+   so the pictures do not show through; z-index above the cards' own overlays (badges, expand button). */
+.library-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding-top: 2px;
+  background: var(--color-bg);
+}
+
+.library-sticky > p {
+  margin-top: 0;
+}
+
 /* Real tabs: a bottom rule with the active tab marked by an accent underline. */
 .tab-strip {
   display: flex;
@@ -874,18 +909,63 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
     8px 8px 0 0 var(--color-border);
 }
 
-.library-card__stack-badge {
+/* The labels in a card's top-left (stack count, Upscaled, Hidden). They start to the right of the expand
+   button / select checkbox that owns the very corner, and wrap rather than run into the favorite button. */
+.library-card__badges {
   position: absolute;
   top: 6px;
-  left: 6px;
+  left: 40px;
+  right: 40px;
   z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px;
+  pointer-events: none;
+}
+
+/* A Prompts tile also has two copy buttons along its right edge. */
+.prompt-tile .library-card__badges {
+  right: 108px;
+}
+
+.library-card__stack-badge,
+.library-card__hidden-badge,
+.library-card__upscale-badge {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 600;
   color: #fff;
   background: rgba(0, 0, 0, 0.7);
-  pointer-events: none;
+  white-space: nowrap;
+}
+
+.library-card__stack-badge {
+  font-weight: 600;
+}
+
+.library-card__upscale-badge {
+  background: rgba(30, 90, 160, 0.85);
+}
+
+/* A new picture in a cycling card fades in rather than snapping. */
+.cycle-fade {
+  animation: cycle-fade-in 0.5s ease;
+}
+
+@keyframes cycle-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cycle-fade {
+    animation: none;
+  }
 }
 
 /* Header over an opened stack: way back, the shared prompt, and how many items. */
@@ -925,6 +1005,18 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   font-size: 13px;
 }
 
+/* Buttons with words on them (Trash: Restore / Recycle). A narrow card - a tall, thin picture - cannot fit
+   them side by side, so they stack instead of spilling out over the picture's edge. */
+.library-card__actions--labeled {
+  flex-wrap: wrap;
+}
+
+.library-card__actions--labeled button {
+  flex: 1 1 auto;
+  min-width: max-content;
+  padding: 4px 8px;
+}
+
 .library-card__fav {
   position: absolute;
   top: 6px;
@@ -944,24 +1036,6 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 
 .library-card__fav--on {
   color: #ffd54a;
-}
-
-/* With a stack's count badge in the same corner, the Hidden badge sits just under it. */
-.library-card__hidden-badge.library-card__hidden-badge--below {
-  top: 34px;
-}
-
-.library-card__hidden-badge {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  z-index: 1;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.6);
-  pointer-events: none;
 }
 
 .library-card__pinned-badge {
@@ -1046,6 +1120,37 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   margin-left: auto;
 }
 
+.library-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A problem that belongs to one control (e.g. ComfyUI not reachable, under Upscale), shown right at it. */
+.library-panel__warning {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-accent-red);
+  overflow-wrap: anywhere;
+}
+
+/* A button that reads as a link inside a sentence. */
+button.link-button {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+}
+
+button.link-button:hover:not(:disabled) {
+  background: none;
+}
+
 /* The media takes whatever height the panel has left after the text below it, so a long prompt
    shrinks the picture (down to a minimum) before anything needs to scroll. */
 .library-panel__media {
@@ -1091,6 +1196,13 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 
 .library-panel__actions button {
   flex: 1;
+}
+
+/* The icon-only copy button is small by default; in this row it is the same size as its neighbours. */
+.library-panel__actions button.copy-button {
+  min-height: 38px;
+  padding: 8px 16px;
+  font-size: 14px;
 }
 
 .library-panel__prompt {
