@@ -36,17 +36,16 @@ body {
   flex-direction: column;
 }
 
-/* Open, the queue is a card with the page's padding around it; folded, a bare strip on the edge. */
+/* Open or folded, the queue is docked flush against the window edge and the top bar - no margin
+   or padding around it, just a divider line on its inner side. */
 .queue-dock {
   flex: none;
   display: flex;
-  width: 324px;
-  padding: 24px 0 24px 24px;
+  width: 300px;
 }
 
 .queue-dock--collapsed {
   width: 48px;
-  padding: 0;
 }
 
 .queue-dock > * {
@@ -523,8 +522,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   min-height: 0;
   min-width: 0;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-right: 1px solid var(--color-border);
   overflow: hidden;
 }
 
@@ -904,6 +902,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 0;
 }
 
 .library-page__body {
@@ -918,13 +917,15 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 16px;
 }
 
+/* The page itself has no padding (see .library-page), so the details panel can sit flush against
+   the right edge; the scrolling list carries the padding instead. */
 .library-output__main {
   flex: 1;
   min-width: 0;
   overflow: auto;
+  padding: var(--page-pad);
 }
 
 /* Justified rows: Library's justifyRows() picks each row's height so its cards (each keeping
@@ -1154,8 +1155,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   gap: 12px;
   padding: 12px;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-left: 1px solid var(--color-border);
 }
 
 .library-panel__header {
