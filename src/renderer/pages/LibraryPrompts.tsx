@@ -7,7 +7,7 @@ import GalleryLightbox from '../components/GalleryLightbox';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
-import { useGenerationChanges } from '../utils/generationChanges';
+import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
 import { justifyRows } from '../utils/justifiedRows';
 import { isUpscale, pinNotice } from '../utils/library';
 
@@ -225,11 +225,27 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
 
   // Changed from the queue bar: bring this list in line with it.
   useGenerationChanges((change) => {
-    if (change.kind === 'favorite') patch(change.id, { favorite: change.favorite, imagePath: change.imagePath });
-    // A pin or unpin changes which pictures belong here at all: load the list again.
-    else if (change.kind === 'pinned') setReloadKey((k) => k + 1);
-    else forget(change.id);
+    switch (change.kind) {
+      case 'favorite':
+        patch(change.id, { favorite: change.favorite, imagePath: change.imagePath });
+        break;
+      case 'pinned':
+      case 'hidden':
+        // A pin or unpin (or a hide) changes which pictures belong here at all: load the list again.
+        setReloadKey((k) => k + 1);
+        break;
+      case 'trashed':
+        forget(change.id);
+        break;
+      case 'queueDetailsOpened':
+        // Only one details panel at a time: the app-wide one just opened.
+        setInfoId(null);
+        break;
+    }
   });
+  useEffect(() => {
+    if (infoId !== null) announceGenerationChange({ kind: 'libraryDetailsOpened' });
+  }, [infoId]);
 
   function handleUse(record: GenerationRecord) {
     onRecallPrompt(record.prompt);

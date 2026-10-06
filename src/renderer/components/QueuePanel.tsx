@@ -19,6 +19,10 @@ interface Props {
   onCancelJob: (id: number) => void;
   onClearQueued: () => void;
   onDismissFailed: (id: number) => void;
+  /** The finished result whose details panel is open, if any (its card is highlighted). */
+  activeDetailsId: number | null;
+  /** Open (or close) the details panel for a finished result. */
+  onOpenDetails: (record: GenerationRecord) => void;
   /** A short confirmation of the last action taken on a finished result (pinned, moved to the Trash). */
   notice: string | null;
   onToggleFavorite: (record: GenerationRecord) => void;
@@ -66,6 +70,8 @@ export default function QueuePanel({
   onClearQueued,
   onDismissFailed,
   notice,
+  activeDetailsId,
+  onOpenDetails,
   onToggleFavorite,
   onTogglePinned,
   onDelete,
@@ -294,8 +300,15 @@ export default function QueuePanel({
               </div>
               <div className="queue-bar__cards">
                 {done.map((job) => (
-                  <div key={job.id} className="queue-done">
-                    <div className="queue-done__media">
+                  <div key={job.id} className={`queue-done${activeDetailsId === job.record.id ? ' queue-done--active' : ''}`}>
+                    <div
+                      className="queue-done__media queue-done__open"
+                      title="Open the details"
+                      onClick={(e) => {
+                        // The expand and favorite buttons on the picture do their own thing.
+                        if (!(e.target as HTMLElement).closest('button')) onOpenDetails(job.record);
+                      }}
+                    >
                       {job.kind === 'video' ? (
                         <GeneratedVideo src={job.imageUrl} filePath={job.record.imagePath} thumbnail />
                       ) : (
@@ -311,7 +324,7 @@ export default function QueuePanel({
                         {job.record.favorite ? '★' : '☆'}
                       </button>
                     </div>
-                    <div className="queue-done__caption" title={job.params.prompt}>
+                    <div className="queue-done__caption queue-done__open" title={job.params.prompt} onClick={() => onOpenDetails(job.record)}>
                       {job.params.prompt}
                     </div>
                     <div className="queue-done__actions">
