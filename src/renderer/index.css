@@ -1155,7 +1155,10 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 
 .library-panel {
   flex: none;
-  width: 360px;
+  /* 360px on a normal window, then growing with the screen (0.45 of every pixel past 1400px
+     wide) so a very wide monitor gets a roomy panel - about 37% of a 3440px screen, 40% of 5120px
+     - and never more than 45% of the window. */
+  width: clamp(360px, calc(360px + (100vw - 1400px) * 0.45), 45vw);
   /* Full height of the page; contents only scroll once they no longer fit. */
   overflow-y: auto;
   display: flex;
