@@ -4,6 +4,7 @@ import { FAMILY_KIND, GenerationKind, GenerationRecord, VideoSourceRequest } fro
 import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
 import GalleryLightbox from '../components/GalleryLightbox';
+import DetailsDock from '../components/DetailsDock';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
@@ -423,25 +424,27 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
       </div>
 
       {infoRecord && (
-        <LibraryDetails
-          record={infoRecord}
-          queue={queue}
-          onClose={() => setInfoId(null)}
-          onExpand={() => setLightboxIndex(visible.findIndex((r) => r.id === infoRecord.id))}
-          onToggleFavorite={handleToggleFavorite}
-          onTogglePinned={handleTogglePinned}
-          onToggleHidden={handleToggleHidden}
-          onDelete={handleDelete}
-          onRerack={handleRerack}
-          onImageToVideo={handleImageToVideo}
-          onSaveAs={handleSaveAs}
-          onReveal={handleReveal}
-          onUpscaleQueued={onShowQueue}
-          // A GIF is a new image, not a pinned one: it lives in Library > Output.
-          onGifMade={() => undefined}
-          onError={setError}
-          onNotice={setNotice}
-        />
+        <DetailsDock>
+          <LibraryDetails
+            record={infoRecord}
+            queue={queue}
+            onClose={() => setInfoId(null)}
+            onExpand={() => setLightboxIndex(visible.findIndex((r) => r.id === infoRecord.id))}
+            onToggleFavorite={handleToggleFavorite}
+            onTogglePinned={handleTogglePinned}
+            onToggleHidden={handleToggleHidden}
+            onDelete={handleDelete}
+            onRerack={handleRerack}
+            onImageToVideo={handleImageToVideo}
+            onSaveAs={handleSaveAs}
+            onReveal={handleReveal}
+            onUpscaleQueued={onShowQueue}
+            // A GIF is a new image, not a pinned one: it lives in Library > Output.
+            onGifMade={() => undefined}
+            onError={setError}
+            onNotice={setNotice}
+          />
+        </DetailsDock>
       )}
 
       {lightboxIndex !== null && visible[lightboxIndex] && (

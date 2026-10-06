@@ -105,8 +105,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   pinned or deleted (to the Trash, no confirmation); those handlers live in `App.tsx` and announce
   the change with `utils/generationChanges.ts` so a mounted Library list or Generate form follows
   (a favorite also moves the file, so the new path comes along). Clicking a finished card opens the
-  same `LibraryDetails` panel, app-wide (`App.tsx`, docked right of any page, looked up from the
-  queue by id); it and a Library page's own panel close each other so only one shows.
+  same `LibraryDetails` panel, app-wide (`App.tsx`, looked up from the queue by id); it and a Library
+  page's own panel close each other so only one shows. Both render through `DetailsDock` (a portal into
+  `.details-slot`), a full-height column at the right of the window, so the queue bar only spans the
+  page to its left.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned

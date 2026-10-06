@@ -5,6 +5,7 @@ import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, LibraryLi
 import CompareOverlay from '../components/CompareOverlay';
 import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
+import DetailsDock from '../components/DetailsDock';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
@@ -878,24 +879,26 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       </div>
 
       {infoRecord && (
-        <LibraryDetails
-          record={infoRecord}
-          queue={queue}
-          onClose={() => setInfoId(null)}
-          onExpand={() => setLightboxIndex(records.findIndex((r) => r.id === infoRecord.id))}
-          onToggleFavorite={handleToggleFavorite}
-          onTogglePinned={handleTogglePinned}
-          onToggleHidden={handleToggleHidden}
-          onDelete={handleDelete}
-          onRerack={handleRecreate}
-          onImageToVideo={handleImageToVideo}
-          onSaveAs={handleSaveAs}
-          onReveal={handleReveal}
-          onUpscaleQueued={onShowQueue}
-          onGifMade={handleGifMade}
-          onError={setError}
-          onNotice={setNotice}
-        />
+        <DetailsDock>
+          <LibraryDetails
+            record={infoRecord}
+            queue={queue}
+            onClose={() => setInfoId(null)}
+            onExpand={() => setLightboxIndex(records.findIndex((r) => r.id === infoRecord.id))}
+            onToggleFavorite={handleToggleFavorite}
+            onTogglePinned={handleTogglePinned}
+            onToggleHidden={handleToggleHidden}
+            onDelete={handleDelete}
+            onRerack={handleRecreate}
+            onImageToVideo={handleImageToVideo}
+            onSaveAs={handleSaveAs}
+            onReveal={handleReveal}
+            onUpscaleQueued={onShowQueue}
+            onGifMade={handleGifMade}
+            onError={setError}
+            onNotice={setNotice}
+          />
+        </DetailsDock>
       )}
 
       {compare && (
