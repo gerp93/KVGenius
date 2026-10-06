@@ -21,6 +21,38 @@ body {
   height: 100%;
 }
 
+/* Below the top bar: the queue dock on the left of every page, then the page itself. */
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Open, the queue is a card with the page's padding around it; folded, a bare strip on the edge. */
+.queue-dock {
+  flex: none;
+  display: flex;
+  width: 324px;
+  padding: 24px 0 24px 24px;
+}
+
+.queue-dock--collapsed {
+  width: 48px;
+  padding: 0;
+}
+
+.queue-dock > * {
+  flex: 1;
+}
+
 .top-bar {
   display: flex;
   align-items: center;
@@ -268,15 +300,9 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   display: grid;
   /* First column is the prompt-tabs rail + the settings form side by side (see
      .generate-sidebar-group) - 108px rail + 12px gap + the form's original 380px. */
-  grid-template-columns: 300px 500px minmax(0, 1fr);
+  grid-template-columns: 500px minmax(0, 1fr);
   gap: 24px;
   height: 100%;
-}
-
-/* The queue folds to a slim strip: only half of its width is layout space, the other half bleeds
-   out over the page padding to the window edge (see .side-rail). */
-.generate-layout--queue-collapsed {
-  grid-template-columns: var(--rail-space) 500px minmax(0, 1fr);
 }
 
 .generate-form {
@@ -506,8 +532,9 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 }
 
 /* Collapsed side panels (the queue on the left, the Library details on the right): a slim strip
-   flush with the window edge - no card, no margin - that opens when clicked. Negative margins
-   pull it out over the page padding; its layout footprint is only --rail-space. */
+   flush with the window edge - no card, no margin - that opens when clicked. The queue's sits in
+   its own dock; the details one pulls itself out over the page padding with negative margins (its
+   layout footprint is only --rail-space). */
 .side-rail {
   display: flex;
   flex-direction: column;
@@ -515,7 +542,6 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   gap: 10px;
   min-width: 0;
   min-height: 0;
-  margin-block: calc(var(--page-pad) * -1);
   padding: 8px 0;
   overflow: hidden;
   background: var(--color-surface);
@@ -528,13 +554,13 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 }
 
 .side-rail--left {
-  margin-left: calc(var(--page-pad) * -1);
   border-right: 1px solid var(--color-border);
 }
 
 .side-rail--right {
   flex: none;
   width: calc(var(--rail-space) + var(--page-pad));
+  margin-block: calc(var(--page-pad) * -1);
   margin-right: calc(var(--page-pad) * -1);
   border-left: 1px solid var(--color-border);
 }
@@ -1165,24 +1191,6 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* The queue beside the Library: pops out while upscales (or anything else) are queued. */
-.library-queue {
-  flex: none;
-  width: 300px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.library-queue--collapsed {
-  width: var(--rail-space);
-}
-
-.library-queue .queue-panel,
-.library-queue .side-rail {
-  flex: 1;
 }
 
 .library-panel {
