@@ -296,9 +296,18 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   display: grid;
   /* First column is the prompt-tabs rail + the settings form side by side (see
      .generate-sidebar-group) - 108px rail + 12px gap + the form's original 380px. */
-  grid-template-columns: 500px minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: calc(500px + 2 * var(--page-pad)) minmax(0, 1fr);
   height: 100%;
+}
+
+/* The page has no padding of its own (see .generate-page), so the preview can run edge to edge;
+   the form column carries the padding instead. */
+.generate-page {
+  padding: 0;
+}
+
+.generate-page .generate-sidebar-group {
+  padding: var(--page-pad);
 }
 
 .generate-form {
@@ -336,8 +345,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 .generate-preview {
   display: flex;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-left: 1px solid var(--color-border);
   min-height: 400px;
   min-width: 0;
   overflow: hidden;

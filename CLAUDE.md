@@ -97,7 +97,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   `.side-rail` strip showing the count and a tile per running/waiting/failed job. Open/closed is
   remembered in `localStorage`. The Library's details panel is not collapsible: it docks to the
   right edge only once an item is clicked and ✕ closes it - which is why `.library-page` has no
-  padding of its own and `.library-output__main` carries it. A favorite toggled in the queue panel
+  padding of its own and `.library-output__main` carries it. Likewise Generate's preview runs edge to
+  edge (`.generate-page` has no padding; the form column carries it). A favorite toggled in the queue panel
   is announced with `utils/favoriteChanges.ts` so a mounted Library list or Generate form follows
   the file's new path.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
