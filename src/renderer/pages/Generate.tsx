@@ -837,6 +837,7 @@ export default function Generate({
             slots={viewSlots}
             now={queue.now}
             progressInfo={queue.progressInfo}
+            findRecord={(id) => queue.jobs.find((j) => j.record?.id === id)?.record ?? null}
             onDelete={handleDeleteResult}
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}
