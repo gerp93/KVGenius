@@ -13,6 +13,9 @@ interface Props {
   slots: Job[];
   now: number;
   progressInfo: ProgressInfo | null;
+  /** The current state of a finished result (favorite / pinned change after it was made), or null
+   * once it has gone from the queue (deleted). */
+  findRecord: (id: number) => GenerationRecord | null;
   onDelete: (record: GenerationRecord) => void;
   onToggleFavorite: (record: GenerationRecord) => void;
   onTogglePinned: (record: GenerationRecord) => void;
@@ -48,6 +51,7 @@ export default function ResultViewer({
   slots,
   now,
   progressInfo,
+  findRecord,
   onDelete,
   onToggleFavorite,
   onTogglePinned,
@@ -175,6 +179,45 @@ export default function ResultViewer({
     return <div className="generate-preview__placeholder">Waiting in the queue...</div>;
   }
 
+  /** Favorite / pin / copy / convert / delete for a finished result. */
+  function renderActions(record: GenerationRecord, kind: JobKind) {
+    return (
+      <div className="button-row button-row--uniform">
+        <button
+          type="button"
+          onClick={() => onToggleFavorite(record)}
+          title={record.favorite ? 'Remove from favorites' : 'Save to favorites'}
+        >
+          {record.favorite ? '★ Favorited' : '☆ Favorite'}
+        </button>
+        <button
+          type="button"
+          onClick={() => onTogglePinned(record)}
+          title={
+            record.pinned
+              ? 'Unpin - remove this from Library > Prompts'
+              : 'Pin as the example of this prompt, shown under Library > Prompts'
+          }
+        >
+          {record.pinned ? '📌 Pinned' : '📌 Pin'}
+        </button>
+        {kind === 'image' && <CopyButton imagePath={record.imagePath} />}
+        {kind === 'image' && (
+          <button
+            type="button"
+            onClick={() => onConvertToVideo(record)}
+            title="Set up video mode with this image as the source"
+          >
+            🎬 Convert to Video
+          </button>
+        )}
+        <button type="button" onClick={() => handleDelete(record)} title="Move this generation to the Trash">
+          🗑️ Delete
+        </button>
+      </div>
+    );
+  }
+
   function renderSingle() {
     if (current.status === 'done' && current.record) {
       const record = current.record;
@@ -195,51 +238,22 @@ export default function ResultViewer({
             />
             {renderMedia(current, false)}
           </div>
-          <div className="button-row button-row--uniform">
-            <button
-              type="button"
-              onClick={() => onToggleFavorite(record)}
-              title={record.favorite ? 'Remove from favorites' : 'Save to favorites'}
-            >
-              {record.favorite ? '★ Favorited' : '☆ Favorite'}
-            </button>
-            <button
-              type="button"
-              onClick={() => onTogglePinned(record)}
-              title={
-                record.pinned
-                  ? 'Unpin - remove this from Library > Prompts'
-                  : 'Pin as the example of this prompt, shown under Library > Prompts'
-              }
-            >
-              {record.pinned ? '📌 Pinned' : '📌 Pin'}
-            </button>
-            {current.kind === 'image' && <CopyButton imagePath={record.imagePath} />}
-            {current.kind === 'image' && (
-              <button
-                type="button"
-                onClick={() => onConvertToVideo(record)}
-                title="Set up video mode with this image as the source"
-              >
-                🎬 Convert to Video
-              </button>
-            )}
-            <button type="button" onClick={() => handleDelete(record)} title="Move this generation to the Trash">
-              🗑️ Delete
-            </button>
-          </div>
+          {renderActions(record, current.kind)}
           {record.timing && <div className="result-timing">{timingSentence(record.timing)}</div>}
         </div>
       );
     }
 
-    // Not done yet: keep showing the last completed result at full size (no room reserved for the
-    // action row below it, so the picture gets the whole area) with the new job's status
-    // overlaid on its bottom edge, instead of blanking the screen while the next one generates.
+    // Not done yet: keep showing the last completed result - and its action buttons - with the new
+    // job's status overlaid on the picture's bottom edge, instead of blanking the screen while the
+    // next one generates.
     const fallback = lastGoodRef.current;
-    if (!fallback) return renderPending(current);
+    // Read from the queue each time, so the buttons below show its current favorite / pinned state;
+    // gone from the queue means it was deleted somewhere else.
+    const fallbackRecord = fallback ? findRecord(fallback.record.id) : null;
+    if (!fallback || !fallbackRecord) return renderPending(current);
     const availableWidth = Math.max(0, bodySize.width - BODY_PADDING * 2);
-    const availableHeight = Math.max(0, bodySize.height - BODY_PADDING * 2);
+    const availableHeight = Math.max(0, bodySize.height - BODY_PADDING * 2 - ACTIONS_HEIGHT);
     const mediaWidth = Math.floor(Math.min(availableWidth, availableHeight * fallback.aspect));
     const mediaHeight = Math.floor(mediaWidth / fallback.aspect);
     return (
@@ -262,6 +276,7 @@ export default function ResultViewer({
           )}
           {renderStatusOverlay(current)}
         </div>
+        {renderActions(fallbackRecord, fallback.kind)}
       </div>
     );
   }
