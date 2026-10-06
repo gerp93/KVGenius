@@ -9,7 +9,7 @@ import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
 import GalleryLightbox from '../components/GalleryLightbox';
-import { useFavoriteChanges } from '../utils/favoriteChanges';
+import { useGenerationChanges } from '../utils/generationChanges';
 import { justifyRows } from '../utils/justifiedRows';
 import { isUpscale, pinNotice } from '../utils/library';
 
@@ -423,17 +423,23 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     setLightboxIndex((prev) => (prev !== null && gone.has(records[prev]?.id) ? null : prev));
   }
 
-  // Favorited from the queue panel: bring this list in line with it.
-  useFavoriteChanges(({ id, favorite, imagePath }) => {
-    if (favoritesOnly && !favorite) {
+  // Changed from the queue bar: bring this list in line with it.
+  useGenerationChanges((change) => {
+    if (change.kind === 'trashed') {
+      // It left the Library: load the list (and the counts) again.
       setReloadKey((k) => k + 1);
-      return;
+    } else if (change.kind === 'pinned') {
+      setRecords((prev) => prev.map((r) => (r.id === change.id ? { ...r, pinned: change.pinned } : r)));
+    } else if (favoritesOnly && !change.favorite) {
+      setReloadKey((k) => k + 1);
+    } else {
+      const { id, favorite, imagePath } = change;
+      setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, favorite, imagePath } : r)));
+      setSelection((prev) => {
+        const ref = prev.get(id);
+        return ref ? new Map(prev).set(id, { ...ref, imagePath, favorite }) : prev;
+      });
     }
-    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, favorite, imagePath } : r)));
-    setSelection((prev) => {
-      const ref = prev.get(id);
-      return ref ? new Map(prev).set(id, { ...ref, imagePath, favorite }) : prev;
-    });
   });
 
   async function handleToggleFavorite(record: GenerationRecord) {

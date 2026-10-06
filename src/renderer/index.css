@@ -1799,7 +1799,7 @@ textarea:disabled {
   flex: none;
   display: flex;
   flex-direction: column;
-  width: 150px;
+  width: 170px;
   min-height: 0;
   border: 1px solid var(--color-border);
   border-radius: 6px;
@@ -1834,14 +1834,32 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
-.queue-done__rerack {
+.queue-done__actions {
   flex: none;
-  display: block;
-  width: calc(100% - 16px);
-  margin: 0 8px 6px;
+  display: flex;
+  gap: 4px;
+  margin: 0 6px 6px;
+}
+
+.queue-done__actions button {
   min-height: 0;
   padding: 4px 8px;
   font-size: 12px;
+}
+
+.queue-done__rerack {
+  flex: 1;
+  min-width: 0;
+}
+
+.queue-done__icon {
+  flex: none;
+  padding-inline: 7px;
+}
+
+.queue-done__icon--on {
+  border-color: var(--color-accent-blue);
+  background: var(--color-bg-hover);
 }
 
 .queue-panel__hint {

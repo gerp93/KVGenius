@@ -11,7 +11,8 @@ import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
 import { GenerationRecord, VideoSourceRequest } from '../shared/types';
-import { announceFavoriteChange } from './utils/favoriteChanges';
+import { announceGenerationChange } from './utils/generationChanges';
+import { pinNotice } from './utils/library';
 
 const CONNECTION_POLL_MS = 15000;
 // ComfyUI can take a while to come up after launch (first start, loading models into memory).
@@ -45,6 +46,8 @@ export default function App() {
   const navigate = useNavigate();
   // The queue bar is part of the shell (along the bottom), so it is there on every page; open or folded is remembered.
   const [queueCollapsed, setQueueCollapsedState] = useState(loadQueueCollapsed);
+  // A short confirmation from an action in the queue bar (pinned, moved to the Trash).
+  const [queueNotice, setQueueNotice] = useState<string | null>(null);
   // One queue for the whole app: Generate and the Library's Upscale both feed it.
   const queue = useGenerationQueue();
 
@@ -88,10 +91,40 @@ export default function App() {
       const { imagePath } = await window.kvgenius.setGenerationFavorite(record.id, favorite);
       queue.updateRecord(record.id, { favorite });
       queue.relocateFile(record.id, record.imagePath, imagePath, window.kvgenius.imageUrlFor(imagePath));
-      announceFavoriteChange({ id: record.id, favorite, oldPath: record.imagePath, imagePath });
+      announceGenerationChange({ kind: 'favorite', id: record.id, favorite, oldPath: record.imagePath, imagePath });
     } catch (err) {
       console.error('Could not change the favorite', err);
     }
+  }
+
+  /** A completed result's 📌: pins it (or unpins it) as the example of its prompt. */
+  async function handleQueuePin(record: GenerationRecord) {
+    const pinned = !record.pinned;
+    try {
+      const { groupSize } = await window.kvgenius.setGenerationPinned(record.id, pinned);
+      queue.updateRecord(record.id, { pinned });
+      announceGenerationChange({ kind: 'pinned', id: record.id, pinned });
+      showQueueNotice(pinned ? pinNotice(groupSize) : null);
+    } catch (err) {
+      console.error('Could not change the pin', err);
+    }
+  }
+
+  /** A completed result's 🗑️: moves it to the Trash (no confirmation - it can be restored there). */
+  async function handleQueueDelete(record: GenerationRecord) {
+    try {
+      await window.kvgenius.trashGenerations([record.id], { includeKept: true });
+      queue.removeRecord(record.id);
+      announceGenerationChange({ kind: 'trashed', id: record.id, imagePath: record.imagePath });
+      showQueueNotice('Moved to the Trash - restore it from Library > Trash.');
+    } catch (err) {
+      console.error('Could not move to the Trash', err);
+    }
+  }
+
+  function showQueueNotice(text: string | null) {
+    setQueueNotice(text);
+    if (text) setTimeout(() => setQueueNotice((current) => (current === text ? null : current)), 4000);
   }
 
   function handleQueueRerack(record: GenerationRecord) {
@@ -264,7 +297,10 @@ export default function App() {
         onCancelJob={queue.cancelJob}
         onClearQueued={queue.clearQueued}
         onDismissFailed={queue.dismissFailed}
+        notice={queueNotice}
         onToggleFavorite={handleQueueFavorite}
+        onTogglePinned={handleQueuePin}
+        onDelete={handleQueueDelete}
         onRerack={handleQueueRerack}
       />
     </div>

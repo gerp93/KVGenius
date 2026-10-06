@@ -101,9 +101,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   (its width scales with the screen) - which is why `.library-page` has no padding of its own and
   `.library-output__main` carries it. Likewise Generate has no page padding: the prompt-tab rail
   (`.prompt-slots-rail`, tabs share its height up to a cap and shrink as more open) and the preview
-  run edge to edge and the form carries the padding. A favorite toggled in the queue is announced
-  with `utils/favoriteChanges.ts` so a mounted Library list or Generate form follows the file's new
-  path.
+  run edge to edge and the form carries the padding. A finished card in the queue can be favorited,
+  pinned or deleted (to the Trash, no confirmation); those handlers live in `App.tsx` and announce
+  the change with `utils/generationChanges.ts` so a mounted Library list or Generate form follows
+  (a favorite also moves the file, so the new path comes along).
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned
