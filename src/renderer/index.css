@@ -162,10 +162,7 @@ button.top-bar__connection:disabled {
 }
 
 .page {
-  /* --rail-space: the part of a collapsed side strip (.side-rail) that takes layout room; the
-     rest of it bleeds out over the padding to the window edge. */
   --page-pad: 24px;
-  --rail-space: 24px;
   flex: 1;
   overflow: auto;
   padding: var(--page-pad);
@@ -531,10 +528,8 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   overflow: hidden;
 }
 
-/* Collapsed side panels (the queue on the left, the Library details on the right): a slim strip
-   flush with the window edge - no card, no margin - that opens when clicked. The queue's sits in
-   its own dock; the details one pulls itself out over the page padding with negative margins (its
-   layout footprint is only --rail-space). */
+/* The collapsed queue: a slim strip flush with the window edge - no card, no margin - that opens
+   when clicked. It sits in the queue dock (see .queue-dock). */
 .side-rail {
   display: flex;
   flex-direction: column;
@@ -557,16 +552,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   border-right: 1px solid var(--color-border);
 }
 
-.side-rail--right {
-  flex: none;
-  width: calc(var(--rail-space) + var(--page-pad));
-  margin-block: calc(var(--page-pad) * -1);
-  margin-right: calc(var(--page-pad) * -1);
-  border-left: 1px solid var(--color-border);
-}
-
-.side-rail__toggle,
-.side-rail__close {
+.side-rail__toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -581,8 +567,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   line-height: 1;
 }
 
-.side-rail:hover .side-rail__toggle,
-.side-rail__close:hover {
+.side-rail:hover .side-rail__toggle {
   color: var(--color-text);
 }
 
@@ -680,30 +665,6 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   50% {
     opacity: 0.55;
   }
-}
-
-/* The Library details strip: a thumbnail of the item that was open. */
-.details-rail__thumb {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: var(--color-bg-hover);
-  overflow: hidden;
-}
-
-.details-rail__thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.details-rail .side-rail__label {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .queue-panel__header {
@@ -958,16 +919,6 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   min-height: 0;
   display: flex;
   gap: 16px;
-}
-
-/* Output and Prompts own the page padding themselves, so the collapsed side strips can run flush
-   to the window edge (the Trash keeps the plain padded page). */
-.library-page--edge {
-  padding: 0;
-}
-
-.library-page--edge .library-output {
-  padding: var(--page-pad);
 }
 
 .library-output__main {

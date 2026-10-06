@@ -187,7 +187,7 @@ export default function QueuePanel({
           {pending > 0 && <span className="queue-panel__badge">{pending}</span>}
         </strong>
         <button type="button" onClick={onToggle} title="Hide the queue">
-          ◀
+          ✕
         </button>
       </div>
 

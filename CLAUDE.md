@@ -91,14 +91,12 @@ implementation here is exactly the kind of drift it exists to prevent.
   stacks are ordered and cursor-paged by their newest item (`groupNewestId`), and the
   Library's filters apply to items before they are grouped. Images and videos stack
   separately; trashed items are never in a stack.
-- **Side panels fold into flush edge strips** (`.side-rail` in `index.css`). The queue is part of the
-  app shell (`App.tsx`, `.queue-dock`) so it is on every page, on the left, and its open/folded state is
-  remembered in `localStorage`; the Library's details panel is on the right, so both can be open at once.
-  Collapsed, each is a card-less strip on the window edge; the queue's shows its count and a tile per
-  running/waiting/failed job. A favorite toggled in the queue panel is announced with
+- **The queue lives in the app shell, on every page** (`App.tsx`, `.queue-dock`, left side). Open it is
+  a card with a ✕ to close; closed it is a card-less `.side-rail` strip flush with the window edge
+  showing the count and a tile per running/waiting/failed job. Open/closed is remembered in
+  `localStorage`. The Library's details panel is not collapsible: it appears on the right only once an
+  item is clicked and ✕ closes it. A favorite toggled in the queue panel is announced with
   `utils/favoriteChanges.ts` so a mounted Library list or Generate form follows the file's new path.
-  The details strip bleeds over the page padding with negative margins, so Output and Prompts get
-  `.library-page--edge` (the page padding moves onto `.library-output`); the Trash keeps the padded page.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned
