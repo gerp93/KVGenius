@@ -585,13 +585,19 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 }
 
 .queue-bar__tiles {
-  flex: none;
+  /* Takes all the room between the title and the status text; QueuePanel fits as many tiles as
+     the width allows (TILE_SIZE / TILE_GAP there match the tile size and gap here). */
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
 }
 
 .queue-bar__status {
+  flex: none;
+  max-width: 40%;
   min-width: 0;
   margin-left: auto;
   font-size: 12px;
