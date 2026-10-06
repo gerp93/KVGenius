@@ -305,6 +305,37 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   padding: 0;
 }
 
+.seed-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.seed-row__seed {
+  flex: 1;
+  min-width: 0;
+}
+
+.seed-row__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.seed-row__controls input {
+  flex: 1;
+  min-width: 0;
+}
+
+.seed-row__batch {
+  flex: none;
+}
+
+.seed-row__batch input {
+  width: 84px;
+}
+
 .generate-form {
   flex: 1;
   min-width: 0;
@@ -349,7 +380,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   overflow: hidden;
 }
 
-/* Generate / Queue Another on top, then Cancel and Save Prompt beside each other. */
+/* Generate / Queue Another on top, then Cancel under it - each takes the whole row. */
 .generate-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -361,8 +392,10 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   min-width: 0;
 }
 
-/* Generate takes the whole row; Cancel, when there is something to cancel, sits under it. */
-.generate-actions__go {
+/* Generate takes the whole row; Cancel, when there is something to cancel, sits under it at the
+   same width. */
+.generate-actions__go,
+.generate-actions__full {
   grid-column: 1 / -1;
 }
 

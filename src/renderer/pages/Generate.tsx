@@ -698,48 +698,44 @@ export default function Generate({
             </div>
           )}
 
-          <div style={{ marginTop: 12 }}>
-            <label className="field-label" htmlFor="seed">
-              Seed
-            </label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* Seed, its lock/random switch and the batch size share one line; the batch hint sits under it. */}
+          <div className="seed-row">
+            <div className="seed-row__seed">
+              <label className="field-label" htmlFor="seed">
+                Seed
+              </label>
+              <div className="seed-row__controls">
+                <input id="seed" type="number" value={seed} onChange={(e) => setSeed(Number(e.target.value))} />
+                <button
+                  type="button"
+                  onClick={() => setSeedLocked((v) => !v)}
+                  title={seedLocked ? 'Seed is locked - won\'t change between runs' : 'Seed randomizes on each run'}
+                >
+                  {seedLocked ? '🔒 Locked' : '🎲 Random'}
+                </button>
+              </div>
+            </div>
+
+            <div className={`seed-row__batch${seedLocked ? ' field--disabled' : ''}`}>
+              <label className="field-label" htmlFor="batch-size">
+                Batch size
+              </label>
               <input
-                id="seed"
+                id="batch-size"
                 type="number"
-                value={seed}
-                onChange={(e) => setSeed(Number(e.target.value))}
-                style={{ width: 160 }}
+                min={1}
+                max={MAX_BATCH_SIZE}
+                value={effectiveBatch}
+                disabled={seedLocked}
+                onChange={(e) => setBatchSize(Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(Number(e.target.value)) || 1)))}
               />
-              <button
-                type="button"
-                onClick={() => setSeedLocked((v) => !v)}
-                title={seedLocked ? 'Seed is locked - won\'t change between runs' : 'Seed randomizes on each run'}
-              >
-                {seedLocked ? '🔒 Locked' : '🎲 Random'}
-              </button>
             </div>
           </div>
-
-          <div style={{ marginTop: 12 }} className={seedLocked ? 'field--disabled' : undefined}>
-            <label className="field-label" htmlFor="batch-size">
-              Batch size
-            </label>
-            <input
-              id="batch-size"
-              type="number"
-              min={1}
-              max={MAX_BATCH_SIZE}
-              value={effectiveBatch}
-              disabled={seedLocked}
-              onChange={(e) => setBatchSize(Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(Number(e.target.value)) || 1)))}
-              style={{ width: 100 }}
-            />
-            <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
-              {seedLocked
-                ? 'Switch the seed to 🎲 Random to make several at once - each needs its own seed.'
-                : `Queues this many, each with its own random seed (up to ${MAX_BATCH_SIZE}).`}
-            </p>
-          </div>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+            {seedLocked
+              ? 'Switch the seed to 🎲 Random to make several at once - each needs its own seed.'
+              : `Queues this many, each with its own random seed (up to ${MAX_BATCH_SIZE}).`}
+          </p>
 
           {mode === 'image' && (
           <div style={{ marginTop: 16 }}>
@@ -804,7 +800,7 @@ export default function Generate({
               {effectiveBatch > 1 ? ` (${effectiveBatch})` : ''}
             </button>
             {runningJob && (
-              <button type="button" onClick={handleCancel}>
+              <button type="button" className="generate-actions__full" onClick={handleCancel}>
                 ✕ Cancel ({formatElapsed(Math.floor((queue.now - (runningJob.startedAt ?? queue.now)) / 1000))})
               </button>
             )}
