@@ -21,35 +21,12 @@ body {
   height: 100%;
 }
 
-/* Below the top bar: the queue dock on the left of every page, then the page itself. */
-.app-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
 .app-content {
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-/* Open or folded, the queue is docked flush against the window edge and the top bar - no margin
-   or padding around it, just a divider line on its inner side. */
-.queue-dock {
-  flex: none;
-  display: flex;
-  width: 300px;
-}
-
-.queue-dock--collapsed {
-  width: 48px;
-}
-
-.queue-dock > * {
-  flex: 1;
 }
 
 .top-bar {
@@ -316,24 +293,24 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 .generate-layout {
   display: grid;
   /* First column is the prompt-tabs rail + the settings form side by side (see
-     .generate-sidebar-group) - 108px rail + 12px gap + the form's original 380px. */
-  grid-template-columns: calc(500px + 2 * var(--page-pad)) minmax(0, 1fr);
+     .generate-sidebar-group): the rail, then the form's 380px plus its padding. */
+  grid-template-columns: calc(var(--slots-w) + 380px + 2 * var(--page-pad)) minmax(0, 1fr);
   height: 100%;
 }
 
-/* The page has no padding of its own (see .generate-page), so the preview can run edge to edge;
-   the form column carries the padding instead. */
+/* The page has no padding of its own (see .generate-page), so the tab rail and the preview can
+   run edge to edge; the form carries the padding instead. */
 .generate-page {
+  --slots-w: 160px;
   padding: 0;
 }
 
-.generate-page .generate-sidebar-group {
-  padding: var(--page-pad);
-}
-
 .generate-form {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  padding: var(--page-pad);
 }
 
 .source-image-button {
@@ -545,41 +522,46 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   color: var(--color-accent-red);
 }
 
-.queue-panel {
+/* The queue bar along the bottom of the window, under every page. Folded it is a slim status strip
+   (count, a tile per job, what the running job is doing); open it is a drawer of horizontal cards
+   that pushes the page up. Flush against the window edges - no margin or padding around it. */
+.queue-bar {
+  position: relative;
+  flex: none;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  min-width: 0;
   background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border);
   overflow: hidden;
 }
 
-/* The collapsed queue: a slim strip flush with the window edge - no card, no margin - that opens
-   when clicked. It sits in the queue dock (see .queue-dock). */
-.side-rail {
+.queue-bar:not(.queue-bar--collapsed) {
+  height: clamp(200px, 30vh, 320px);
+}
+
+.queue-bar__head {
+  flex: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  min-width: 0;
-  min-height: 0;
-  padding: 8px 0;
-  overflow: hidden;
-  background: var(--color-surface);
+  gap: 12px;
+  min-height: 40px;
+  padding: 4px 12px;
+}
+
+.queue-bar--collapsed .queue-bar__head {
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
-.side-rail:hover {
+.queue-bar--collapsed .queue-bar__head:hover {
   background: var(--color-bg-hover);
 }
 
-.side-rail--left {
-  border-right: 1px solid var(--color-border);
+.queue-bar:not(.queue-bar--collapsed) .queue-bar__head {
+  border-bottom: 1px solid var(--color-border);
 }
 
-.side-rail__toggle {
+.queue-bar__toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -594,59 +576,71 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   line-height: 1;
 }
 
-.side-rail:hover .side-rail__toggle {
+.queue-bar__head:hover .queue-bar__toggle {
   color: var(--color-text);
 }
 
-.side-rail__label {
-  writing-mode: vertical-rl;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
+.queue-bar__title {
+  flex: none;
 }
 
-/* The overall count, then a small tile per job - running first, then waiting in order, then failed. */
-.queue-rail__count {
-  min-width: 26px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  text-align: center;
-  color: var(--color-primary-action-text, var(--color-text));
-  background: var(--color-primary-action);
-}
-
-.queue-rail__tiles {
-  flex: 1;
-  min-height: 0;
+.queue-bar__tiles {
+  flex: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
   gap: 6px;
-  overflow: hidden;
 }
 
-.queue-rail__tile {
+.queue-bar__status {
+  min-width: 0;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-bar__clear {
+  flex: none;
+  margin-left: 0;
+}
+
+/* A thin line across the top of the folded bar that fills as the running job progresses. */
+.queue-bar__line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--queue-bar-fill, 0%);
+  height: 2px;
+  background: var(--color-accent-blue);
+  transition: width 0.4s ease;
+}
+
+.queue-bar__line--pulse {
+  animation: queue-tile-pulse 1.4s ease-in-out infinite;
+}
+
+/* One small tile per job - running first, then waiting in order, then failed. */
+.queue-bar__tile {
   position: relative;
   flex: none;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--color-bg-hover);
   overflow: hidden;
 }
 
 /* The running tile fills from the bottom as the job progresses (or pulses while that is unknowable). */
-.queue-rail__tile--running {
+.queue-bar__tile--running {
   border-color: var(--color-accent-blue);
 }
 
-.queue-rail__tile--running::before {
+.queue-bar__tile--running::before {
   content: '';
   position: absolute;
   left: 0;
@@ -658,31 +652,31 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   transition: height 0.4s ease;
 }
 
-.queue-rail__tile--pulse {
+.queue-bar__tile--pulse {
   animation: queue-tile-pulse 1.4s ease-in-out infinite;
 }
 
-.queue-rail__tile--failed {
+.queue-bar__tile--failed {
   border-color: var(--color-accent-red);
   color: var(--color-accent-red);
 }
 
-.queue-rail__tile-icon {
+.queue-bar__tile-icon {
   position: relative;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
 }
 
-.queue-rail__tile-position {
+.queue-bar__tile-position {
   position: absolute;
-  right: 3px;
-  bottom: 1px;
-  font-size: 10px;
+  right: 2px;
+  bottom: 0;
+  font-size: 9px;
   font-weight: 600;
   color: var(--color-text-muted);
 }
 
-.queue-rail__more {
+.queue-bar__more {
   flex: none;
   font-size: 12px;
   color: var(--color-text-muted);
@@ -694,17 +688,33 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   }
 }
 
-.queue-panel__header {
+/* The open drawer: groups side by side, each a title over a row of cards; scrolls sideways. */
+.queue-bar__body {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--color-border);
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-.queue-panel__header button {
+.queue-bar__group {
+  flex: none;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  padding: 2px 10px;
+  padding: 10px 14px;
+}
+
+.queue-bar__group + .queue-bar__group {
+  border-left: 1px solid var(--color-border);
+}
+
+.queue-bar__cards {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
 }
 
 .queue-panel__badge {
@@ -719,16 +729,6 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   background: var(--color-primary-action);
 }
 
-.queue-panel__body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 12px;
-  overflow-y: auto;
-}
-
 .queue-panel__empty {
   margin: 0;
   font-size: 13px;
@@ -736,9 +736,10 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 }
 
 .queue-panel__section-title {
+  flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 8px;
   font-size: 11px;
   font-weight: 600;
@@ -756,10 +757,13 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 }
 
 .queue-job {
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 8px;
+  width: 260px;
+  min-height: 0;
+  overflow: hidden;
   padding: 8px 10px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
@@ -1784,16 +1788,13 @@ textarea:disabled {
   text-align: center;
 }
 
-.queue-panel__total {
-  padding-top: 10px;
-  border-top: 1px solid var(--color-border);
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-
-/* A completed generation shown full-width right in the queue (QueuePanel's "Recently completed"). */
+/* A completed generation shown as a card in the queue drawer (QueuePanel's "Recently completed"). */
 .queue-done {
-  margin-bottom: 10px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: 150px;
+  min-height: 0;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   overflow: hidden;
@@ -1802,38 +1803,45 @@ textarea:disabled {
 
 .queue-done__media {
   position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 .queue-done__media img,
-.queue-done__media video {
+.queue-done__media video,
+.queue-done__media .generated-video {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: cover;
 }
 
 .queue-done__caption {
-  padding: 6px 8px;
+  flex: none;
+  padding: 4px 8px;
   font-size: 12px;
   color: var(--color-text-muted);
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
 }
 
 .queue-done__rerack {
+  flex: none;
   display: block;
   width: calc(100% - 16px);
-  margin: 0 8px 8px;
+  margin: 0 8px 6px;
   min-height: 0;
   padding: 4px 8px;
   font-size: 12px;
 }
 
 .queue-panel__hint {
-  margin: -4px 0 8px;
   font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--color-text-muted);
 }
 
@@ -1981,22 +1989,27 @@ textarea:disabled {
   font-size: 13px;
 }
 
-/* Generate page: prompt "tabs" as a vertical sidebar rail (each tab holds the whole form to its
-   right) - a horizontal row of pills would wrap into several rows once there were more than a
-   handful, so this scales to many without eating vertical space above the prompt box. */
+/* Generate page: prompt "tabs" as a vertical rail flush against the left edge and the top bar
+   (each tab holds the whole form to its right). The tabs share the rail's height: tall while there
+   are few - with room for a few lines of the prompt - and squeezing down as more are opened, until
+   they reach a minimum and the list scrolls. */
 .generate-sidebar-group {
   display: flex;
-  gap: 12px;
   min-width: 0;
   min-height: 0;
 }
 
 .prompt-slots-rail {
-  flex: 0 0 108px;
+  flex: 0 0 var(--slots-w);
+  width: var(--slots-w);
+  /* Without this the tabs' long text would stretch the rail past its width. */
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   min-height: 0;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
 }
 
 .prompt-slots-rail__list {
@@ -2005,37 +2018,47 @@ textarea:disabled {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-right: 2px;
 }
 
 .prompt-slot-row {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 48px;
+  max-height: 96px;
   display: flex;
-  align-items: center;
-  gap: 2px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  align-items: stretch;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .prompt-slot-row--active {
-  border-color: var(--color-accent-blue);
   background: var(--color-bg-hover);
+  box-shadow: inset 3px 0 0 var(--color-accent-blue);
 }
 
 .prompt-slot-row__label {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  padding: 6px 8px;
-  border: none;
-  background: transparent;
-  font-size: 12px;
-  text-align: left;
+  display: flex;
+  align-items: center;
   justify-content: flex-start;
+  /* Right padding leaves room for the close button in the corner. */
+  padding: 6px 22px 6px 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  white-space: normal;
+}
+
+.prompt-slot-row__text {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .prompt-slot-row--active .prompt-slot-row__label {
@@ -2046,14 +2069,17 @@ textarea:disabled {
   flex: 1;
   min-width: 0;
   min-height: 0;
+  margin: 6px;
   padding: 5px 6px;
   font-size: 12px;
 }
 
 .prompt-slot-row__close {
-  flex: none;
+  position: absolute;
+  top: 2px;
+  right: 2px;
   min-height: 0;
-  padding: 0 6px;
+  padding: 2px 6px;
   border: none;
   background: transparent;
   font-size: 11px;
@@ -2068,9 +2094,12 @@ textarea:disabled {
 
 .prompt-slot-row__add {
   flex: none;
-  min-height: 32px;
+  min-height: 40px;
   padding: 6px 4px;
-  font-size: 12px;
+  border: none;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0;
+  font-size: 13px;
 }
 
 /* A negative signed number (e.g. "-8%" in the Timing tab) shown in the app's alert/negative color. */

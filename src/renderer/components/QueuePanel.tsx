@@ -27,8 +27,8 @@ interface Props {
  * right where it just finished without switching over to the result viewer. */
 const MAX_COMPLETED_SHOWN = 5;
 
-/** Job tiles on the collapsed strip before the rest are summed up as "+N". */
-const MAX_RAIL_TILES = 8;
+/** Job tiles on the folded bar before the rest are summed up as "+N". */
+const MAX_BAR_TILES = 14;
 
 type DoneJob = Job & { record: GenerationRecord; imageUrl: string; kind: JobKind };
 
@@ -46,7 +46,8 @@ function describe(job: Job): string {
   return parts.join(' · ');
 }
 
-/** Left-hand, collapsible list of what is generating and what is waiting, with cancel controls. */
+/** The queue bar along the bottom of the window: a slim status strip while folded, and a drawer of
+ * horizontal cards (generating, waiting, finished, failed) with cancel controls while open. */
 export default function QueuePanel({
   jobs,
   now,
@@ -99,55 +100,12 @@ export default function QueuePanel({
     }
   }
 
-  if (collapsed) {
-    // A slim strip down the window edge: a tile per running / waiting / failed job and the count
-    // on top. The whole strip opens the queue; the button is there for the keyboard (its click
-    // bubbles up to the strip's handler).
-    const tiles = [...(running ? [running] : []), ...queued, ...failed];
-    const shown = tiles.slice(0, MAX_RAIL_TILES);
-    const hiddenCount = tiles.length - shown.length;
-    return (
-      <aside className="side-rail side-rail--left queue-rail" onClick={onToggle}>
-        <button type="button" className="side-rail__toggle" title="Show the queue" aria-expanded="false">
-          ▶
-        </button>
-        {pending > 0 && (
-          <span className="queue-rail__count" title={`${pending} in the queue`}>
-            {pending}
-          </span>
-        )}
-        <div className="queue-rail__tiles">
-          {shown.map((job) => {
-            const isRunning = job.status === 'running';
-            const position = job.status === 'queued' ? queued.indexOf(job) + 1 : 0;
-            const status = isRunning
-              ? (runningDisplay?.label ?? 'Generating')
-              : job.status === 'failed'
-                ? 'Failed'
-                : `Waiting - #${position}`;
-            const fillStyle =
-              isRunning && runningDisplay?.determinate
-                ? ({ '--queue-tile-fill': `${Math.round(runningDisplay.fraction * 100)}%` } as React.CSSProperties)
-                : undefined;
-            return (
-              <span
-                key={job.id}
-                className={`queue-rail__tile queue-rail__tile--${job.status}${
-                  isRunning && !runningDisplay?.determinate ? ' queue-rail__tile--pulse' : ''
-                }`}
-                style={fillStyle}
-                title={`${status}\n${job.params.prompt}`}
-              >
-                <span className="queue-rail__tile-icon">{job.status === 'failed' ? '⚠' : job.kind === 'video' ? '🎬' : '🖼️'}</span>
-                {position > 0 && <span className="queue-rail__tile-position">{position}</span>}
-              </span>
-            );
-          })}
-          {hiddenCount > 0 && <span className="queue-rail__more">+{hiddenCount}</span>}
-        </div>
-        <span className="side-rail__label">Queue</span>
-      </aside>
-    );
+  // The one line the folded bar shows: what the running job is doing, or how things stand.
+  let statusText = pending > 0 ? '' : failed.length > 0 ? `${failed.length} failed` : 'Nothing queued';
+  if (runningDisplay) {
+    statusText = runningDisplay.label;
+    if (runningDisplay.overrunning) statusText += ' · taking longer than usual';
+    else if (runningDisplay.remainingMs !== null) statusText += ` · about ${formatDuration(runningDisplay.remainingMs)} left`;
   }
 
   function batchLabel(job: Job): string | null {
@@ -155,7 +113,7 @@ export default function QueuePanel({
     return batch.length > 1 ? `${batch.indexOf(job) + 1} of ${batch.length} in this batch` : null;
   }
 
-  function renderJob(job: Job, extra: React.ReactNode) {
+  function renderJob(job: Job, extra: React.ReactNode, below?: React.ReactNode) {
     const label = batchLabel(job);
     return (
       <div key={job.id} className={`queue-job queue-job--${job.status}`}>
@@ -175,129 +133,192 @@ export default function QueuePanel({
           </div>
         )}
         {job.status === 'failed' && job.error && <div className="queue-job__error">{job.error}</div>}
+        {below}
       </div>
     );
   }
 
+  const tiles = [...(running ? [running] : []), ...queued, ...failed];
+  const shownTiles = tiles.slice(0, MAX_BAR_TILES);
+  const hiddenTiles = tiles.length - shownTiles.length;
+
   return (
-    <aside className="queue-panel">
-      <div className="queue-panel__header">
-        <strong>
+    <section className={`queue-bar${collapsed ? ' queue-bar--collapsed' : ''}`}>
+      {collapsed && runningDisplay && (
+        <div
+          className={`queue-bar__line${runningDisplay.determinate ? '' : ' queue-bar__line--pulse'}`}
+          style={{ '--queue-bar-fill': `${Math.round((runningDisplay.determinate ? runningDisplay.fraction : 1) * 100)}%` } as React.CSSProperties}
+        />
+      )}
+      {/* Folded, the whole bar opens the queue; its button is there for the keyboard (the click
+          bubbles up). Open, only the ✕ closes it. */}
+      <div className="queue-bar__head" onClick={collapsed ? onToggle : undefined}>
+        <button
+          type="button"
+          className="queue-bar__toggle"
+          onClick={collapsed ? undefined : onToggle}
+          title={collapsed ? 'Show the queue' : 'Hide the queue'}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? '▲' : '✕'}
+        </button>
+        <strong className="queue-bar__title">
           Queue
           {pending > 0 && <span className="queue-panel__badge">{pending}</span>}
         </strong>
-        <button type="button" onClick={onToggle} title="Hide the queue">
-          ✕
-        </button>
-      </div>
-
-      <div className="queue-panel__body">
-        {!running && queued.length === 0 && failed.length === 0 && done.length === 0 && (
-          <p className="queue-panel__empty">
-            Nothing queued. While something is generating, use "Queue Another" - or set a batch size to queue several
-            at once.
-          </p>
-        )}
-
-        {running && (
-          <section>
-            <div className="queue-panel__section-title">Generating now</div>
-            {renderJob(
-              running,
-              <button type="button" className="queue-job__cancel" onClick={() => onCancelJob(running.id)} title="Cancel">
-                ✕
-              </button>
-            )}
-            <RunProgress compact job={running} progressInfo={progressInfo} now={now} />
-          </section>
-        )}
-
-        {queued.length > 0 && (
-          <section>
-            <div className="queue-panel__section-title">
-              Up next ({queued.length})
-              <button type="button" className="queue-panel__clear" onClick={onClearQueued}>
+        {collapsed ? (
+          <>
+            <div className="queue-bar__tiles">
+              {shownTiles.map((job) => {
+                const isRunning = job.status === 'running';
+                const position = job.status === 'queued' ? queued.indexOf(job) + 1 : 0;
+                const status = isRunning
+                  ? (runningDisplay?.label ?? 'Generating')
+                  : job.status === 'failed'
+                    ? 'Failed'
+                    : `Waiting - #${position}`;
+                const fillStyle =
+                  isRunning && runningDisplay?.determinate
+                    ? ({ '--queue-tile-fill': `${Math.round(runningDisplay.fraction * 100)}%` } as React.CSSProperties)
+                    : undefined;
+                return (
+                  <span
+                    key={job.id}
+                    className={`queue-bar__tile queue-bar__tile--${job.status}${
+                      isRunning && !runningDisplay?.determinate ? ' queue-bar__tile--pulse' : ''
+                    }`}
+                    style={fillStyle}
+                    title={`${status}\n${job.params.prompt}`}
+                  >
+                    <span className="queue-bar__tile-icon">{job.status === 'failed' ? '⚠' : job.kind === 'video' ? '🎬' : '🖼️'}</span>
+                    {position > 0 && <span className="queue-bar__tile-position">{position}</span>}
+                  </span>
+                );
+              })}
+              {hiddenTiles > 0 && <span className="queue-bar__more">+{hiddenTiles}</span>}
+            </div>
+            <span className="queue-bar__status">{statusText}</span>
+          </>
+        ) : (
+          <>
+            {queueTotal && <span className="queue-bar__status">Queue total: {queueTotal.text}</span>}
+            {queued.length > 0 && (
+              <button type="button" className="queue-panel__clear queue-bar__clear" onClick={onClearQueued}>
                 Clear all
               </button>
-            </div>
-            {queued.map((job, i) =>
-              renderJob(
-                job,
-                <>
-                  <span className="queue-job__position">#{i + 1}</span>
-                  <button type="button" className="queue-job__cancel" onClick={() => onCancelJob(job.id)} title="Remove from queue">
-                    ✕
-                  </button>
-                </>
-              )
             )}
-          </section>
-        )}
-
-        {queueTotal && (
-          <div className="queue-panel__total">
-            Queue total: {queueTotal.text}
-          </div>
-        )}
-
-        {done.length > 0 && (
-          <section>
-            <div className="queue-panel__section-title">Recently completed</div>
-            {done.map((job) => (
-              <div key={job.id} className="queue-done">
-                <div className="queue-done__media">
-                  {job.kind === 'video' ? (
-                    <GeneratedVideo src={job.imageUrl} filePath={job.record.imagePath} thumbnail />
-                  ) : (
-                    <img src={job.imageUrl} alt={job.record.prompt} />
-                  )}
-                  <ExpandButton src={job.imageUrl} kind={job.kind} filePath={job.record.imagePath} alt={job.record.prompt} />
-                  <button
-                    type="button"
-                    className={`library-card__fav${job.record.favorite ? ' library-card__fav--on' : ''}`}
-                    onClick={() => onToggleFavorite(job.record)}
-                    title={job.record.favorite ? 'Remove from favorites' : 'Add to favorites'}
-                  >
-                    {job.record.favorite ? '★' : '☆'}
-                  </button>
-                </div>
-                <div className="queue-done__caption" title={job.params.prompt}>
-                  {job.params.prompt}
-                </div>
-                {!isUpscaleFamily(job.family) && (
-                  <button
-                    type="button"
-                    className="queue-done__rerack"
-                    onClick={() => onRerack(job.record)}
-                    title="Load this prompt and its exact settings back into the form"
-                  >
-                    ↺ Re-rack
-                  </button>
-                )}
-              </div>
-            ))}
-            {olderDoneCount > 0 && (
-              <div className="queue-panel__hint">
-                +{olderDoneCount} more this session - see Library &gt; Output
-              </div>
-            )}
-          </section>
-        )}
-
-        {failed.length > 0 && (
-          <section>
-            <div className="queue-panel__section-title">Failed</div>
-            {failed.map((job) =>
-              renderJob(
-                job,
-                <button type="button" className="queue-job__cancel" onClick={() => onDismissFailed(job.id)} title="Dismiss">
-                  ✕
-                </button>
-              )
-            )}
-          </section>
+          </>
         )}
       </div>
-    </aside>
+
+      {!collapsed && (
+        <div className="queue-bar__body">
+          {!running && queued.length === 0 && failed.length === 0 && done.length === 0 && (
+            <p className="queue-panel__empty">
+              Nothing queued. While something is generating, use "Queue Another" - or set a batch size to queue several at
+              once.
+            </p>
+          )}
+
+          {running && (
+            <section className="queue-bar__group">
+              <div className="queue-panel__section-title">Generating now</div>
+              <div className="queue-bar__cards">
+                {renderJob(
+                  running,
+                  <button type="button" className="queue-job__cancel" onClick={() => onCancelJob(running.id)} title="Cancel">
+                    ✕
+                  </button>,
+                  <RunProgress compact job={running} progressInfo={progressInfo} now={now} />
+                )}
+              </div>
+            </section>
+          )}
+
+          {queued.length > 0 && (
+            <section className="queue-bar__group">
+              <div className="queue-panel__section-title">Up next ({queued.length})</div>
+              <div className="queue-bar__cards">
+                {queued.map((job, i) =>
+                  renderJob(
+                    job,
+                    <>
+                      <span className="queue-job__position">#{i + 1}</span>
+                      <button type="button" className="queue-job__cancel" onClick={() => onCancelJob(job.id)} title="Remove from queue">
+                        ✕
+                      </button>
+                    </>
+                  )
+                )}
+              </div>
+            </section>
+          )}
+
+          {done.length > 0 && (
+            <section className="queue-bar__group">
+              <div className="queue-panel__section-title">
+                Recently completed
+                {olderDoneCount > 0 && (
+                  <span className="queue-panel__hint" title="Older ones are in Library > Output">
+                    +{olderDoneCount} more
+                  </span>
+                )}
+              </div>
+              <div className="queue-bar__cards">
+                {done.map((job) => (
+                  <div key={job.id} className="queue-done">
+                    <div className="queue-done__media">
+                      {job.kind === 'video' ? (
+                        <GeneratedVideo src={job.imageUrl} filePath={job.record.imagePath} thumbnail />
+                      ) : (
+                        <img src={job.imageUrl} alt={job.record.prompt} />
+                      )}
+                      <ExpandButton src={job.imageUrl} kind={job.kind} filePath={job.record.imagePath} alt={job.record.prompt} />
+                      <button
+                        type="button"
+                        className={`library-card__fav${job.record.favorite ? ' library-card__fav--on' : ''}`}
+                        onClick={() => onToggleFavorite(job.record)}
+                        title={job.record.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                      >
+                        {job.record.favorite ? '★' : '☆'}
+                      </button>
+                    </div>
+                    <div className="queue-done__caption" title={job.params.prompt}>
+                      {job.params.prompt}
+                    </div>
+                    {!isUpscaleFamily(job.family) && (
+                      <button
+                        type="button"
+                        className="queue-done__rerack"
+                        onClick={() => onRerack(job.record)}
+                        title="Load this prompt and its exact settings back into the form"
+                      >
+                        ↺ Re-rack
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {failed.length > 0 && (
+            <section className="queue-bar__group">
+              <div className="queue-panel__section-title">Failed</div>
+              <div className="queue-bar__cards">
+                {failed.map((job) =>
+                  renderJob(
+                    job,
+                    <button type="button" className="queue-job__cancel" onClick={() => onDismissFailed(job.id)} title="Dismiss">
+                      ✕
+                    </button>
+                  )
+                )}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+    </section>
   );
 }

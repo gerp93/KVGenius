@@ -91,16 +91,19 @@ implementation here is exactly the kind of drift it exists to prevent.
   stacks are ordered and cursor-paged by their newest item (`groupNewestId`), and the
   Library's filters apply to items before they are grouped. Images and videos stack
   separately; trashed items are never in a stack.
-- **The queue lives in the app shell, on every page** (`App.tsx`, `.queue-dock`, left side). Side
-  panels are docked flush - no margin or padding around them, only a divider line on the inner
-  side. Open, the queue is a full-height column with a ✕ to close; closed it is a narrow
-  `.side-rail` strip showing the count and a tile per running/waiting/failed job. Open/closed is
-  remembered in `localStorage`. The Library's details panel is not collapsible: it docks to the
-  right edge only once an item is clicked and ✕ closes it - which is why `.library-page` has no
-  padding of its own and `.library-output__main` carries it. Likewise Generate's preview runs edge to
-  edge (`.generate-page` has no padding; the form column carries it). A favorite toggled in the queue panel
-  is announced with `utils/favoriteChanges.ts` so a mounted Library list or Generate form follows
-  the file's new path.
+- **The queue is a bar along the bottom of the app shell, on every page** (`App.tsx`,
+  `QueuePanel.tsx`, `.queue-bar`). Panels are docked flush - no margin or padding around them, only
+  a divider line on the inner side. Folded (the default) it is a slim status strip: count, a tile
+  per running/waiting/failed job, what the running job is doing and a progress line. Open, it is a
+  drawer (`clamp(200px, 30vh, 320px)`) of horizontal cards that *pushes the page up* (it is in the
+  flex column, not an overlay). Open/folded is remembered in `localStorage`. The Library's details
+  panel is not collapsible: it docks to the right edge only once an item is clicked and ✕ closes it
+  (its width scales with the screen) - which is why `.library-page` has no padding of its own and
+  `.library-output__main` carries it. Likewise Generate has no page padding: the prompt-tab rail
+  (`.prompt-slots-rail`, tabs share its height up to a cap and shrink as more open) and the preview
+  run edge to edge and the form carries the padding. A favorite toggled in the queue is announced
+  with `utils/favoriteChanges.ts` so a mounted Library list or Generate form follows the file's new
+  path.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned
