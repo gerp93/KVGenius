@@ -7,7 +7,7 @@ import GalleryLightbox from '../components/GalleryLightbox';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
-import { useFavoriteChanges } from '../utils/favoriteChanges';
+import { useGenerationChanges } from '../utils/generationChanges';
 import { justifyRows } from '../utils/justifiedRows';
 import { isUpscale, pinNotice } from '../utils/library';
 
@@ -223,8 +223,13 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...changes } : r)));
   }
 
-  // Favorited from the queue panel: bring this list in line with it.
-  useFavoriteChanges(({ id, favorite, imagePath }) => patch(id, { favorite, imagePath }));
+  // Changed from the queue bar: bring this list in line with it.
+  useGenerationChanges((change) => {
+    if (change.kind === 'favorite') patch(change.id, { favorite: change.favorite, imagePath: change.imagePath });
+    // A pin or unpin changes which pictures belong here at all: load the list again.
+    else if (change.kind === 'pinned') setReloadKey((k) => k + 1);
+    else forget(change.id);
+  });
 
   function handleUse(record: GenerationRecord) {
     onRecallPrompt(record.prompt);

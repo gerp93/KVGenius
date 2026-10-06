@@ -19,7 +19,12 @@ interface Props {
   onCancelJob: (id: number) => void;
   onClearQueued: () => void;
   onDismissFailed: (id: number) => void;
+  /** A short confirmation of the last action taken on a finished result (pinned, moved to the Trash). */
+  notice: string | null;
   onToggleFavorite: (record: GenerationRecord) => void;
+  onTogglePinned: (record: GenerationRecord) => void;
+  /** Move a finished result to the Trash. */
+  onDelete: (record: GenerationRecord) => void;
   /** Pull a completed result's exact prompt and settings back into the form. */
   onRerack: (record: GenerationRecord) => void;
 }
@@ -60,7 +65,10 @@ export default function QueuePanel({
   onCancelJob,
   onClearQueued,
   onDismissFailed,
+  notice,
   onToggleFavorite,
+  onTogglePinned,
+  onDelete,
   onRerack,
 }: Props) {
   // How many tiles the folded bar has room for, kept up to date as the window or status text changes.
@@ -215,11 +223,13 @@ export default function QueuePanel({
               })}
               {hiddenTiles > 0 && <span className="queue-bar__more">+{hiddenTiles}</span>}
             </div>
-            <span className="queue-bar__status">{statusText}</span>
+            <span className="queue-bar__status">{notice ?? statusText}</span>
           </>
         ) : (
           <>
-            {queueTotal && <span className="queue-bar__status">Queue total: {queueTotal.text}</span>}
+            {(notice || queueTotal) && (
+              <span className="queue-bar__status">{notice ?? `Queue total: ${queueTotal?.text}`}</span>
+            )}
             {queued.length > 0 && (
               <button type="button" className="queue-panel__clear queue-bar__clear" onClick={onClearQueued}>
                 Clear all
@@ -304,16 +314,38 @@ export default function QueuePanel({
                     <div className="queue-done__caption" title={job.params.prompt}>
                       {job.params.prompt}
                     </div>
-                    {!isUpscaleFamily(job.family) && (
+                    <div className="queue-done__actions">
+                      {!isUpscaleFamily(job.family) && (
+                        <button
+                          type="button"
+                          className="queue-done__rerack"
+                          onClick={() => onRerack(job.record)}
+                          title="Load this prompt and its exact settings back into the form"
+                        >
+                          ↺ Re-rack
+                        </button>
+                      )}
                       <button
                         type="button"
-                        className="queue-done__rerack"
-                        onClick={() => onRerack(job.record)}
-                        title="Load this prompt and its exact settings back into the form"
+                        className={`queue-done__icon${job.record.pinned ? ' queue-done__icon--on' : ''}`}
+                        onClick={() => onTogglePinned(job.record)}
+                        title={
+                          job.record.pinned
+                            ? 'Unpin - remove this from Library > Prompts'
+                            : 'Pin as the example of this prompt, shown under Library > Prompts'
+                        }
                       >
-                        ↺ Re-rack
+                        📌
                       </button>
-                    )}
+                      <button
+                        type="button"
+                        className="queue-done__icon"
+                        onClick={() => onDelete(job.record)}
+                        title="Delete - moves it to the Trash (restore it from Library > Trash)"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

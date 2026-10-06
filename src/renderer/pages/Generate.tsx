@@ -8,7 +8,7 @@ import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useG
 import { usePromptSlots } from '../hooks/usePromptSlots';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
-import { useFavoriteChanges } from '../utils/favoriteChanges';
+import { useGenerationChanges } from '../utils/generationChanges';
 import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
 import { FAMILY_KIND, GenerationRecord, TimeEstimate, VideoSourceRequest } from '../../shared/types';
 import { VIDEO_QUALITY_SETTINGS, VideoQuality, videoQualityFromCfg } from '../../shared/videoQuality';
@@ -410,11 +410,17 @@ export default function Generate({
     if (runningJob) queue.cancelJob(runningJob.id);
   }
 
-  // Favorited from the queue panel (which lives in the app shell): the file moved, so a source
-  // image pointing at it follows. The queue's own jobs were already updated by the panel's handler.
-  useFavoriteChanges(({ oldPath, imagePath }) =>
-    setSourceImagePath((current) => (current === oldPath ? imagePath : current))
-  );
+  // Changed from the queue bar (which lives in the app shell): a favorite moved the file, so a source
+  // image pointing at it follows; a delete took it out of the Library (the queue's own jobs were
+  // already updated by the bar's handler).
+  useGenerationChanges((change) => {
+    if (change.kind === 'favorite') {
+      setSourceImagePath((current) => (current === change.oldPath ? change.imagePath : current));
+    } else if (change.kind === 'trashed') {
+      setLibraryChanges((n) => n + 1);
+      setSourceImagePath((current) => (current === change.imagePath ? null : current));
+    }
+  });
 
   async function handleToggleFavorite(record: GenerationRecord) {
     const favorite = !record.favorite;
