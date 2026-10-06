@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { GenerationRecord } from '../../shared/types';
 import { isUpscaleFamily } from '../../shared/upscale';
 import { videoQualityFromCfg } from '../../shared/videoQuality';
@@ -27,8 +28,10 @@ interface Props {
  * right where it just finished without switching over to the result viewer. */
 const MAX_COMPLETED_SHOWN = 5;
 
-/** Job tiles on the folded bar before the rest are summed up as "+N". */
-const MAX_BAR_TILES = 14;
+/** Size of a job tile on the folded bar and the gap between them (keep in step with `.queue-bar__tile`
+ * and `.queue-bar__tiles` in index.css). */
+const TILE_SIZE = 28;
+const TILE_GAP = 6;
 
 type DoneJob = Job & { record: GenerationRecord; imageUrl: string; kind: JobKind };
 
@@ -60,6 +63,19 @@ export default function QueuePanel({
   onToggleFavorite,
   onRerack,
 }: Props) {
+  // How many tiles the folded bar has room for, kept up to date as the window or status text changes.
+  const tilesRef = useRef<HTMLDivElement>(null);
+  const [tileSlots, setTileSlots] = useState(12);
+  useLayoutEffect(() => {
+    const el = tilesRef.current;
+    if (!el) return;
+    const measure = () => setTileSlots(Math.max(1, Math.floor((el.clientWidth + TILE_GAP) / (TILE_SIZE + TILE_GAP))));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [collapsed]);
+
   const running = jobs.find((j) => j.status === 'running');
   const queued = jobs.filter((j) => j.status === 'queued');
   const failed = jobs.filter((j) => j.status === 'failed' && !j.dismissed);
@@ -139,7 +155,9 @@ export default function QueuePanel({
   }
 
   const tiles = [...(running ? [running] : []), ...queued, ...failed];
-  const shownTiles = tiles.slice(0, MAX_BAR_TILES);
+  // As many tiles as fit across the folded bar; when they do not all fit, the last slot is the "+N".
+  const fits = tiles.length <= tileSlots;
+  const shownTiles = fits ? tiles : tiles.slice(0, Math.max(0, tileSlots - 1));
   const hiddenTiles = tiles.length - shownTiles.length;
 
   return (
@@ -168,7 +186,7 @@ export default function QueuePanel({
         </strong>
         {collapsed ? (
           <>
-            <div className="queue-bar__tiles">
+            <div className="queue-bar__tiles" ref={tilesRef}>
               {shownTiles.map((job) => {
                 const isRunning = job.status === 'running';
                 const position = job.status === 'queued' ? queued.indexOf(job) + 1 : 0;
