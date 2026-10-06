@@ -413,6 +413,19 @@ export default function Generate({
   return (
     <div className="page generate-page">
       <div className={`generate-layout${queueCollapsed ? ' generate-layout--queue-collapsed' : ''}`}>
+        <QueuePanel
+          jobs={queue.jobs}
+          now={queue.now}
+          progressInfo={queue.progressInfo}
+          collapsed={queueCollapsed}
+          onToggle={() => setQueueCollapsed((v) => !v)}
+          onCancelJob={queue.cancelJob}
+          onClearQueued={queue.clearQueued}
+          onDismissFailed={queue.dismissFailed}
+          onToggleFavorite={handleToggleFavorite}
+          onRerack={rerackInNewTab}
+        />
+
         <div className="generate-sidebar-group">
           <div className="prompt-slots-rail" role="tablist">
             <div className="prompt-slots-rail__list">
@@ -774,19 +787,6 @@ export default function Generate({
             onCancelJob={queue.cancelJob}
           />
         </div>
-
-        <QueuePanel
-          jobs={queue.jobs}
-          now={queue.now}
-          progressInfo={queue.progressInfo}
-          collapsed={queueCollapsed}
-          onToggle={() => setQueueCollapsed((v) => !v)}
-          onCancelJob={queue.cancelJob}
-          onClearQueued={queue.clearQueued}
-          onDismissFailed={queue.dismissFailed}
-          onToggleFavorite={handleToggleFavorite}
-          onRerack={rerackInNewTab}
-        />
       </div>
 
     </div>

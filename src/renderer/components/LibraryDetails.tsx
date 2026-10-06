@@ -80,6 +80,9 @@ export default function LibraryDetails({
   const [gifWidth, setGifWidth] = useState(DEFAULT_GIF_WIDTH);
   const [gifFps, setGifFps] = useState(DEFAULT_GIF_FPS);
   const [makingGif, setMakingGif] = useState(false);
+  // Folded down to a slim strip on the window edge; choosing another item opens it again.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => setCollapsed(false), [record.id]);
 
   function setUpscaleModel(model: string) {
     lastUpscaleModel = model;
@@ -173,10 +176,48 @@ export default function LibraryDetails({
     }
   }
 
+  if (collapsed) {
+    // The whole strip opens the panel; its button is there for the keyboard (the click bubbles up).
+    return (
+      <aside className="side-rail side-rail--right details-rail" onClick={() => setCollapsed(false)}>
+        <button type="button" className="side-rail__toggle" title="Show the details" aria-expanded="false">
+          ◀
+        </button>
+        <span className="details-rail__thumb" title={record.prompt}>
+          {kindOf(record) === 'video' ? (
+            <span className="details-rail__thumb-icon">🎬</span>
+          ) : (
+            <img src={window.kvgenius.imageUrlFor(record.imagePath)} alt="" />
+          )}
+        </span>
+        <span className="side-rail__label">Details</span>
+        <button
+          type="button"
+          className="side-rail__close"
+          title="Close"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+        >
+          ✕
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="library-panel">
       <div className="library-panel__header">
         <strong>Details</strong>
+        <span className="library-panel__window-buttons">
+          <button type="button" onClick={() => setCollapsed(true)} title="Fold away to the side">
+            ▶
+          </button>
+          <button type="button" onClick={onClose} title="Close">
+            ✕
+          </button>
+        </span>
         <span className="library-panel__header-buttons">
           <button type="button" onClick={() => onToggleFavorite(record)}>
             {record.favorite ? '★ Favorited' : '☆ Favorite'}
@@ -194,9 +235,6 @@ export default function LibraryDetails({
           </button>
           <button type="button" onClick={() => onToggleHidden(record)}>
             {record.hidden ? 'Unhide' : 'Hide'}
-          </button>
-          <button type="button" onClick={onClose} title="Close">
-            ✕
           </button>
         </span>
       </div>

@@ -620,6 +620,15 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
 
   return (
     <div className="library-output">
+      {/* Queue on the left, details on the right, so both can be open at once. */}
+      <LibraryQueue
+        queue={queue}
+        collapsed={queueCollapsed}
+        onToggle={() => setQueueCollapsed((v) => !v)}
+        onToggleFavorite={handleToggleFavorite}
+        onRerack={handleRecreate}
+      />
+
       <div className="library-output__main">
         {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
 
@@ -790,14 +799,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
           onNotice={setNotice}
         />
       )}
-
-      <LibraryQueue
-        queue={queue}
-        collapsed={queueCollapsed}
-        onToggle={() => setQueueCollapsed((v) => !v)}
-        onToggleFavorite={handleToggleFavorite}
-        onRerack={handleRecreate}
-      />
 
       {compare && (
         <CompareOverlay

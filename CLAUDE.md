@@ -91,6 +91,12 @@ implementation here is exactly the kind of drift it exists to prevent.
   stacks are ordered and cursor-paged by their newest item (`groupNewestId`), and the
   Library's filters apply to items before they are grouped. Images and videos stack
   separately; trashed items are never in a stack.
+- **Side panels fold into flush edge strips** (`.side-rail` in `index.css`). The queue lives on the
+  left (Generate and Library) and the Library's details on the right, so both can be open at once.
+  Collapsed, each is a card-less strip that bleeds over the page padding to the window edge via
+  negative margins (only `--rail-space` of it takes layout room); the queue's strip shows its count
+  and a tile per running/waiting/failed job. Output and Prompts get `.library-page--edge` (the page
+  padding moves onto `.library-output`) so the strips can reach the edge - the Trash keeps the padded page.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned

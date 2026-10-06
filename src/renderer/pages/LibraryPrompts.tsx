@@ -266,6 +266,15 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
 
   return (
     <div className="library-output">
+      {/* Queue on the left, details on the right, so both can be open at once. */}
+      <LibraryQueue
+        queue={queue}
+        collapsed={queueCollapsed}
+        onToggle={() => setQueueCollapsed((v) => !v)}
+        onToggleFavorite={handleToggleFavorite}
+        onRerack={handleRerack}
+      />
+
       <div className="library-output__main prompt-library">
         {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
 
@@ -333,14 +342,6 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
           onNotice={setNotice}
         />
       )}
-
-      <LibraryQueue
-        queue={queue}
-        collapsed={queueCollapsed}
-        onToggle={() => setQueueCollapsed((v) => !v)}
-        onToggleFavorite={handleToggleFavorite}
-        onRerack={handleRerack}
-      />
 
       {lightboxIndex !== null && visible[lightboxIndex] && (
         <GalleryLightbox
