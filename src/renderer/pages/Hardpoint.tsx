@@ -30,7 +30,7 @@ export default function HardpointPage({ theme }: { theme: string | null }) {
       const result = await window.kvgenius.openHardpoint();
       if (result.status === 'error') {
         setNotice(result.message);
-      } else {
+      } else if (!reachable) {
         setNotice('Starting Hardpoint…');
         for (let i = 0; i < 15; i++) {
           await new Promise((r) => setTimeout(r, 1_000));

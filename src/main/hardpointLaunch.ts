@@ -1,10 +1,9 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { shell } from 'electron';
 
 const HARDPOINT_STATUS_URL = 'http://127.0.0.1:3921/api/status';
-const HARDPOINT_UI_URL = 'http://127.0.0.1:3921/';
+const HARDPOINT_SHOW_WINDOW_URL = 'http://127.0.0.1:3921/api/window/show';
 
 export type HardpointOpenResult =
   | { status: 'ok' }
@@ -48,13 +47,24 @@ export function resolveHardpointRoot(): string | null {
 }
 
 /**
- * Open Hardpoint: if its API is already up, open the UI in the default browser;
- * otherwise spawn sibling `npm run dev` (dev) or Hardpoint.exe (install).
+ * Open Hardpoint: if it is already running, ask it to bring its own window to the
+ * front; otherwise spawn sibling `npm run dev` (dev) or Hardpoint.exe (install).
  */
 export async function openHardpoint(): Promise<HardpointOpenResult> {
   if (await isHardpointReachable()) {
-    await shell.openExternal(HARDPOINT_UI_URL);
-    return { status: 'ok' };
+    try {
+      const response = await fetch(HARDPOINT_SHOW_WINDOW_URL, {
+        method: 'POST',
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (response.ok) return { status: 'ok' };
+    } catch {
+      // fall through to the message below
+    }
+    return {
+      status: 'error',
+      message: 'Hardpoint is running but could not show its window. Restart Hardpoint to update it, then try again.',
+    };
   }
 
   const root = resolveHardpointRoot();
