@@ -2392,26 +2392,106 @@ textarea:disabled {
   color: var(--color-accent-red);
 }
 
-/* Styles tab: a list of styles at the left, the selected one's editor at the right. */
+/* Shared pieces for the Styles and Tools > Upscale pages: a titled card, a segmented choice, a delete button. */
+.panel {
+  padding: 16px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
+.panel__title {
+  margin: 0;
+  font-size: 15px;
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented__option {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.segmented__option + .segmented__option {
+  border-left: 1px solid var(--color-border);
+}
+
+.segmented__option--on,
+.segmented__option--on:hover:not(:disabled) {
+  background: var(--color-primary-action);
+  color: var(--color-primary-action-text, var(--color-text));
+}
+
+button.button-danger {
+  color: var(--color-accent-red);
+  border-color: transparent;
+  background: transparent;
+}
+
+button.button-danger:hover:not(:disabled) {
+  border-color: var(--color-accent-red);
+  background: transparent;
+}
+
+button.button-danger--armed,
+button.button-danger--armed:hover:not(:disabled) {
+  border-color: var(--color-accent-red);
+  background: var(--color-accent-red);
+  color: #fff;
+}
+
+/* Styles tab: a card listing the styles at the left, the selected one's editor card at the right. */
+.styles-page {
+  max-width: 1000px;
+}
+
+.styles-page__title {
+  margin: 0 0 4px;
+}
+
 .styles-page__intro {
   max-width: 720px;
   color: var(--color-text-muted);
   font-size: 13px;
-  margin-top: 0;
+  margin: 0 0 20px;
 }
 
 .styles-page__body {
-  display: flex;
-  gap: 24px;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
 }
 
 .styles-page__list {
-  flex: none;
-  width: 240px;
   display: flex;
   flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.styles-page__list-head,
+.styles-page__editor-head,
+.styles-page__field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
+}
+
+.styles-page__list-head button {
+  min-height: 32px;
+  padding: 4px 12px;
 }
 
 .styles-page__list ul {
@@ -2420,38 +2500,109 @@ textarea:disabled {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
 }
 
 .styles-page__item {
   width: 100%;
+  min-height: 0;
+  flex-direction: column;
+  align-items: flex-start;
   justify-content: flex-start;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
   border-color: transparent;
+  border-left: 3px solid transparent;
   background: transparent;
 }
 
 .styles-page__item--active {
-  border-color: var(--color-primary-action);
+  border-left-color: var(--color-primary-action);
   background: var(--color-bg-hover);
 }
 
-.styles-page__editor {
-  flex: 1;
-  min-width: 0;
-  max-width: 720px;
+.styles-page__item-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
 }
 
-.styles-page__empty,
-.styles-page__hint {
+.styles-page__item-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: normal;
   color: var(--color-text-muted);
   font-size: 12px;
+  line-height: 1.35;
 }
 
-.styles-page__hint code {
+.styles-page__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.styles-page__editor-head {
+  min-height: 24px;
+}
+
+.styles-page__unsaved {
+  font-size: 12px;
+  color: var(--color-accent-blue);
+}
+
+.styles-page__field-head .field-label {
+  margin-bottom: 4px;
+}
+
+.styles-page__count {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.styles-page__preview {
+  padding: 8px 12px;
+  border-left: 3px solid var(--color-border);
+  background: var(--color-bg-hover);
+  border-radius: 0 6px 6px 0;
+}
+
+.styles-page__preview .field-label {
+  margin-bottom: 2px;
+}
+
+.styles-page__preview code {
+  display: block;
   white-space: pre-wrap;
   word-break: break-word;
+  font-size: 12px;
+  user-select: text;
+}
+
+.styles-page__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.styles-page__actions .button-danger {
+  margin-left: auto;
+}
+
+.styles-page__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 .styles-page__error {
@@ -2462,6 +2613,16 @@ textarea:disabled {
 .styles-page__notice {
   color: var(--color-accent-green);
   font-size: 13px;
+}
+
+@media (max-width: 800px) {
+  .styles-page__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .styles-page__list ul {
+    max-height: 240px;
+  }
 }
 
 /* Generate's Style dropdown, and the read-only line showing what the style adds to the prompt. */
@@ -2505,9 +2666,9 @@ textarea:disabled {
   color: var(--color-accent-blue);
 }
 
-/* Tools > Upscale */
+/* Tools > Upscale: the pictures at the left, a sticky settings card at the right, this session's results below. */
 .tools-upscale {
-  max-width: 980px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
@@ -2515,43 +2676,138 @@ textarea:disabled {
   margin: 0 0 4px;
 }
 
-.tools-upscale__subtitle {
-  margin: 28px 0 10px;
-}
-
 .tools-upscale__hint {
-  margin: 0 0 16px;
-  opacity: 0.75;
+  max-width: 720px;
+  margin: 0 0 20px;
+  color: var(--color-text-muted);
+  font-size: 13px;
 }
 
-.tools-upscale__controls {
+.tools-upscale__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px;
+  align-items: start;
+}
+
+.tools-upscale__section-head {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  margin-bottom: 12px;
 }
 
-.tools-upscale__controls select {
+.tools-upscale__clear {
+  min-height: 28px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.tools-upscale__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-height: 220px;
+  border: 2px dashed var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.tools-upscale__empty:hover:not(:disabled) {
+  border-color: var(--color-accent-blue);
+  color: var(--color-text);
+}
+
+.tools-upscale__empty strong {
+  color: var(--color-text);
+  font-size: 16px;
+}
+
+.tools-upscale__empty-icon {
+  font-size: 32px;
+}
+
+.tools-upscale__settings {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tools-upscale__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tools-upscale__field .field-label {
+  margin-bottom: 0;
+}
+
+.tools-upscale__field select {
   min-width: 0;
-  max-width: 320px;
+  width: 100%;
+}
+
+.tools-upscale__go {
+  width: 100%;
+}
+
+.tools-upscale__blocker {
+  margin: -6px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 .tools-upscale__error {
-  margin: 12px 0 0;
-  color: var(--color-accent-red, #d9534f);
+  margin: 0;
+  color: var(--color-accent-red);
+  font-size: 13px;
 }
 
 .tools-upscale__notice {
-  margin: 12px 0 0;
-  opacity: 0.85;
+  margin: 0;
+  color: var(--color-accent-green);
+  font-size: 13px;
+}
+
+.tools-upscale__session {
+  margin-top: 28px;
+}
+
+.tools-upscale__subtitle {
+  margin: 0 0 10px;
+  font-size: 15px;
 }
 
 .tools-upscale__picked,
 .tools-upscale__results {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
-  margin-top: 16px;
+}
+
+.tools-upscale__add {
+  min-height: 120px;
+  flex-direction: column;
+  gap: 4px;
+  border: 2px dashed var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.tools-upscale__add span {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.tools-upscale__add:hover:not(:disabled) {
+  border-color: var(--color-accent-blue);
+  color: var(--color-text);
 }
 
 .tools-upscale__card {
@@ -2560,8 +2816,9 @@ textarea:disabled {
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));
+  border: 1px solid var(--color-border);
   border-radius: 8px;
+  background: var(--color-surface);
 }
 
 .tools-upscale__card img,
@@ -2616,6 +2873,16 @@ textarea:disabled {
   right: 6px;
   min-height: 28px;
   padding: 0 8px;
+}
+
+@media (max-width: 800px) {
+  .tools-upscale__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tools-upscale__settings {
+    position: static;
+  }
 }
 
 /* A region that takes picture files dropped from the file manager (ImageDropZone). */
