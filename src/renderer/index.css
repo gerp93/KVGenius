@@ -936,12 +936,21 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 }
 
 /* The toolbar (and the messages under it) stay at the top of the scrolling list, over the cards. Opaque,
-   so the pictures do not show through; z-index above the cards' own overlays (badges, expand button). */
+   so the pictures do not show through; z-index above the cards' own overlays (badges, expand button).
+   It reaches out over the list's padding (negative margin) and sticks at the same offset, so while
+   stuck it is solid right up to the edge under the nav bar - nothing scrolls past above it - and at
+   rest it looks exactly as it did. */
 .library-sticky {
   position: sticky;
-  top: 0;
+  /* The offset is from the list's content edge, which is one padding in from the top: -1 padding puts
+     the box at the very top, and 16px more tucks its padding away, so stuck the buttons sit 8px under
+     the nav bar (24px at rest). */
+  top: calc(var(--page-pad) * -1 - 16px);
   z-index: 20;
-  padding-top: 2px;
+  margin: calc(var(--page-pad) * -1) calc(var(--page-pad) * -1) 0;
+  padding: var(--page-pad) var(--page-pad) 0;
+  /* Keeps the toolbar's bottom margin inside the box, so a solid band sits under the buttons while stuck. */
+  display: flow-root;
   background: var(--color-bg);
 }
 
