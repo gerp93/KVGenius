@@ -76,7 +76,7 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'list_models',
     description:
-      'Lists the models available to generate_image: the built-in one and any variants the user saved in KVGenius (a fine-tune or a different checkpoint of the same family), with the steps and CFG each is set up for. Pass a model\'s name as `model` to generate_image.',
+      'Lists the models available to generate_image and generate_video: the built-in ones and any variants the user saved in KVGenius (a fine-tune or a different checkpoint of the same family), with the steps and CFG an image model is set up for. Pass a model\'s name as `model` to the tool listed for it.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -95,6 +95,11 @@ export const TOOLS: ToolDefinition[] = [
         prompt: { type: 'string', description: 'Describes the motion and action to add to the image.' },
         source: itemIdProp('The image to animate'),
         family: { type: 'string', description: 'Video family (see list_capabilities). Default "wan22-i2v".' },
+        model: {
+          type: 'string',
+          description:
+            'Optional. The name of one of the user\'s saved video models (see list_models; case-insensitive) - a variant that swaps the Wan model files. Omit for the built-in one.',
+        },
         seconds: { type: 'number', description: 'Clip length, 1-12 seconds (snapped to quarter seconds). Default 5.' },
         width: { type: 'integer', description: 'Snapped to a multiple of 16. Default: keeps the source aspect ratio at ~640px on the long side.' },
         height: { type: 'integer', description: 'Snapped to a multiple of 16. Default: keeps the source aspect ratio at ~640px on the long side.' },

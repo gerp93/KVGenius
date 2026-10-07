@@ -48,6 +48,41 @@ test('fewer steps than the cap are kept', async () => {
   assert.equal(steps, 4);
 });
 
+test('a video model is tested with a tiny clip from a stand-in picture, and the clip comes back', async () => {
+  const files = {
+    highNoiseModel: 'hi.safetensors',
+    lowNoiseModel: 'lo.safetensors',
+    textEncoder: 'umt5.safetensors',
+    vae: 'v.safetensors',
+    highNoiseLora: 'lh.safetensors',
+    lowNoiseLora: 'll.safetensors',
+  };
+  let seen: { family: string; params: GenerationParams } | null = null;
+  const result = await runModelTest(
+    { family: 'wan22-i2v', name: '', files, sampler: { steps: 1, cfg: 0, sampler: '', scheduler: '', shift: 0 } },
+    {
+      runExclusive: (work) => work(),
+      sourceImage: () => '/tmp/stand-in.png',
+      generate: async (family, params) => {
+        seen = { family, params };
+        return { bytes: Buffer.from('mp4-bytes'), extension: '.mp4' };
+      },
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.mime, 'video/mp4');
+  assert.match(result.message, /9-frame 256x256 test clip/);
+  const s = seen as unknown as { family: string; params: GenerationParams };
+  assert.equal(s.family, 'wan22-i2v');
+  assert.equal(s.params.sourceImagePath, '/tmp/stand-in.png');
+  assert.equal(s.params.length, 9);
+  assert.equal(s.params.cfg, 1, 'Fast quality');
+  assert.deepEqual(s.params.modelSettings, { files });
+  // with no way to make the stand-in picture it says so instead of running
+  const none = await runModelTest({ family: 'wan22-i2v', name: '', files, sampler: { steps: 1, cfg: 0, sampler: '', scheduler: '', shift: 0 } }, deps(async () => ({ bytes: Buffer.alloc(0), extension: '.mp4' })));
+  assert.equal(none.ok, false);
+});
+
 test('bad input and failures come back as a message, never a throw', async () => {
   const never = deps(async () => {
     throw new Error('should not run');

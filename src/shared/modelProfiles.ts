@@ -1,4 +1,4 @@
-import { profileFamily, ProfileFamily, SAMPLER_LIMITS } from './modelFamilies';
+import { NO_SAMPLER, profileFamily, ProfileFamily, SAMPLER_LIMITS } from './modelFamilies';
 
 /** The sampler values a profile sets. */
 export interface SamplerSettings {
@@ -38,9 +38,10 @@ export interface ModelProfileInput {
  */
 export interface ModelSettings {
   files: Record<string, string>;
-  sampler: string;
-  scheduler: string;
-  shift: number;
+  /** Only for families whose sampler the app drives (images); a video profile carries files only. */
+  sampler?: string;
+  scheduler?: string;
+  shift?: number;
 }
 
 export const MAX_PROFILE_NAME_LENGTH = 60;
@@ -60,7 +61,7 @@ function inRange(value: unknown, min: number, max: number): value is number {
 /** A profile as it will be stored (names trimmed), or the reason it cannot be. */
 export function validateProfileInput(input: ModelProfileInput): { ok: true; value: ModelProfileInput } | { ok: false; message: string } {
   const family: ProfileFamily | undefined = typeof input?.family === 'string' ? profileFamily(input.family) : undefined;
-  if (!family || !family.sampler) return { ok: false, message: 'Choose which kind of model this is.' };
+  if (!family) return { ok: false, message: 'Choose which kind of model this is.' };
 
   const name = typeof input.name === 'string' ? input.name.trim() : '';
   if (!name) return { ok: false, message: 'Give the model a name.' };
@@ -74,6 +75,9 @@ export function validateProfileInput(input: ModelProfileInput): { ok: true; valu
     if (!isSafeModelFileName(file)) return { ok: false, message: `"${file}" is not a valid file name.` };
     files[slot.key] = file;
   }
+
+  // A family whose sampler the app does not drive (video) has nothing to set here: files only.
+  if (!family.sampler) return { ok: true, value: { family: family.family, name, files, sampler: { ...NO_SAMPLER } } };
 
   const s = input.sampler;
   const { steps, cfg, shift } = SAMPLER_LIMITS;
@@ -89,8 +93,10 @@ export function validateProfileInput(input: ModelProfileInput): { ok: true; valu
 }
 
 /** The settings a job carries for this profile. */
-export function profileSettings(profile: Pick<ModelProfile, 'files' | 'sampler'>): ModelSettings {
-  return { files: { ...profile.files }, sampler: profile.sampler.sampler, scheduler: profile.sampler.scheduler, shift: profile.sampler.shift };
+export function profileSettings(profile: Pick<ModelProfile, 'family' | 'files' | 'sampler'>): ModelSettings {
+  const files = { ...profile.files };
+  if (!profileFamily(profile.family)?.sampler) return { files };
+  return { files, sampler: profile.sampler.sampler, scheduler: profile.sampler.scheduler, shift: profile.sampler.shift };
 }
 
 /** A stable text form of resolved settings (keys sorted), so two runs with the same settings compare equal.
@@ -98,7 +104,7 @@ export function profileSettings(profile: Pick<ModelProfile, 'files' | 'sampler'>
 export function serializeModelSettings(settings: ModelSettings | null | undefined): string | null {
   if (!settings) return null;
   const files = Object.fromEntries(Object.keys(settings.files).sort().map((key) => [key, settings.files[key]]));
-  return JSON.stringify({ files, sampler: settings.sampler, scheduler: settings.scheduler, shift: settings.shift });
+  return JSON.stringify({ files, sampler: settings.sampler ?? null, scheduler: settings.scheduler ?? null, shift: settings.shift ?? null });
 }
 
 export function parseModelSettings(text: string | null | undefined): ModelSettings | null {
@@ -106,14 +112,18 @@ export function parseModelSettings(text: string | null | undefined): ModelSettin
   try {
     const value = JSON.parse(text) as Partial<ModelSettings>;
     if (!value || typeof value.files !== 'object' || value.files === null) return null;
-    return { files: value.files as Record<string, string>, sampler: String(value.sampler ?? ''), scheduler: String(value.scheduler ?? ''), shift: Number(value.shift ?? 0) };
+    const settings: ModelSettings = { files: value.files as Record<string, string> };
+    if (value.sampler != null) settings.sampler = String(value.sampler);
+    if (value.scheduler != null) settings.scheduler = String(value.scheduler);
+    if (value.shift != null) settings.shift = Number(value.shift);
+    return settings;
   } catch {
     return null;
   }
 }
 
 /** Whether a stored profile still means what a past record says it was made with. */
-export function profileMatchesSettings(profile: Pick<ModelProfile, 'files' | 'sampler'>, settings: ModelSettings | null | undefined): boolean {
+export function profileMatchesSettings(profile: Pick<ModelProfile, 'family' | 'files' | 'sampler'>, settings: ModelSettings | null | undefined): boolean {
   return settings !== null && settings !== undefined && serializeModelSettings(profileSettings(profile)) === serializeModelSettings(settings);
 }
 

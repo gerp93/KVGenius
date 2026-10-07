@@ -72,3 +72,27 @@ test('a profile matches a record only while its files and sampler are unchanged'
   assert.equal(profileMatchesSettings({ ...profile, sampler: { ...profile.sampler, scheduler: 'karras' } }, made), false);
   assert.equal(profileMatchesSettings(profile, null), false);
 });
+
+test('a video profile carries files only: sampler input is ignored and not required', () => {
+  const files = {
+    highNoiseModel: 'hi.safetensors',
+    lowNoiseModel: 'lo.safetensors',
+    textEncoder: 'umt5.safetensors',
+    vae: 'v.safetensors',
+    highNoiseLora: 'lh.safetensors',
+    lowNoiseLora: 'll.safetensors',
+  };
+  const r = validateProfileInput({ family: 'wan22-i2v', name: 'Wan custom', files, sampler: { steps: 0, cfg: 99, sampler: '', scheduler: '', shift: -1 } });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.deepEqual(profileSettings(r.value), { files });
+  // every one of the six files is needed
+  const { lowNoiseLora: _omitted, ...five } = files;
+  const missing = validateProfileInput({ family: 'wan22-i2v', name: 'Wan custom', files: five, sampler: r.value.sampler });
+  assert.equal(missing.ok, false);
+  // the built-in video name is taken
+  const clash = validateProfileInput({ family: 'wan22-i2v', name: 'wan 2.2 IMAGE to video', files, sampler: r.value.sampler });
+  assert.equal(clash.ok, false);
+  // a video profile's serialized settings carry no sampler, and read back the same
+  assert.deepEqual(parseModelSettings(serializeModelSettings(profileSettings(r.value))), { files });
+});

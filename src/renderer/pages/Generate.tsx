@@ -209,8 +209,9 @@ export default function Generate({
   }, [stylesVersion]);
   const activeStyle = mode === 'image' ? (styles.find((style) => style.id === styleId) ?? null) : null;
 
-  // The user's saved models (Models page): variants of the built-in one. Image mode only; none picked means the
-  // built-in model, exactly as before. A model picked in a tab that has since been deleted counts as the built-in.
+  // The user's saved models (Models page): variants of the built-in one, for the family of the mode in use. None
+  // picked means the built-in model, exactly as before. A model picked in a tab that has since been deleted - or
+  // that belongs to the other mode - counts as the built-in.
   const [models, setModels] = useState<ModelProfile[]>([]);
   const modelsRef = useRef<ModelProfile[]>([]);
   modelsRef.current = models;
@@ -228,16 +229,18 @@ export default function Generate({
       cancelled = true;
     };
   }, [modelsVersion]);
-  const builtInSampler = profileFamily(FAMILY_FOR_MODE.image)?.sampler;
-  const imageModels = models.filter((m) => m.family === FAMILY_FOR_MODE.image);
-  const activeModel = mode === 'image' ? (imageModels.find((m) => m.id === profileId) ?? null) : null;
+  const modelFamily = profileFamily(FAMILY_FOR_MODE[mode]);
+  const familyModels = models.filter((m) => m.family === FAMILY_FOR_MODE[mode]);
+  const activeModel = familyModels.find((m) => m.id === profileId) ?? null;
   const modelSettings: ModelSettings | undefined = activeModel ? profileSettings(activeModel) : undefined;
 
-  /** Picking a model also sets steps and CFG to what it is set up for (still editable under Advanced). */
+  /** Picking an image model also sets steps and CFG to what it is set up for (still editable under Advanced). A video
+   * model only swaps files: its quality comes from the Fast / High choice. */
   function handleModelChange(id: number | null) {
     setProfileId(id);
-    const picked = imageModels.find((m) => m.id === id);
-    const sampler = picked?.sampler ?? builtInSampler;
+    if (mode !== 'image') return;
+    const picked = familyModels.find((m) => m.id === id);
+    const sampler = picked?.sampler ?? modelFamily?.sampler;
     if (sampler) {
       setSteps(sampler.steps);
       setCfg(sampler.cfg);
@@ -255,7 +258,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings)] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath],
+      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings)] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -282,7 +285,8 @@ export default function Generate({
           seed,
           steps: runSteps,
           cfg: runCfg,
-          ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : modelSettings ? { modelSettings } : {}),
+          ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
+          ...(modelSettings ? { modelSettings } : {}),
         })
         .then((found) => {
           if (!cancelled) setDuplicate(found);
@@ -345,7 +349,7 @@ export default function Generate({
       setStyleId(null);
       // The model it was made with: picked again if a saved model still means exactly that, otherwise the built-in
       // model is picked and the user is told, so a re-run never quietly uses different files.
-      if (recalledMode === 'image' && record.modelSettings) {
+      if (record.modelSettings) {
         const match = modelsRef.current.find((m) => profileMatchesSettings(m, record.modelSettings));
         setProfileId(match ? match.id : null);
         if (!match) {
@@ -701,32 +705,30 @@ export default function Generate({
             style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
           />
 
-          {mode === 'image' && (
-            <div style={{ marginTop: 12 }}>
-              <label className="field-label" htmlFor="model-select">
-                Model
-              </label>
-              <select
-                id="model-select"
-                value={activeModel ? String(activeModel.id) : ''}
-                onChange={(e) => handleModelChange(e.target.value === '' ? null : Number(e.target.value))}
-                style={{ width: '100%' }}
-              >
-                <option value="">{profileFamily(FAMILY_FOR_MODE.image)?.builtInName} (built-in)</option>
-                {imageModels.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
-              <p className="style-picker__preview">
-                {activeModel
-                  ? `${activeModel.sampler.steps} steps, CFG ${activeModel.sampler.cfg}, ${activeModel.sampler.sampler} / ${activeModel.sampler.scheduler}. `
-                  : ''}
-                <Link to="/models">Add or edit models</Link>
-              </p>
-            </div>
-          )}
+          <div style={{ marginTop: 12 }}>
+            <label className="field-label" htmlFor="model-select">
+              Model
+            </label>
+            <select
+              id="model-select"
+              value={activeModel ? String(activeModel.id) : ''}
+              onChange={(e) => handleModelChange(e.target.value === '' ? null : Number(e.target.value))}
+              style={{ width: '100%' }}
+            >
+              <option value="">{modelFamily?.builtInName} (built-in)</option>
+              {familyModels.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+            <p className="style-picker__preview">
+              {activeModel && mode === 'image'
+                ? `${activeModel.sampler.steps} steps, CFG ${activeModel.sampler.cfg}, ${activeModel.sampler.sampler} / ${activeModel.sampler.scheduler}. `
+                : ''}
+              <Link to="/models">Add or edit models</Link>
+            </p>
+          </div>
 
           {mode === 'image' && (
             <div style={{ marginTop: 12 }}>

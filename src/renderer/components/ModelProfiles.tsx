@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PROFILE_FAMILIES, SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
+import { NO_SAMPLER, PROFILE_FAMILIES, SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
 import { MAX_PROFILE_NAME_LENGTH, ModelProfile, SamplerSettings } from '../../shared/modelProfiles';
 import { ModelStatusReport } from '../../shared/modelStatus';
 import { ImageSettingsResult, ModelTestResult } from '../../shared/modelCheck';
@@ -37,7 +37,7 @@ interface Draft {
 
 function newDraft(family = PROFILE_FAMILIES[0].family): Draft {
   const def = profileFamily(family) ?? PROFILE_FAMILIES[0];
-  const s = def.sampler as SamplerSettings;
+  const s: SamplerSettings = def.sampler ?? NO_SAMPLER;
   return {
     name: '',
     family: def.family,
@@ -281,7 +281,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
                 >
                   <span className="styles-page__item-name">{p.name}</span>
                   <span className="styles-page__item-text">
-                    {p.sampler.steps} steps, CFG {p.sampler.cfg}
+                    {profileFamily(p.family)?.sampler ? `${p.sampler.steps} steps, CFG ${p.sampler.cfg}` : 'Video model'}
                   </span>
                 </button>
               </li>
@@ -320,7 +320,13 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
               <label className="field-label" htmlFor="model-family">
                 Kind of model
               </label>
-              <select id="model-family" value={draft.family} onChange={(e) => setDraft(newDraftKeepingName(draft, e.target.value))} style={{ width: '100%' }}>
+              <select
+                id="model-family"
+                value={draft.family}
+                disabled={selectedId !== null}
+                onChange={(e) => setDraft(newDraftKeepingName(draft, e.target.value))}
+                style={{ width: '100%' }}
+              >
                 {PROFILE_FAMILIES.map((f) => (
                   <option key={f.family} value={f.family}>
                     {f.label}
@@ -370,40 +376,48 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
           })}
           <FilesNote installed={installed} />
 
-          <h4 className="models-profile__heading">Settings</h4>
-          <div className="button-row" style={{ marginBottom: 8 }}>
-            <button type="button" onClick={() => void handleReadImage()}>
-              Read settings from a picture...
-            </button>
-          </div>
-          {imageNote && <p className="settings-hint">{imageNote}</p>}
-          <div className="models-profile__grid">
-            <label>
-              <span className="field-label">Steps</span>
-              <input type="number" min={SAMPLER_LIMITS.steps.min} max={SAMPLER_LIMITS.steps.max} value={draft.steps} onChange={(e) => setField('steps', e.target.value)} />
-            </label>
-            <label>
-              <span className="field-label">CFG</span>
-              <input type="number" step={0.1} min={SAMPLER_LIMITS.cfg.min} max={SAMPLER_LIMITS.cfg.max} value={draft.cfg} onChange={(e) => setField('cfg', e.target.value)} />
-            </label>
-            <label>
-              <span className="field-label">Shift</span>
-              <input type="number" step={0.5} min={SAMPLER_LIMITS.shift.min} max={SAMPLER_LIMITS.shift.max} value={draft.shift} onChange={(e) => setField('shift', e.target.value)} />
-            </label>
-            <label>
-              <span className="field-label">Sampler</span>
-              <ChoiceField value={draft.sampler} choices={choices.samplers} onChange={(v) => setField('sampler', v)} />
-            </label>
-            <label>
-              <span className="field-label">Scheduler</span>
-              <ChoiceField value={draft.scheduler} choices={choices.schedulers} onChange={(v) => setField('scheduler', v)} />
-            </label>
-          </div>
-          {diffusionFile && diffusionFile !== builtInFile && (
+          {def.sampler ? (
+            <>
+            <h4 className="models-profile__heading">Settings</h4>
+            <div className="button-row" style={{ marginBottom: 8 }}>
+              <button type="button" onClick={() => void handleReadImage()}>
+                Read settings from a picture...
+              </button>
+            </div>
+            {imageNote && <p className="settings-hint">{imageNote}</p>}
+            <div className="models-profile__grid">
+              <label>
+                <span className="field-label">Steps</span>
+                <input type="number" min={SAMPLER_LIMITS.steps.min} max={SAMPLER_LIMITS.steps.max} value={draft.steps} onChange={(e) => setField('steps', e.target.value)} />
+              </label>
+              <label>
+                <span className="field-label">CFG</span>
+                <input type="number" step={0.1} min={SAMPLER_LIMITS.cfg.min} max={SAMPLER_LIMITS.cfg.max} value={draft.cfg} onChange={(e) => setField('cfg', e.target.value)} />
+              </label>
+              <label>
+                <span className="field-label">Shift</span>
+                <input type="number" step={0.5} min={SAMPLER_LIMITS.shift.min} max={SAMPLER_LIMITS.shift.max} value={draft.shift} onChange={(e) => setField('shift', e.target.value)} />
+              </label>
+              <label>
+                <span className="field-label">Sampler</span>
+                <ChoiceField value={draft.sampler} choices={choices.samplers} onChange={(v) => setField('sampler', v)} />
+              </label>
+              <label>
+                <span className="field-label">Scheduler</span>
+                <ChoiceField value={draft.scheduler} choices={choices.schedulers} onChange={(v) => setField('scheduler', v)} />
+              </label>
+            </div>
+            {def.sampler && diffusionFile && diffusionFile !== builtInFile && (
+              <p className="settings-hint">
+                {DISTILLED_NAME.test(diffusionFile)
+                  ? 'The file name suggests a distilled model, which wants few steps and a CFG near 1 - like the starting values here.'
+                  : 'The starting values are the built-in Turbo model\'s, which is distilled. If this model is not, it probably wants more steps and a higher CFG - check its model page for what it recommends.'}
+              </p>
+            )}
+            </>
+          ) : (
             <p className="settings-hint">
-              {DISTILLED_NAME.test(diffusionFile)
-                ? 'The file name suggests a distilled model, which wants few steps and a CFG near 1 - like the starting values here.'
-                : 'The starting values are the built-in Turbo model\'s, which is distilled. If this model is not, it probably wants more steps and a higher CFG - check its model page for what it recommends.'}
+              A video model only changes which files are used. Quality (Fast or High) is chosen on the Generate page, as for the built-in one.
             </p>
           )}
 
@@ -412,14 +426,20 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
               {testing ? 'Testing...' : 'Test this model'}
             </button>
             <span className="settings-hint" style={{ margin: 0 }}>
-              One small picture, to see that the files load and run. Needs ComfyUI running and the queue empty.
+              {def.sampler
+                ? 'One small picture, to see that the files load and run. Needs ComfyUI running and the queue empty.'
+                : 'One tiny clip, to see that the files load and run. The video models are large, so this can take a few minutes. Needs ComfyUI running and the queue empty.'}
             </span>
           </div>
           {testResult && (
             <div className={`model-test model-test--${testResult.ok ? 'ok' : 'failed'}`}>
               {testResult.ok ? '✓ ' : '✗ '}
               {testResult.message}
-              {testResult.imageBase64 && <img src={`data:${testResult.mime ?? 'image/png'};base64,${testResult.imageBase64}`} alt="The test picture" />}
+              {testResult.imageBase64 && testResult.mime?.startsWith('video/') ? (
+                <video src={`data:${testResult.mime};base64,${testResult.imageBase64}`} autoPlay loop muted controls />
+              ) : (
+                testResult.imageBase64 && <img src={`data:${testResult.mime ?? 'image/png'};base64,${testResult.imageBase64}`} alt="The test picture" />
+              )}
             </div>
           )}
 
