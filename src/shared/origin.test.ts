@@ -5,7 +5,7 @@ import { originsForKind, cleanOrigins, FAMILIES_BY_ORIGIN, generationOrigin, ORI
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from './upscale';
 
 test('each known family has an origin', () => {
-  assert.equal(generationOrigin('z-image-turbo')?.kind, 'text-to-image');
+  assert.equal(generationOrigin('z-image')?.kind, 'text-to-image');
   assert.equal(generationOrigin('wan22-i2v')?.kind, 'image-to-video');
   assert.equal(generationOrigin(GIF_FAMILY)?.kind, 'gif');
 });
@@ -35,7 +35,7 @@ test('an origin filter passes the chosen origins; none chosen passes everything'
   assert.equal(passesOriginFilter('upscale-image', []), true);
   assert.equal(passesOriginFilter('upscale-image', ['upscale']), true);
   assert.equal(passesOriginFilter('upscale-video', ['upscale']), true);
-  assert.equal(passesOriginFilter('z-image-turbo', ['upscale']), false);
+  assert.equal(passesOriginFilter('z-image', ['upscale']), false);
   assert.equal(passesOriginFilter('some-future-model', ['upscale']), false);
 });
 

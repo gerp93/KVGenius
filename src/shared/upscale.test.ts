@@ -23,7 +23,7 @@ test('fileNameOf handles both path separators', () => {
 test('isUpscaleFamily knows both upscale families and nothing else', () => {
   assert.ok(isUpscaleFamily(UPSCALE_FAMILY));
   assert.ok(isUpscaleFamily(UPSCALE_VIDEO_FAMILY));
-  assert.ok(!isUpscaleFamily('z-image-turbo'));
+  assert.ok(!isUpscaleFamily('z-image'));
 });
 
 test('nearestUpscaleFactor picks the offered multiplier closest to the real one', () => {

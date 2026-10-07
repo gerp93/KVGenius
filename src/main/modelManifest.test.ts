@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FOLDER_LOADERS, MODEL_FOLDERS, MODEL_MANIFEST } from '../shared/modelManifest';
-import zImageTemplate from './templates/z-image-turbo.json';
+import zImageTemplate from './templates/z-image.json';
 import wanTemplate from './templates/wan22-i2v.json';
 
 type Template = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
@@ -27,7 +27,7 @@ function manifestFiles(family: string): string[] {
 }
 
 test('the manifest lists exactly the files the Z Image template loads', () => {
-  assert.deepEqual(manifestFiles('z-image-turbo'), templateFiles(zImageTemplate as Template));
+  assert.deepEqual(manifestFiles('z-image'), templateFiles(zImageTemplate as Template));
 });
 
 test('the manifest lists exactly the files the Wan template loads', () => {

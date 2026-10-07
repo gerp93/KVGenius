@@ -48,7 +48,7 @@ export const MODEL_MANIFEST: ManifestFeature[] = [
     id: 'z-image',
     title: 'Pictures (Z Image Turbo)',
     summary: 'Text to image.',
-    family: 'z-image-turbo',
+    family: 'z-image',
     files: [
       { file: 'z_image_turbo_bf16.safetensors', folder: 'diffusion_models', role: 'Image model' },
       { file: 'qwen_3_4b.safetensors', folder: 'text_encoders', role: 'Text encoder' },

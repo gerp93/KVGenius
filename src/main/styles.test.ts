@@ -48,8 +48,8 @@ test('a style can be found by name ignoring case', () => {
 
 test('a generation records the style name, and none when no style was used', () => {
   const db = initDatabase(':memory:');
-  const styled = insertGeneration(db, params('a fox, bold lithograph', '1930s movie poster'), 'z-image-turbo', '/out/a.png');
-  const plain = insertGeneration(db, params('a fox'), 'z-image-turbo', '/out/b.png');
+  const styled = insertGeneration(db, params('a fox, bold lithograph', '1930s movie poster'), 'z-image', '/out/a.png');
+  const plain = insertGeneration(db, params('a fox'), 'z-image', '/out/b.png');
   assert.equal(getGenerationById(db, styled.id)?.styleName, '1930s movie poster');
   assert.equal(getGenerationById(db, styled.id)?.prompt, 'a fox, bold lithograph', 'the stored prompt is the full text sent');
   assert.equal(plain.styleName, null);
@@ -59,7 +59,7 @@ test('a generation records the style name, and none when no style was used', () 
 test('deleting a style leaves past generations alone', () => {
   const db = initDatabase(':memory:');
   const s = saveStyle(db, { name: 'Noir', text: 'black and white' });
-  const g = insertGeneration(db, params('a fox, black and white', 'Noir'), 'z-image-turbo', '/out/a.png');
+  const g = insertGeneration(db, params('a fox, black and white', 'Noir'), 'z-image', '/out/a.png');
   deleteStyle(db, s.id);
   assert.equal(getGenerationById(db, g.id)?.prompt, 'a fox, black and white');
   assert.equal(getGenerationById(db, g.id)?.styleName, 'Noir');

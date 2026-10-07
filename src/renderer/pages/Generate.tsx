@@ -18,7 +18,7 @@ import { VIDEO_QUALITY_SETTINGS, VideoQuality, videoQualityFromCfg } from '../..
 type Mode = 'image' | 'video';
 
 const FAMILY_FOR_MODE: Record<Mode, string> = {
-  image: 'z-image-turbo',
+  image: 'z-image',
   video: 'wan22-i2v',
 };
 

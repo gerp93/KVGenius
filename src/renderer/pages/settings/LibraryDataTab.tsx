@@ -117,6 +117,14 @@ export default function LibraryDataTab() {
           </span>
         }
       >
+        {dbInfo && dbInfo.backups.length > 0 && (
+          <p className="settings-hint" style={{ wordBreak: 'break-all' }}>
+            Copies made before an update changed your data - KVGenius never deletes them, so remove them yourself when you are happy
+            everything is fine:
+            <br />
+            {dbInfo.backups.join(' | ')}
+          </p>
+        )}
         <div className="button-row">
           <button type="button" onClick={() => runDbAction(() => window.kvgenius.revealDbInFileManager())}>
             Show in File Manager

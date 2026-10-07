@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { canonicalFamily } from '../shared/families';
 import { GenerationParams } from '../shared/types';
 import { JobFilter, JobInfo, JobRequest, JobSource, JobStatus } from '../shared/jobs';
 
@@ -44,7 +45,7 @@ function rowToJob(row: JobRow): JobInfo {
     id: row.id,
     source: row.source as JobSource,
     batch: row.batch,
-    family: row.family,
+    family: canonicalFamily(row.family),
     params: JSON.parse(row.params) as GenerationParams,
     status: row.status as JobStatus,
     error: row.error,
@@ -61,7 +62,7 @@ export function insertJob(db: DatabaseSync, request: JobRequest): JobInfo {
       `INSERT INTO jobs (source, batch, family, params, status, created_at)
        VALUES (?, ?, ?, ?, 'queued', ?)`
     )
-    .run(request.source, request.batch ?? null, request.family, JSON.stringify(request.params), new Date().toISOString());
+    .run(request.source, request.batch ?? null, canonicalFamily(request.family), JSON.stringify(request.params), new Date().toISOString());
   return getJob(db, Number(result.lastInsertRowid)) as JobInfo;
 }
 

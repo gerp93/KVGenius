@@ -5,7 +5,7 @@ import { SOURCE_IMAGE_FAMILIES, needsSourceImage } from './sourceFamilies';
 test('videos and picture upscales are made from a supplied picture; nothing else is', () => {
   assert.ok(needsSourceImage('wan22-i2v'));
   assert.ok(needsSourceImage('upscale-image'));
-  assert.ok(!needsSourceImage('z-image-turbo'));
+  assert.ok(!needsSourceImage('z-image'));
   // A video upscale works from a library video, which the Library itself keeps.
   assert.ok(!needsSourceImage('upscale-video'));
   assert.ok(!needsSourceImage('something-new'));

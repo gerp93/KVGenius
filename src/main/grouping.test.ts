@@ -16,7 +16,7 @@ import { moveToTrash } from './trash';
 const VIDEO_FAMILIES = ['wan22-i2v'];
 let seed = 0;
 
-function add(db: DatabaseSync, prompt: string, family = 'z-image-turbo'): number {
+function add(db: DatabaseSync, prompt: string, family = 'z-image'): number {
   return insertGeneration(
     db,
     { prompt, width: 8, height: 8, seed: ++seed, steps: 1, cfg: 1, ...(family === 'wan22-i2v' ? { length: 81 } : {}) },

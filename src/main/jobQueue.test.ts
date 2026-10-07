@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { JobQueue, JobRunner, MAX_QUEUED_JOBS } from './jobQueue';
-import { JOBS_SCHEMA, insertJob, markJobRunning } from './jobStore';
+import { JOBS_SCHEMA, getJob, insertJob, markJobRunning } from './jobStore';
 import { JobRequest } from '../shared/jobs';
 
 class CancelledError extends Error {}
@@ -15,7 +15,7 @@ function newDb(): DatabaseSync {
 
 function request(overrides: Partial<JobRequest> = {}): JobRequest {
   return {
-    family: 'z-image-turbo',
+    family: 'z-image',
     params: { prompt: 'a cat', width: 512, height: 512, seed: 1, steps: 4, cfg: 1 },
     source: 'mcp',
     ...overrides,
@@ -180,4 +180,13 @@ test('the queue refuses new jobs once too many are waiting', () => {
   q.submit(request()); // starts running
   for (let i = 0; i < MAX_QUEUED_JOBS; i++) q.submit(request());
   assert.throws(() => q.submit(request()), /queue is full/);
+});
+
+test('a job submitted or stored under the retired family key reads back under the current one', () => {
+  const db = newDb();
+  const stored = insertJob(db, request({ family: 'z-image-turbo' }));
+  assert.equal(stored.family, 'z-image');
+  db.exec("UPDATE jobs SET family = 'z-image-turbo'");
+  assert.equal((db.prepare('SELECT family FROM jobs').get() as { family: string }).family, 'z-image-turbo');
+  assert.equal(getJob(db, stored.id)?.family, 'z-image');
 });

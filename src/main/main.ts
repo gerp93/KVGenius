@@ -85,6 +85,7 @@ import { cleanOrigins } from '../shared/origin';
 import { detectComfyUIProgram, launchComfyUIProgram } from './comfyLauncher';
 import { guessModelsDir, looksLikeModelsDir, scanModelsDir } from './modelsFolder';
 import { emptyInstalled, ModelStatusReport } from '../shared/modelStatus';
+import { migrationBackups } from '../shared/dbBackups';
 import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, LibraryListOptions, McpInfo, ModelsDirInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
@@ -281,6 +282,15 @@ async function chooseComfyUIProgram(): Promise<string | null> {
   if (result.canceled || result.filePaths.length === 0) return null;
   setComfyUILaunchPath(result.filePaths[0]);
   return result.filePaths[0];
+}
+
+function listMigrationBackups(dbPath: string): string[] {
+  try {
+    const dir = path.dirname(dbPath);
+    return migrationBackups(path.basename(dbPath), fs.readdirSync(dir)).map((name) => path.join(dir, name));
+  } catch {
+    return [];
+  }
 }
 
 function modelsDirInfo(): ModelsDirInfo {
@@ -814,6 +824,7 @@ function registerIpcHandlers(): void {
       isDefault: isUsingDefaultDbLocation(),
       defaultPath: getDefaultDbPath(),
       sizeBytes,
+      backups: listMigrationBackups(dbPath),
     };
   });
 
