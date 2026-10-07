@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { ComfyUILauncherInfo } from '../../../shared/types';
 import SettingsSection from './SettingsSection';
 
@@ -19,6 +19,7 @@ const CONNECTION_COLOR: Record<ConnectionStatus, string> = {
 };
 
 export default function ComfyUITab() {
+  const navigate = useNavigate();
   const [host, setHost] = useState('');
   const [defaultHost, setDefaultHost] = useState('');
   const [status, setStatus] = useState<string | null>(null);
@@ -82,15 +83,22 @@ export default function ComfyUITab() {
 
   return (
     <>
-      <SettingsSection
-        title="Setting up ComfyUI?"
-        description="A step-by-step guide: install ComfyUI, download the models KVGenius expects, and connect. The Models page shows which of those files ComfyUI already has."
-      >
-        <div className="button-row">
-          <Link to="/setup">Open the setup guide</Link>
-          <Link to="/models">Check model files</Link>
+      <div className="setup-callout">
+        <div className="setup-callout__card">
+          <h3 className="setup-callout__title">Setting up ComfyUI?</h3>
+          <p className="setup-callout__text">A step-by-step guide: install ComfyUI, add the models KVGenius expects, and connect. It checks itself off as you go.</p>
+          <button type="button" className="primary" onClick={() => navigate('/setup')}>
+            Open the setup guide
+          </button>
         </div>
-      </SettingsSection>
+        <div className="setup-callout__card">
+          <h3 className="setup-callout__title">Model files</h3>
+          <p className="setup-callout__text">See which files ComfyUI has and which are missing, download them, or add and test your own models.</p>
+          <button type="button" className="primary" onClick={() => navigate('/models')}>
+            Check model files
+          </button>
+        </div>
+      </div>
 
       <SettingsSection
         title="Server"

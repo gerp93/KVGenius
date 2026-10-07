@@ -284,6 +284,16 @@ export default function App() {
         <NavLink to="/settings" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Settings
         </NavLink>
+        {/* Always one click from the setup guide; a red dot while ComfyUI cannot be reached, when it is most needed. It sits
+            next to Settings rather than at the far right because the bar is wider than the window and clips its right end. */}
+        <Link
+          to="/setup"
+          className={`top-bar__help${location.pathname === '/setup' ? ' active' : ''}${connection === 'unreachable' ? ' top-bar__help--attention' : ''}`}
+          aria-label="Setup guide"
+          title="Setup guide: install ComfyUI, add the models, connect"
+        >
+          ?
+        </Link>
         <span className="top-bar__separator" />
         <button
           type="button"
@@ -298,11 +308,6 @@ export default function App() {
           <span className="top-bar__connection-error" title={launchError}>
             {launchError}
           </span>
-        )}
-        {connection === 'unreachable' && (
-          <Link to="/setup" className="top-bar__link" title="Step-by-step: install ComfyUI, add the models, connect">
-            Setup guide
-          </Link>
         )}
         {connection === 'unreachable' || connection === 'starting' ? (
           <button

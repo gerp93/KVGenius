@@ -160,6 +160,74 @@ button.top-bar__connection:disabled {
   white-space: nowrap;
 }
 
+/* The "?" at the right end of the top bar: straight to the setup guide. */
+.top-bar__help {
+  -webkit-app-region: no-drag;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-left: 6px;
+  border: 1px solid var(--color-text);
+  border-radius: 50%;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.top-bar__help:hover,
+.top-bar__help.active {
+  background: var(--color-top-bar-hover);
+}
+
+.top-bar__help--attention::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-accent-red);
+  border: 1px solid var(--color-top-bar-bg);
+}
+
+/* Settings > ComfyUI: the two ways into getting set up, as real buttons rather than links in a sentence. */
+.setup-callout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.setup-callout__card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px 20px;
+  border: 1px solid var(--color-accent-blue);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
+.setup-callout__title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.setup-callout__text {
+  margin: 0;
+  flex: 1;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
 .page {
   --page-pad: 24px;
   flex: 1;
