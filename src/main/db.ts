@@ -446,12 +446,12 @@ export function countGenerations(
   options: LibraryListOptions = {}
 ): Record<GenerationKind, number> {
   const prompt = promptCondition(options.prompt);
-  const origin = originCondition(options.origins);
   // Grouped, the number is stacks (distinct prompts); opened onto one prompt, it is that prompt's items.
   const grouped = options.grouped === true && prompt.sql === '';
   const count = (kind: GenerationKind): number => {
     const condition = kindCondition(videoFamilies, kind);
     const ext = extensionCondition(kind === 'image' ? imageExtension : null);
+    const origin = originCondition(options.originsByKind?.[kind] ?? options.origins);
     const row = db
       .prepare(
         `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)}`

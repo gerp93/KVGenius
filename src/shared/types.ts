@@ -71,6 +71,9 @@ export interface LibraryListOptions {
   prompt?: string | null;
   /** Only items made this way (text to image, upscale, ...); none or empty = every kind. */
   origins?: OriginKind[];
+  /** Counts only: the origin filter of each tab, since each tab keeps its own. Used in place of `origins`
+   * for a kind that has an entry. */
+  originsByKind?: Partial<Record<GenerationKind, OriginKind[]>>;
 }
 
 /** The estimate shown for a run and how long it actually took, in milliseconds. */

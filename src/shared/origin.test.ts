@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { GIF_FAMILY } from './gif';
-import { cleanOrigins, FAMILIES_BY_ORIGIN, generationOrigin, ORIGIN_KINDS, passesOriginFilter } from './origin';
+import { originsForKind, cleanOrigins, FAMILIES_BY_ORIGIN, generationOrigin, ORIGIN_KINDS, passesOriginFilter } from './origin';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from './upscale';
 
 test('each known family has an origin', () => {
@@ -37,4 +37,9 @@ test('an origin filter passes the chosen origins; none chosen passes everything'
   assert.equal(passesOriginFilter('upscale-video', ['upscale']), true);
   assert.equal(passesOriginFilter('z-image-turbo', ['upscale']), false);
   assert.equal(passesOriginFilter('some-future-model', ['upscale']), false);
+});
+
+test('each tab offers only the origins that can occur on it', () => {
+  assert.deepEqual(originsForKind('image'), ['text-to-image', 'upscale', 'gif']);
+  assert.deepEqual(originsForKind('video'), ['image-to-video', 'upscale']);
 });

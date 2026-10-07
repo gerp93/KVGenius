@@ -103,3 +103,19 @@ test('the origin filter applies to counts, refs and stacks too, and ignores junk
   const junk = ['x" OR 1=1 --'] as unknown as OriginKind[];
   assert.equal(listGenerations(db, families, 'image', 50, null, false, false, null, { origins: junk }).length, 2);
 });
+
+test('counts can carry a separate origin filter for each tab', () => {
+  const db = initDatabase(':memory:');
+  insertGeneration(db, params(1), 'z-image-turbo', '/out/images/a.png');
+  insertGeneration(db, params(2), 'upscale-image', '/out/images/b.png');
+  insertGeneration(db, params(3), 'wan22-i2v', '/out/videos/c.mp4');
+  insertGeneration(db, params(4), 'upscale-video', '/out/videos/d.mp4');
+  const families = ['wan22-i2v', 'upscale-video'];
+  // Images narrowed to text-to-image, videos left alone.
+  assert.deepEqual(countGenerations(db, families, false, false, null, { originsByKind: { image: ['text-to-image'], video: [] } }), { image: 1, video: 2 });
+  // Each tab with its own filter.
+  assert.deepEqual(
+    countGenerations(db, families, false, false, null, { originsByKind: { image: ['upscale'], video: ['image-to-video'] } }),
+    { image: 1, video: 1 }
+  );
+});
