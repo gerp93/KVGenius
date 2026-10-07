@@ -17,11 +17,10 @@ body {
 
 .app-shell {
   display: flex;
-  flex-direction: column;
   height: 100%;
 }
 
-/* Below the top bar: the page with the queue bar under it, and - to their right - the details
+/* Right of the sidebar: the page with the queue bar under it, and - to their right - the details
    panel column, full height, so the bar only spans the page. */
 .app-body {
   flex: 1;
@@ -52,149 +51,17 @@ body {
   flex-direction: column;
 }
 
-.top-bar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
-  background: var(--color-top-bar-bg);
-  -webkit-app-region: drag;
-}
-
-.top-bar__title {
-  font-weight: 700;
-  margin-right: 24px;
-  -webkit-app-region: no-drag;
-}
-
-.top-bar__link {
-  -webkit-app-region: no-drag;
-  padding: 6px 14px;
+/* A link that reads like a small button (e.g. "Open Trash" in Settings). */
+.inline-link-button {
+  padding: 4px 10px;
   border-radius: 6px;
   color: var(--color-text);
   text-decoration: none;
   font-size: 14px;
 }
 
-.top-bar__link:hover,
-.top-bar__link.active {
+.inline-link-button:hover {
   background: var(--color-top-bar-hover);
-}
-
-/* Nav sections, as in RolePlaymate: a small caps label introduces a group of links and a thin
-   vertical rule separates groups. */
-.top-bar__group-label {
-  -webkit-app-region: no-drag;
-  padding: 0 6px 0 2px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-accent-blue);
-  opacity: 0.75;
-}
-
-.top-bar__separator {
-  align-self: stretch;
-  width: 1px;
-  margin: 4px 12px;
-  background: var(--color-border);
-}
-
-/* The app-wide Show hidden switch: reads like a nav link, with an accent colour while on. */
-button.top-bar__toggle {
-  -webkit-app-region: no-drag;
-  min-height: 0;
-  padding: 6px 14px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--color-text);
-  font-family: inherit;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-button.top-bar__toggle:hover {
-  background: var(--color-top-bar-hover);
-}
-
-button.top-bar__toggle--on {
-  color: var(--color-accent-blue);
-  box-shadow: inset 0 0 0 1px var(--color-accent-blue);
-}
-
-.top-bar__connection-error {
-  margin-left: auto;
-  max-width: 420px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--color-accent-red);
-  -webkit-app-region: no-drag;
-}
-
-.top-bar__connection-error + .top-bar__connection {
-  margin-left: 0;
-}
-
-button.top-bar__connection {
-  background: none;
-  border: none;
-  font-family: inherit;
-  cursor: pointer;
-}
-
-button.top-bar__connection:disabled {
-  cursor: progress;
-}
-
-.top-bar__connection {
-  margin-left: auto;
-  -webkit-app-region: no-drag;
-  padding: 6px 14px;
-  color: var(--color-text);
-  text-decoration: none;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-/* The "?" at the right end of the top bar: straight to the setup guide. */
-.top-bar__help {
-  -webkit-app-region: no-drag;
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 26px;
-  height: 26px;
-  margin-left: 6px;
-  border: 1px solid var(--color-text);
-  border-radius: 50%;
-  color: var(--color-text);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  text-decoration: none;
-}
-
-.top-bar__help:hover,
-.top-bar__help.active {
-  background: var(--color-top-bar-hover);
-}
-
-.top-bar__help--attention::after {
-  content: '';
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--color-accent-red);
-  border: 1px solid var(--color-top-bar-bg);
 }
 
 /* Settings > ComfyUI: the two ways into getting set up, as real buttons rather than links in a sentence. */
