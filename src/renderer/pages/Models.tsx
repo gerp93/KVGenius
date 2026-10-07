@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MODEL_MANIFEST } from '../../shared/modelManifest';
 import { ModelsDirInfo } from '../../shared/types';
-import { ExternalLink } from '../components/Stepper';
 import ModelFilesTable, { ChosenModelsTable, summaryText } from '../components/ModelFilesTable';
 import ModelDownload from '../components/ModelDownload';
 import ModelProfiles from '../components/ModelProfiles';
@@ -64,7 +63,6 @@ export default function Models({ onModelsChanged }: Props) {
                 />
               )}
               {feature.note && <p className="settings-hint">{feature.note}</p>}
-              <ExternalLink href={feature.source.url}>{feature.source.label} ↗</ExternalLink>
             </SettingsSection>
           );
         })}
