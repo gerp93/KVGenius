@@ -41,6 +41,7 @@ import {
   getCleanupSettings,
   saveCleanupSettings,
 } from './dbLocation';
+import { isExternalWebUrl } from '../shared/externalUrl';
 import { compileHiddenMatcher } from '../shared/hiddenWords';
 import { normalizeDays, updateCleanupSettings } from '../shared/cleanup';
 import { PromptSlot } from '../shared/promptSlots';
@@ -843,6 +844,10 @@ function registerIpcHandlers(): void {
     app.exit();
   });
 
+  ipcMain.handle('openExternal', async (_event, url: unknown) => {
+    if (!isExternalWebUrl(url)) throw new Error('Only web links can be opened.');
+    await shell.openExternal(url);
+  });
   ipcMain.handle('launchComfyUI', () => launchComfyUI());
   ipcMain.handle('getComfyUILauncher', () => comfyLauncherInfo());
   ipcMain.handle('chooseComfyUILauncher', async () => ((await chooseComfyUIProgram()) ? comfyLauncherInfo() : null));

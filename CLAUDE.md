@@ -144,6 +144,13 @@ implementation here is exactly the kind of drift it exists to prevent.
   `LibraryListOptions.origins` -> `originCondition` in `db.ts` (a fixed family table, never caller text),
   applied to listings, stacks, counts and select-all refs; `passesOriginFilter` keeps freshly made items
   (finished upscales, GIFs) consistent with it.
+- **The ComfyUI setup guide is a data-driven stepper** (`pages/Setup.tsx` on `/setup`, `components/Stepper.tsx`).
+  Steps are plain `Step[]` data; the file names/folders in its tables must match the templates in
+  `src/main/templates/` (change one, change the other). It polls `checkComfyUIConnection` so the connect step
+  turns green by itself. Entry points are Settings > ComfyUI and a "Setup guide" link next to the red ComfyUI
+  indicator (deliberately not a top-bar item - the bar is already full - and not an app-menu item, which
+  KVG_Standards keeps to View/Help basics). External links go through the `openExternal` IPC (http/https only,
+  `shared/externalUrl.ts`), never a plain `<a href>`.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned

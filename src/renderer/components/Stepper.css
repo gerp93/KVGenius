@@ -1,0 +1,219 @@
+.stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 760px;
+}
+
+.stepper__title {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.stepper__subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.stepper__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stepper__count {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.stepper__track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.stepper__fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--color-accent-blue);
+  transition: width 220ms ease;
+}
+
+.stepper__dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+button.stepper__dot {
+  width: 12px;
+  height: 12px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-border);
+  transition: transform 140ms ease;
+}
+
+button.stepper__dot:hover:not(:disabled) {
+  background: var(--color-border);
+  transform: scale(1.2);
+}
+
+button.stepper__dot.done {
+  background: color-mix(in srgb, var(--color-accent-blue) 55%, var(--color-border));
+}
+
+button.stepper__dot.active {
+  background: var(--color-accent-blue);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-blue) 30%, transparent);
+}
+
+.stepper__card {
+  padding: 22px 22px 18px;
+  min-height: 15rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
+.stepper__kicker {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.stepper__step-title {
+  margin: 0 0 14px;
+  font-size: 1.2rem;
+}
+
+.stepper__body {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.stepper__body p {
+  margin: 0 0 12px;
+}
+
+.stepper__body ul,
+.stepper__body ol {
+  margin: 0 0 12px;
+  padding-left: 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stepper__body h4 {
+  margin: 16px 0 6px;
+  font-size: 14px;
+}
+
+.stepper__body code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  word-break: break-all;
+}
+
+.stepper__body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 12px;
+  font-size: 13px;
+}
+
+.stepper__body th,
+.stepper__body td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.stepper__body th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.stepper__callout {
+  margin-top: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 6px;
+  border-left: 3px solid var(--color-accent-blue);
+  background: var(--color-bg-hover);
+}
+
+.stepper__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-hover);
+  font-weight: 600;
+}
+
+.stepper__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.stepper__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.stepper__pill:hover {
+  border-color: var(--color-accent-blue);
+}
+
+.stepper__pill--primary {
+  border-color: var(--color-accent-blue);
+}
+
+.stepper__nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stepper__nav--forward-only {
+  justify-content: flex-end;
+}
+
+.stepper__nav .primary {
+  min-width: 6rem;
+}
