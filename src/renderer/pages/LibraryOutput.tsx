@@ -81,7 +81,13 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   // What the last Delete moved to the Trash, so its notice can offer to put it back.
   const [trashNotice, setTrashNotice] = useState<{ text: string; ids: number[] } | null>(null);
   // Bumped to make the list load again from the top (after an undo, or a change made elsewhere).
+  // Bumped when what the list holds changed under it (an item deleted or hidden, a stack changed, ...):
+  // the list is then refreshed in place - without clearing it, so the scroll position stays - rather
+  // than reloaded from the top like a filter or tab change.
   const [reloadKey, setReloadKey] = useState(0);
+  const refreshedAt = useRef(0);
+  const loadedCount = useRef(0);
+  loadedCount.current = records.length;
   // While selecting among stacks, how many items (not stacks) there are to select.
   const [itemCounts, setItemCounts] = useState<Record<GenerationKind, number> | null>(null);
   const [infoId, setInfoId] = useState<number | null>(null);
@@ -134,6 +140,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   useEffect(() => {
     const token = ++requestToken.current;
     loadingRef.current = false;
+    refreshedAt.current = reloadKey;
     setRecords([]);
     setHasMore(true);
     setSelection(new Map());
@@ -141,7 +148,34 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     setInfoId(null);
     setLightboxIndex(null);
     void loadPage(tab, null, favoritesOnly, showHidden, extension, token, listOptions);
-  }, [tab, favoritesOnly, showHidden, extension, reloadKey, listOptions, loadPage]);
+    // reloadKey is read, not a trigger: its changes are the in-place refresh below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, favoritesOnly, showHidden, extension, listOptions, loadPage]);
+
+  // The list changed under us: fetch it again as far as it is loaded and swap it in, so nothing blinks
+  // out and the scroll position survives. (A filter or tab change in the same moment has already done
+  // a full reload above, which settles this too.)
+  useEffect(() => {
+    if (refreshedAt.current === reloadKey) return;
+    refreshedAt.current = reloadKey;
+    const token = ++requestToken.current;
+    const want = Math.max(PAGE_SIZE, loadedCount.current);
+    loadingRef.current = true;
+    window.kvgenius
+      .listGenerations(tab, want, null, favoritesOnly, showHidden, tab === 'image' ? extension : null, listOptions)
+      .then((page) => {
+        if (token !== requestToken.current) return;
+        setRecords(page);
+        setHasMore(page.length === want);
+      })
+      .catch((err) => {
+        if (token === requestToken.current) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (token === requestToken.current) loadingRef.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey]);
 
   useEffect(() => {
     window.kvgenius
