@@ -185,6 +185,15 @@ implementation here is exactly the kind of drift it exists to prevent.
   refuses while a job runs and holds the queue while it works, so it never shares the GPU or the module-level
   in-flight prompt with a queued job. "Read settings from a picture" parses PNG text chunks only
   (`imageMetadata.ts`); pictures with the metadata stripped yield nothing, and nothing is guessed.
+- **The download helper only fetches manifest files, by running a script in a terminal** (`downloadScript.ts`,
+  `downloadLauncher.ts`, `ModelDownload.tsx`). Links come from `ManifestFile.url` (Hugging Face, public, no token);
+  anything else the user fetches themselves and imports. The user confirms a list of exactly what, from where, into
+  which folder, then the script is saved to `userData/downloads/` and opened in a terminal (`cmd start powershell` on
+  Windows, `open -a Terminal` on macOS, the first terminal found on Linux; if none opens the script is shown to copy).
+  Every link and path is a quoted literal passed as an argument, never spliced into a command (`shellQuote`,
+  `powershellQuote`; the POSIX script is run against a hostile path in a test). Files go to `<name>.part` and are
+  renamed when whole, so running the script again resumes. Only missing files are fetched; a file in a subfolder is
+  reported, not fetched again. A link that has moved shows as a 404 in the terminal and the rest carry on.
 - **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and
   `main/modelManifest.test.ts` pins it to the template JSON - change a template's loader file and that test fails
   until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,

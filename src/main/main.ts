@@ -96,6 +96,10 @@ import { checkModelFile, importModelFile, ModelImportError } from './modelImport
 import { settingsFromPng } from './imageMetadata';
 import { runModelTest } from './modelTest';
 import { solidPng } from './solidPng';
+import { manifestFeature } from '../shared/modelManifest';
+import { DownloadPlanInfo, DownloadStartResult } from '../shared/modelDownloads';
+import { planDownloads } from './downloadScript';
+import { startDownloads } from './downloadLauncher';
 import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, LibraryListOptions, McpInfo, ModelsDirInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
@@ -292,6 +296,20 @@ async function chooseComfyUIProgram(): Promise<string | null> {
   if (result.canceled || result.filePaths.length === 0) return null;
   setComfyUILaunchPath(result.filePaths[0]);
   return result.filePaths[0];
+}
+
+/** What would be downloaded for these manifest features (ids from the renderer are checked against the manifest). */
+async function downloadPlanFor(featureIds: unknown): Promise<DownloadPlanInfo> {
+  const none = (problem: string): DownloadPlanInfo => ({ items: [], inSubfolder: [], problem });
+  const features = (Array.isArray(featureIds) ? featureIds : []).flatMap((id) => (typeof id === 'string' ? [manifestFeature(id)] : [])).filter((f): f is NonNullable<typeof f> => !!f);
+  if (features.length === 0) return none('There is nothing to download for that.');
+  const dir = modelsDirInfo();
+  if (!dir.valid || !dir.effective) return none("Set ComfyUI's models folder first - the files are saved into it.");
+  const plan = planDownloads(features, await modelStatus(), dir.effective);
+  if (plan.items.length === 0) {
+    return { ...plan, problem: plan.inSubfolder.length > 0 ? `Nothing to download: ${plan.inSubfolder.join(', ')} ${plan.inSubfolder.length === 1 ? 'is' : 'are'} already there, in a subfolder - move ${plan.inSubfolder.length === 1 ? 'it' : 'them'} up a level.` : 'Nothing is missing.' };
+  }
+  return plan;
 }
 
 /** Model files the user chose in this session (by dialog or drop). */
@@ -899,6 +917,12 @@ function registerIpcHandlers(): void {
     const stat = fs.statSync(file);
     if (stat.size > 64 * 1024 * 1024) return { fileName: path.basename(file), settings: null };
     return { fileName: path.basename(file), settings: settingsFromPng(fs.readFileSync(file)) };
+  });
+  ipcMain.handle('planModelDownloads', (_event, featureIds: unknown) => downloadPlanFor(featureIds));
+  ipcMain.handle('startModelDownloads', async (_event, featureIds: unknown): Promise<DownloadStartResult> => {
+    const plan = await downloadPlanFor(featureIds);
+    if (plan.problem) return { status: 'error', message: plan.problem };
+    return startDownloads(plan.items, { scriptDir: path.join(app.getPath('userData'), 'downloads') });
   });
   ipcMain.handle('testModelProfile', async (_event, input: ModelProfileInput) => {
     if (!jobQueue) return { ok: false, message: 'The app is still starting - try again in a moment.' };

@@ -216,3 +216,25 @@
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.25);
 }
+
+.model-download {
+  margin: 8px 0 12px;
+}
+
+.model-download__confirm {
+  padding: 10px 12px;
+  border-radius: 6px;
+  border-left: 3px solid var(--color-accent-blue);
+  background: var(--color-bg-hover);
+  font-size: 13px;
+}
+
+.model-download__script {
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  white-space: pre;
+}
