@@ -17,6 +17,7 @@ const SECTIONS: NavSection[] = [
       { to: '/library/output', icon: '🖼️', label: 'Output' },
       { to: '/library/prompts', icon: '📌', label: 'Prompts' },
       { to: '/library/sources', icon: '📥', label: 'Sources' },
+      { to: '/library/trash', icon: '🗑️', label: 'Trash' },
     ],
   },
   { id: 'tools', label: 'Tools', icon: '🛠️', items: [{ to: '/tools/upscale', icon: '🔍', label: 'Upscale' }] },
@@ -36,7 +37,6 @@ const SECTIONS: NavSection[] = [
     items: [
       { to: '/timing', icon: '⏱️', label: 'Timing' },
       { to: '/hardpoint', icon: '🎯', label: 'Hardpoint' },
-      { to: '/library/trash', icon: '🗑️', label: 'Trash' },
     ],
   },
 ];

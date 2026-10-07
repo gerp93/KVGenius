@@ -113,8 +113,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   Library's filters apply to items before they are grouped. Images and videos stack
   separately; trashed items are never in a stack.
 - **Navigation is a left sidebar, not a top bar** (`components/SideNav.tsx`/`.css`, rendered by `App.tsx`). Pages are
-  grouped in sections (Library: Output/Prompts/Sources; Tools: Upscale; Presets: Styles/Models; Utilities:
-  Timing/Hardpoint/Trash) in the `SECTIONS` data at the top of `SideNav.tsx` - add a page there. The footer holds
+  grouped in sections (Library: Output/Prompts/Sources/Trash; Tools: Upscale; Presets: Styles/Models; Utilities:
+  Timing/Hardpoint) in the `SECTIONS` data at the top of `SideNav.tsx` - add a page there. The footer holds
   Settings, Setup guide, the app-wide Show hidden switch and the ComfyUI status (click to launch when unreachable).
   The rail is full (labels; a section's head folds it) or thin (**icons only, no hover flyouts**: each page keeps its own
   icon, each section shrinks to a caption, so every page is one click away). Thin/full and folded sections are remembered
