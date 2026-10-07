@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import type { GenerationQueue, Job } from '../hooks/useGenerationQueue';
+import ImageDropZone from '../components/ImageDropZone';
 import { DEFAULT_UPSCALE_FACTOR, UPSCALE_FACTORS, UPSCALE_FAMILY, fileNameOf, upscaledSize } from '../../shared/upscale';
 
 const MODEL_KEY = 'kvgenius-tools-upscale-model';
@@ -101,16 +102,21 @@ export default function ToolsUpscale({ queue, onShowQueue }: Props) {
     };
   }, []);
 
+  /** Adds pictures to the list (from the file dialog or a drop), skipping any already there. */
+  function addPaths(paths: string[]) {
+    if (paths.length === 0) return;
+    setError(null);
+    setNotice(null);
+    setPicked((prev) => {
+      const have = new Set(prev.map((p) => p.path));
+      return [...prev, ...paths.filter((p) => !have.has(p)).map((path) => ({ path }))];
+    });
+  }
+
   async function handleChoose() {
     setError(null);
     try {
-      const paths = await window.kvgenius.chooseSourceImages();
-      if (paths.length === 0) return;
-      setPicked((prev) => {
-        const have = new Set(prev.map((p) => p.path));
-        return [...prev, ...paths.filter((p) => !have.has(p)).map((path) => ({ path }))];
-      });
-      setNotice(null);
+      addPaths(await window.kvgenius.chooseSourceImages());
     } catch (err) {
       setError(cleanError(err));
     }
@@ -172,11 +178,11 @@ export default function ToolsUpscale({ queue, onShowQueue }: Props) {
     .slice(0, RESULTS_SHOWN);
 
   return (
-    <div className="tools-upscale">
+    <ImageDropZone className="tools-upscale" multiple onPaths={addPaths} onReject={setError}>
       <h2 className="tools-upscale__title">Upscale</h2>
       <p className="tools-upscale__hint">
-        Enlarge pictures with an AI upscale model. Pick any images from your computer; results are saved to Library &gt; Output as new
-        images, and the originals are left alone.
+        Enlarge pictures with an AI upscale model. Drop images anywhere on this page, or choose them; results are saved to Library &gt;
+        Output as new images, and the originals are left alone.
       </p>
 
       <div className="tools-upscale__controls">
@@ -281,6 +287,6 @@ export default function ToolsUpscale({ queue, onShowQueue }: Props) {
           </div>
         </>
       )}
-    </div>
+    </ImageDropZone>
   );
 }

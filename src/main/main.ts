@@ -81,6 +81,7 @@ import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, 
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
+import { isImageFileName } from '../shared/imageFiles';
 import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaRequest, isAllowedMediaPath } from './mediaProtocol';
 import { MediaServer, startMediaServer } from './mediaServer';
 import { applyFavorite, syncFavoriteFiles } from './favorites';
@@ -572,6 +573,26 @@ function registerIpcHandlers(): void {
     if (result.canceled) return [];
     for (const file of result.filePaths) pickedSourceImages.add(path.resolve(file));
     return result.filePaths;
+  });
+
+  // Pictures dropped onto the window. The preload turns each dropped File into its path (a page script
+  // cannot forge one), and this keeps only existing picture files, so a drop is allowed to be shown and
+  // sent to ComfyUI exactly as a file dialog pick is - nothing else gets onto the list.
+  ipcMain.handle('registerDroppedImages', (_event, paths: unknown) => {
+    if (!Array.isArray(paths)) return [];
+    const accepted: string[] = [];
+    for (const candidate of paths.slice(0, 200)) {
+      if (typeof candidate !== 'string' || !isImageFileName(candidate)) continue;
+      const resolved = path.resolve(candidate);
+      try {
+        if (!fs.statSync(resolved).isFile()) continue;
+      } catch {
+        continue;
+      }
+      pickedSourceImages.add(resolved);
+      accepted.push(candidate);
+    }
+    return accepted;
   });
 
   // Copies a picture to the clipboard so it can be pasted into other apps. Done here, from the file, so

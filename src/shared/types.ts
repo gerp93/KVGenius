@@ -306,6 +306,9 @@ export interface KVGeniusAPI {
   /** Like chooseSourceImage, but for any number of images (Tools > Upscale). Resolves the chosen
    * local paths, empty if cancelled. */
   chooseSourceImages: () => Promise<string[]>;
+  /** The local paths of picture files dropped onto the window (pass the dropped `File` objects).
+   * Resolves only the existing PNG / JPG / WebP ones, each now usable as a source image. */
+  droppedImagePaths: (files: unknown[]) => Promise<string[]>;
   /** Puts an image on the clipboard as a picture (a GIF or other animation copies as one still frame).
    * Rejects for a file the app does not serve or cannot read as an image. */
   copyImageToClipboard: (imagePath: string) => Promise<void>;
