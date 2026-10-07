@@ -6,7 +6,7 @@ import './LibraryPicker.css';
 const PAGE_SIZE = 48;
 
 interface Props {
-  /** What the picture is for, e.g. "Start picture" - shown as the dialog title. */
+  /** What the picture is for, e.g. "Choose the source image" - shown as the dialog title. */
   title: string;
   onPick: (record: GenerationRecord) => void;
   onClose: () => void;
@@ -14,7 +14,7 @@ interface Props {
 
 /**
  * A dialog to choose one picture from the Library (images only; videos and GIFs cannot be a source), newest
- * first, so a start picture or a video's source image can be taken from what was already made instead of
+ * first, so an image-to-image or a video's source image can be taken from what was already made instead of
  * hunting for the file on disk. Esc or a click outside leaves.
  */
 export default function LibraryPicker({ title, onPick, onClose }: Props) {

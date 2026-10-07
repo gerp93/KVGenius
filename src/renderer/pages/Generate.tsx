@@ -9,6 +9,7 @@ import { isUpscale, pinNotice } from '../utils/library';
 import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { usePromptSlots } from '../hooks/usePromptSlots';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
+import type { PromptTabsModel } from '../utils/promptTabs';
 import { PromptStyle, combinePrompt } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
@@ -39,6 +40,8 @@ interface Props {
   stylesVersion: number;
   /** Bumped by the Models page when a model is added, edited or deleted, so the dropdown reloads. */
   modelsVersion: number;
+  /** Publishes the prompt tabs (listed in the sidebar) whenever they change. */
+  onTabsChange: (tabs: PromptTabsModel) => void;
 }
 
 // Long side of a video generated from an existing image (matches the 640px default).
@@ -102,6 +105,7 @@ export default function Generate({
   onVideoSourceHandled,
   stylesVersion,
   modelsVersion,
+  onTabsChange,
 }: Props) {
   // The left-hand form is one of several independent "tabs" (prompt + every setting below it),
   // switchable and persisted across restarts - see usePromptSlots for the field definitions.
@@ -155,22 +159,33 @@ export default function Generate({
     lastRunSignature,
     setLastRunSignature,
   } = slotState;
-  const [renamingSlotId, setRenamingSlotId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState('');
-  const skipRenameBlur = useRef(false);
-
-  function startRenameSlot(slot: (typeof slots)[number]) {
-    setRenamingSlotId(slot.id);
-    setRenameDraft(slotLabelFor(slot));
-  }
-  function commitRenameSlot() {
-    if (renamingSlotId) renameSlot(renamingSlotId, renameDraft);
-    setRenamingSlotId(null);
-  }
-  function cancelRenameSlot() {
-    skipRenameBlur.current = true;
-    setRenamingSlotId(null);
-  }
+  // The tabs live in the sidebar (under Image / Video), so hand it the list and the actions. The handlers go through a
+  // ref so the sidebar always calls the latest ones, and the model is only republished when what it shows changes.
+  const tabActions = useRef({ switchSlot, addSlot, closeSlot, renameSlot, forget: queue.forgetSlot });
+  tabActions.current = { switchSlot, addSlot, closeSlot, renameSlot, forget: queue.forgetSlot };
+  const tabItems = slots.map((slot) => ({
+    id: slot.id,
+    label: slotLabelFor(slot),
+    // The active tab's mode is the live form value; the others' is what they last saved.
+    mode: ((slot.id === activeSlotId ? mode : slot.data.mode) === 'video' ? 'video' : 'image') as 'image' | 'video',
+  }));
+  const tabsKey = JSON.stringify([tabItems, activeSlotId]);
+  useEffect(() => {
+    onTabsChange({
+      tabs: tabItems,
+      activeId: activeSlotId,
+      canAdd: tabItems.length < MAX_PROMPT_SLOTS,
+      maxTabs: MAX_PROMPT_SLOTS,
+      select: (id) => tabActions.current.switchSlot(id),
+      add: () => void tabActions.current.addSlot(),
+      close: (id) => {
+        tabActions.current.closeSlot(id);
+        tabActions.current.forget(id);
+      },
+      rename: (id, name) => tabActions.current.renameSlot(id, name),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabsKey]);
 
   const [error, setError] = useState<string | null>(null);
   // A short confirmation under the buttons (pinned, or a recall that had to reuse this tab).
@@ -237,7 +252,7 @@ export default function Generate({
       cancelled = true;
     };
   }, [modelsVersion]);
-  // Image mode with a start picture is image to image: its own workflow, the same model (so profiles still apply).
+  // Image mode with a source image is image to image: its own workflow, the same model (so profiles still apply).
   const startPicture = mode === 'image' && imageFromPicture ? imageSourcePath : null;
   // Image -> Image chosen but no picture yet: nothing to run until one is picked.
   const needsStartPicture = mode === 'image' && imageFromPicture && !imageSourcePath;
@@ -342,7 +357,7 @@ export default function Generate({
     setError(null);
   }
 
-  /** Switch to image mode with `request.imagePath` as the start picture (image to image), sized to its shape. */
+  /** Switch to image mode with `request.imagePath` as the source image (image to image), sized to its shape. */
   function setUpImageToImage(request: VideoSourceRequest) {
     setMode('image');
     setImageSourcePath(request.imagePath);
@@ -387,7 +402,7 @@ export default function Generate({
     if (path) setSourceImagePath(path);
   }
 
-  // The Library picture chooser, open for a start picture (image) or a video's source image.
+  // The Library picture chooser, open for a source image (image to image) or a video's source image.
   const [picker, setPicker] = useState<'start' | 'video' | null>(null);
 
   function handlePickFromLibrary(record: GenerationRecord) {
@@ -434,7 +449,7 @@ export default function Generate({
       // A video keeps a copy of the image it was made from, so it can be re-run in place. Videos made
       // before that was kept have none: a new one has to be chosen before they can be re-run.
       setSourceImagePath(recalledMode === 'video' ? record.sourceImagePath : null);
-      // An image to image result is re-run from the copy of its start picture the Library kept, at its strength.
+      // An image to image result is re-run from the copy of its source image the Library kept, at its strength.
       const fromPicture = record.modelFamily === I2I_FAMILY;
       setImageSourcePath(fromPicture ? record.sourceImagePath : null);
       setImageFromPicture(fromPicture);
@@ -542,7 +557,7 @@ export default function Generate({
       return;
     }
     if (needsStartPicture) {
-      setError('Choose a start picture first, or switch to Text → Image.');
+      setError('Choose a source image first, or switch to Text → Image.');
       return;
     }
     if (blocked) return;
@@ -637,82 +652,6 @@ export default function Generate({
     <div className="page generate-page">
       <div className="generate-layout">
         <div className="generate-sidebar-group">
-          <div className="prompt-slots-rail" role="tablist">
-            <div className="prompt-slots-rail__list">
-              {slots.map((slot) => (
-                <div
-                  key={slot.id}
-                  className={`prompt-slot-row${slot.id === activeSlotId ? ' prompt-slot-row--active' : ''}`}
-                >
-                  {renamingSlotId === slot.id ? (
-                    <input
-                      autoFocus
-                      className="prompt-slot-row__rename"
-                      value={renameDraft}
-                      onChange={(e) => setRenameDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          commitRenameSlot();
-                        } else if (e.key === 'Escape') {
-                          e.preventDefault();
-                          cancelRenameSlot();
-                        }
-                      }}
-                      onBlur={() => {
-                        if (skipRenameBlur.current) {
-                          skipRenameBlur.current = false;
-                          return;
-                        }
-                        commitRenameSlot();
-                      }}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={slot.id === activeSlotId}
-                      className="prompt-slot-row__label"
-                      onClick={() => switchSlot(slot.id)}
-                      onDoubleClick={() => startRenameSlot(slot)}
-                      title={`${slotLabelFor(slot)} - ${(slot.id === activeSlotId ? mode : slot.data.mode) === 'video' ? 'video' : 'image'} (double-click to rename)`}
-                    >
-                      {/* The active tab's mode is the live form value; the others' is what they last saved. */}
-                      <span
-                        className={`prompt-slot-row__mode prompt-slot-row__mode--${slot.id === activeSlotId ? mode : slot.data.mode}`}
-                      >
-                        {(slot.id === activeSlotId ? mode : slot.data.mode) === 'video' ? 'VID' : 'IMG'}
-                      </span>
-                      <span className="prompt-slot-row__text">{slotLabelFor(slot)}</span>
-                    </button>
-                  )}
-                  {slots.length > 1 && (
-                    <button
-                      type="button"
-                      className="prompt-slot-row__close"
-                      onClick={() => {
-                        closeSlot(slot.id);
-                        queue.forgetSlot(slot.id);
-                      }}
-                      title="Close this tab"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="prompt-slot-row__add"
-              onClick={addSlot}
-              disabled={slots.length >= MAX_PROMPT_SLOTS}
-              title={slots.length >= MAX_PROMPT_SLOTS ? `Up to ${MAX_PROMPT_SLOTS} tabs` : 'New prompt tab'}
-            >
-              ＋ New
-            </button>
-          </div>
-
           <div className="generate-form">
           <div className="button-row--even" style={{ marginBottom: 12 }}>
             <button
@@ -733,7 +672,7 @@ export default function Generate({
 
           {picker && (
             <LibraryPicker
-              title={picker === 'video' ? 'Choose the video\'s source image' : 'Choose the start picture'}
+              title="Choose the source image"
               onPick={handlePickFromLibrary}
               onClose={() => setPicker(null)}
             />
@@ -792,26 +731,21 @@ export default function Generate({
               onPaths={(paths) => void useStartPicture(paths[0] ?? null)}
               onReject={setError}
             >
-              <label className="field-label">Start picture</label>
+              <label className="field-label">Source Image</label>
+              <button type="button" className="source-image-button" onClick={() => void handleChooseStartPicture()} title={imageSourcePath ?? undefined}>
+                <span className="source-image-button__name">
+                  {imageSourcePath ? imageSourcePath.split(/[\\/]/).pop() : 'Choose Source Image... (or drop one here)'}
+                </span>
+              </button>
+              <button type="button" className="source-image-button" style={{ marginTop: 6 }} onClick={() => setPicker('start')}>
+                Choose from the Library...
+              </button>
               {imageSourcePath && (
                 <div className="source-image-preview-wrap">
-                  <ExpandButton src={window.kvgenius.imageUrlFor(imageSourcePath)} kind="image" filePath={imageSourcePath} alt="Start picture" />
-                  <img className="source-image-preview" src={window.kvgenius.imageUrlFor(imageSourcePath)} alt="Start picture" />
+                  <ExpandButton src={window.kvgenius.imageUrlFor(imageSourcePath)} kind="image" filePath={imageSourcePath} alt="Source image" />
+                  <img className="source-image-preview" src={window.kvgenius.imageUrlFor(imageSourcePath)} alt="Source image" />
                 </div>
               )}
-              <div className="button-row" style={{ marginTop: 6 }}>
-                <button type="button" onClick={() => void handleChooseStartPicture()} title="Pick a picture file from this computer (or drop one here)">
-                  {imageSourcePath ? 'Change file...' : 'Choose a file...'}
-                </button>
-                <button type="button" onClick={() => setPicker('start')} title="Pick one of the pictures in your Library">
-                  From the Library...
-                </button>
-                {imageSourcePath && (
-                  <button type="button" onClick={() => void useStartPicture(null)}>
-                    Remove
-                  </button>
-                )}
-              </div>
               {imageSourcePath && (
                 <>
                   <label className="field-label" htmlFor="denoise" style={{ marginTop: 10 }}>

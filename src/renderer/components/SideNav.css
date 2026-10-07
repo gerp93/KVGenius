@@ -304,3 +304,190 @@
   justify-content: center;
   padding: 0;
 }
+
+/* ---- Prompt tabs, under Image / Video ----
+   The rail is a column where only the tab list may shrink: the Create section is allowed to give up height (down to a
+   floor that still shows the fixed rows and a couple of tabs) and the list inside it scrolls. Everything else keeps its
+   size, so Upscale, Styles, the Library and the footer never move or scroll away. Below the floor the whole rail
+   scrolls as a last resort (a very short window). */
+.side-nav .side-nav__scroll {
+  display: flex;
+  flex-direction: column;
+}
+
+.side-nav .side-nav__section {
+  flex: none;
+}
+
+.side-nav .side-nav__section--create {
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  /* Its floor (the fixed rows plus a few tabs) is set inline by SideNav, from the number of tabs. */
+}
+
+.side-nav .side-nav__section--create .side-nav__items {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.side-nav .side-nav__items > .side-nav__item {
+  flex: none;
+}
+
+.side-nav .side-nav__tabs {
+  flex: 0 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin: 0 0 0 10px;
+  padding-left: 6px;
+  border-left: 1px solid var(--color-border);
+}
+
+.side-nav .side-nav__tab {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-radius: 6px;
+}
+
+.side-nav .side-nav__tab:hover {
+  background: var(--color-top-bar-hover);
+}
+
+.side-nav .side-nav__tab--selected {
+  font-weight: 600;
+}
+
+.side-nav .side-nav__tab.active {
+  background: var(--color-top-bar-hover);
+  box-shadow: inset 3px 0 0 var(--color-accent-blue);
+}
+
+.side-nav .side-nav__tab-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 28px;
+  gap: 6px;
+  padding: 0 4px 0 8px;
+  justify-content: flex-start;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: inherit;
+  text-align: left;
+}
+
+.side-nav .side-nav__tab-main:hover:not(:disabled) {
+  background: none;
+}
+
+.side-nav .side-nav__tab-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-nav .side-nav__tab-mode {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.5;
+  opacity: 0.8;
+}
+
+.side-nav .side-nav__tab-mode--video {
+  color: var(--color-accent-blue);
+}
+
+.side-nav .side-nav__tab-close {
+  flex: none;
+  width: 22px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-size: 10px;
+  opacity: 0;
+}
+
+.side-nav .side-nav__tab:hover .side-nav__tab-close,
+.side-nav .side-nav__tab-close:focus-visible {
+  opacity: 0.7;
+}
+
+.side-nav .side-nav__tab-close:hover:not(:disabled) {
+  background: none;
+  opacity: 1;
+}
+
+.side-nav .side-nav__tab-rename {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 28px;
+  margin: 0;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.side-nav .side-nav__tab-add {
+  flex: none;
+  justify-content: flex-start;
+  height: 28px;
+  min-height: 0;
+  margin: 2px 0 0 10px;
+  padding: 0 8px 0 14px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.side-nav .side-nav__tab-add:hover:not(:disabled) {
+  background: var(--color-top-bar-hover);
+  color: var(--color-text);
+}
+
+/* Thin: each tab is its mode tag alone (the full name is the tooltip); no close or rename there. */
+.side-nav--thin .side-nav__tabs {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.side-nav--thin .side-nav__tab-main {
+  justify-content: center;
+  padding: 0;
+}
+
+.side-nav--thin .side-nav__tab-text {
+  display: none;
+}
+
+.side-nav--thin .side-nav__tab-add {
+  width: 100%;
+  margin: 2px 0 0;
+  padding: 0;
+  justify-content: center;
+}
+
+/* A thin rule between the footer's groups: setup guide / show hidden / ComfyUI status and graphics card. */
+.side-nav .side-nav__rule {
+  flex: none;
+  height: 1px;
+  margin: 4px 4px;
+  background: var(--color-border);
+}

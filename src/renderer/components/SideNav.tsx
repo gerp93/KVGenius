@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Link, NavLink, useLocation } from 'react-router-dom';
+import { Fragment, useRef, useState } from 'react';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import type { PromptTabsModel } from '../utils/promptTabs';
 import { GpuInfo, formatVram, gpuLabel } from '../../shared/gpuInfo';
 import './SideNav.css';
 
@@ -77,6 +78,8 @@ type Props = {
   connection: ConnectionStatus;
   /** The device(s) ComfyUI runs on; empty while it is unreachable. */
   gpus: GpuInfo[];
+  /** Generate's prompt tabs, listed under Image / Video; null until Generate has published them. */
+  promptTabs: PromptTabsModel | null;
   launchError: string | null;
   onLaunchComfyUI: () => void;
   showHidden: boolean;
@@ -90,10 +93,109 @@ const CONNECTION_LABEL: Record<ConnectionStatus, string> = {
   starting: 'Starting ComfyUI...',
 };
 
+const TAB_ROW = 28;
+/** The least height the tab list is squeezed to before it scrolls: three tabs, or fewer if that is all there are. */
+const tabsMinHeight = (count: number) => Math.min(count, 3) * TAB_ROW;
+/** The Create section's other rows (head, Image / Video, New tab, Upscale, Styles), so the rail knows when to stop squeezing the tabs. */
+const CREATE_FIXED_HEIGHT = 28 + 30 + 30 + 30 + 30 + 6;
+
+/** The prompt tabs, nested under Image / Video. This list is the only part of the rail that scrolls (see SideNav.css), so
+ * everything else stays in place; ＋ sits below it, outside the scroll, so a new tab is always one click away. */
+function PromptTabs({ model, thin, onGenerate }: { model: PromptTabsModel; thin: boolean; onGenerate: boolean }) {
+  const navigate = useNavigate();
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const skipBlur = useRef(false);
+
+  function open(id: string) {
+    model.select(id);
+    navigate('/');
+  }
+
+  function commitRename() {
+    if (renamingId) model.rename(renamingId, draft);
+    setRenamingId(null);
+  }
+
+  return (
+    <>
+      <div className="side-nav__tabs" role="tablist" aria-label="Prompt tabs" style={{ minHeight: tabsMinHeight(model.tabs.length) }}>
+        {model.tabs.map((tab) => {
+          const selected = tab.id === model.activeId;
+          return (
+            <div key={tab.id} className={`side-nav__tab${selected ? ' side-nav__tab--selected' : ''}${selected && onGenerate ? ' active' : ''}`}>
+              {renamingId === tab.id && !thin ? (
+                <input
+                  autoFocus
+                  className="side-nav__tab-rename"
+                  value={draft}
+                  maxLength={40}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitRename();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      skipBlur.current = true;
+                      setRenamingId(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (skipBlur.current) {
+                      skipBlur.current = false;
+                      return;
+                    }
+                    commitRename();
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  className="side-nav__tab-main"
+                  onClick={() => open(tab.id)}
+                  onDoubleClick={() => {
+                    setRenamingId(tab.id);
+                    setDraft(tab.label);
+                  }}
+                  title={`${tab.label} - ${tab.mode} (double-click to rename)`}
+                >
+                  <span className={`side-nav__tab-mode side-nav__tab-mode--${tab.mode}`}>{tab.mode === 'video' ? 'VID' : 'IMG'}</span>
+                  <span className="side-nav__tab-text">{tab.label}</span>
+                </button>
+              )}
+              {model.tabs.length > 1 && !thin && (
+                <button type="button" className="side-nav__tab-close" onClick={() => model.close(tab.id)} title="Close this tab" aria-label="Close this tab">
+                  ✕
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="side-nav__tab-add"
+        disabled={!model.canAdd}
+        onClick={() => {
+          model.add();
+          navigate('/');
+        }}
+        title={model.canAdd ? 'New prompt tab' : `Up to ${model.maxTabs} tabs`}
+        aria-label="New prompt tab"
+      >
+        {thin ? '＋' : '＋ New tab'}
+      </button>
+    </>
+  );
+}
+
 /** The app's navigation: a left rail that is either full (labels, sections that fold) or thin (every page
  * its own icon, sections kept as small captions - nothing hides behind a hover). Which one, and which
  * sections are folded, is remembered. */
-export default function SideNav({ connection, gpus, launchError, onLaunchComfyUI, showHidden, onToggleShowHidden }: Props) {
+export default function SideNav({ connection, gpus, promptTabs, launchError, onLaunchComfyUI, showHidden, onToggleShowHidden }: Props) {
   const location = useLocation();
   const [thin, setThin] = useState(loadThin);
   const [folded, setFolded] = useState<string[]>(loadFolded);
@@ -132,7 +234,11 @@ export default function SideNav({ connection, gpus, launchError, onLaunchComfyUI
           const isFolded = !thin && folded.includes(section.id);
           const holdsCurrentPage = section.items.some((item) => (item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)));
           return (
-            <div key={section.id} className="side-nav__section">
+            <div
+              key={section.id}
+              className={`side-nav__section side-nav__section--${section.id}`}
+              style={section.id === 'create' && promptTabs ? { minHeight: CREATE_FIXED_HEIGHT + tabsMinHeight(promptTabs.tabs.length) } : undefined}
+            >
               <button
                 type="button"
                 className={`side-nav__head${holdsCurrentPage && isFolded ? ' active' : ''}`}
@@ -151,10 +257,13 @@ export default function SideNav({ connection, gpus, launchError, onLaunchComfyUI
               {!isFolded && (
                 <div className="side-nav__items">
                   {section.items.map((item) => (
-                    <NavLink key={item.to} to={item.to} end={item.end} className={linkClass} title={item.label}>
-                      <span className="side-nav__icon">{item.icon}</span>
-                      <span className="side-nav__label">{item.label}</span>
-                    </NavLink>
+                    <Fragment key={item.to}>
+                      <NavLink to={item.to} end={item.end} className={linkClass} title={item.label}>
+                        <span className="side-nav__icon">{item.icon}</span>
+                        <span className="side-nav__label">{item.label}</span>
+                      </NavLink>
+                      {item.to === '/' && promptTabs && <PromptTabs model={promptTabs} thin={thin} onGenerate={location.pathname === '/'} />}
+                    </Fragment>
                   ))}
                 </div>
               )}
@@ -177,6 +286,7 @@ export default function SideNav({ connection, gpus, launchError, onLaunchComfyUI
           <span className="side-nav__icon">❓</span>
           <span className="side-nav__label">Setup guide</span>
         </Link>
+        <div className="side-nav__rule" />
         <button
           type="button"
           className={`side-nav__item${showHidden ? ' side-nav__item--on' : ''}`}
@@ -187,6 +297,7 @@ export default function SideNav({ connection, gpus, launchError, onLaunchComfyUI
           <span className="side-nav__icon">🙈</span>
           <span className="side-nav__label">{showHidden ? 'Showing hidden' : 'Show hidden'}</span>
         </button>
+        <div className="side-nav__rule" />
         {launchError && (
           <span className="side-nav__error" title={launchError}>
             {launchError}

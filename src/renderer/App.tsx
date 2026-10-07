@@ -21,6 +21,7 @@ import ToolsLayout from './pages/ToolsLayout';
 import ToolsUpscale from './pages/ToolsUpscale';
 import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../shared/types';
 import type { GpuInfo } from '../shared/gpuInfo';
+import type { PromptTabsModel } from './utils/promptTabs';
 import { UPSCALE_FAMILY } from '../shared/upscale';
 import type { UpscaleRecall } from '../shared/upscale';
 import { announceGenerationChange, useGenerationChanges } from './utils/generationChanges';
@@ -57,6 +58,8 @@ export default function App() {
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
   // The card ComfyUI runs on, shown in the sidebar footer; refreshed with the connection check (its free memory moves).
   const [gpus, setGpus] = useState<GpuInfo[]>([]);
+  // Generate's prompt tabs, listed in the sidebar.
+  const [promptTabs, setPromptTabs] = useState<PromptTabsModel | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<string | null>(null);
   // One "Show hidden" switch for the whole app (the top bar button), so it need not be flipped on
@@ -246,6 +249,7 @@ export default function App() {
       <SideNav
         connection={connection}
         gpus={gpus}
+        promptTabs={promptTabs}
         launchError={launchError}
         onLaunchComfyUI={handleLaunchComfyUI}
         showHidden={showHidden}
@@ -272,6 +276,7 @@ export default function App() {
                 onVideoSourceHandled={() => setVideoSource(null)}
                 stylesVersion={stylesVersion}
                 modelsVersion={modelsVersion}
+                onTabsChange={setPromptTabs}
               />
             </div>
             <Routes>
