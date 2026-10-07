@@ -188,13 +188,12 @@ export default function QueuePanel({
           style={{ '--queue-bar-fill': `${Math.round((runningDisplay.determinate ? runningDisplay.fraction : 1) * 100)}%` } as React.CSSProperties}
         />
       )}
-      {/* Folded, the whole bar opens the queue; its button is there for the keyboard (the click
-          bubbles up). Open, only the ✕ closes it. */}
-      <div className="queue-bar__head" onClick={collapsed ? onToggle : undefined}>
+      {/* The whole bar opens and closes the queue; its button is there for the keyboard (the click
+          bubbles up). Buttons of their own inside the bar (Clear all) stop the click so they do not also fold it. */}
+      <div className="queue-bar__head" onClick={onToggle}>
         <button
           type="button"
           className="queue-bar__toggle"
-          onClick={collapsed ? undefined : onToggle}
           title={collapsed ? 'Show the queue' : 'Hide the queue'}
           aria-expanded={!collapsed}
         >
@@ -243,7 +242,14 @@ export default function QueuePanel({
               <span className="queue-bar__status">{notice ?? `Queue total: ${queueTotal?.text}`}</span>
             )}
             {queued.length > 0 && (
-              <button type="button" className="queue-panel__clear queue-bar__clear" onClick={onClearQueued}>
+              <button
+                type="button"
+                className="queue-panel__clear queue-bar__clear"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClearQueued();
+                }}
+              >
                 Clear all
               </button>
             )}
