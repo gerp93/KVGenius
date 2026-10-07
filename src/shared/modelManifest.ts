@@ -60,8 +60,8 @@ export interface ManifestFeature {
 export const MODEL_MANIFEST: ManifestFeature[] = [
   {
     id: 'z-image',
-    title: 'Pictures (Z Image Turbo)',
-    summary: 'Text to image, and image to image (starting from a picture of your own).',
+    title: 'Images (Z Image Turbo)',
+    summary: 'Text to image, and image to image (starting from an image of your own).',
     family: 'z-image',
     files: [
       { file: 'z_image_turbo_bf16.safetensors', folder: 'diffusion_models', role: 'Image model', url: hf(Z_IMAGE_REPO, 'diffusion_models', 'z_image_turbo_bf16.safetensors') },
@@ -73,7 +73,7 @@ export const MODEL_MANIFEST: ManifestFeature[] = [
   {
     id: 'wan22-i2v',
     title: 'Video (Wan 2.2 image to video)',
-    summary: 'Makes a short video from a picture.',
+    summary: 'Makes a short video from an image.',
     family: 'wan22-i2v',
     files: [
       { file: 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors', folder: 'diffusion_models', role: 'Video model, high noise', url: hf(WAN_REPO, 'diffusion_models', 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors') },
@@ -89,7 +89,7 @@ export const MODEL_MANIFEST: ManifestFeature[] = [
   {
     id: 'upscale',
     title: 'Upscaling',
-    summary: 'Enlarges pictures and videos. You choose the model - any ESRGAN-style file works (.pth or .safetensors).',
+    summary: 'Enlarges images and videos. You choose the model - any ESRGAN-style file works (.pth or .safetensors).',
     family: null,
     files: [],
     source: { label: 'Browse upscale models', url: 'https://openmodeldb.info' },

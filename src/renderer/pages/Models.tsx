@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { MODEL_MANIFEST } from '../../shared/modelManifest';
 import { ModelsDirInfo } from '../../shared/types';
 import { ExternalLink } from '../components/Stepper';
-import ModelFilesTable, { summaryText } from '../components/ModelFilesTable';
+import ModelFilesTable, { ChosenModelsTable, summaryText } from '../components/ModelFilesTable';
 import ModelDownload from '../components/ModelDownload';
 import ModelProfiles from '../components/ModelProfiles';
 import { useModelStatus } from '../hooks/useModelStatus';
@@ -30,13 +30,6 @@ export default function Models({ onModelsChanged }: Props) {
     void window.kvgenius.getModelsDirInfo().then(setDir);
   }, []);
 
-  // The folder can change what the status says (no ComfyUI to ask), so recheck after any change.
-  async function changeDir(action: () => Promise<ModelsDirInfo | null>) {
-    const next = await action();
-    if (next) setDir(next);
-    refresh();
-  }
-
   const modelsDir = dir?.valid ? dir.effective : null;
 
   return (
@@ -45,31 +38,12 @@ export default function Models({ onModelsChanged }: Props) {
           {report ? SOURCE_TEXT[report.source] : 'Checking...'} <Link to="/setup">Setup guide</Link>
         </p>
 
-        <SettingsSection
-          title="ComfyUI's models folder"
-          description="Where the files below go. Found automatically for a portable install; ComfyUI Desktop keeps it in the base folder you chose when installing, so you may need to pick it."
-        >
-          <p style={{ fontSize: 12, wordBreak: 'break-all', marginTop: 0 }}>
-            {dir === null
-              ? '...'
-              : dir.effective
-                ? `${dir.configured ? 'Chosen' : 'Found automatically'}: ${dir.effective}${dir.valid ? '' : ' (this does not look like a ComfyUI models folder)'}`
-                : 'Not set.'}
+        {dir && !dir.valid && (
+          <p className="settings-message settings-message--error" style={{ marginBottom: 16 }}>
+            {dir.effective ? "The models folder doesn't look right" : "The models folder isn't set"}, so files can't be downloaded or added for you.{' '}
+            <Link to="/settings?tab=comfyui">Set it in Settings &gt; ComfyUI</Link>
           </p>
-          <div className="button-row">
-            <button type="button" onClick={() => void changeDir(() => window.kvgenius.chooseModelsDir())}>
-              Choose Folder...
-            </button>
-            {dir?.configured && (
-              <button type="button" onClick={() => void changeDir(() => window.kvgenius.clearModelsDir())}>
-                Clear
-              </button>
-            )}
-            <button type="button" onClick={refresh}>
-              Check Again
-            </button>
-          </div>
-        </SettingsSection>
+        )}
 
         <ModelProfiles report={report} onChanged={onModelsChanged} canImport={modelsDir !== null} onFilesChanged={refresh} />
 
@@ -82,9 +56,12 @@ export default function Models({ onModelsChanged }: Props) {
               <ModelFilesTable feature={feature} report={report} modelsDir={modelsDir} />
               <ModelDownload feature={feature} report={report} modelsDir={modelsDir} />
               {upscaleModels && (
-                <p style={{ fontSize: 13 }}>
-                  {upscaleModels.length > 0 ? `Installed: ${upscaleModels.join(', ')}` : 'No upscale models installed yet. Put one in upscale_models.'}
-                </p>
+                <ChosenModelsTable
+                  folder="upscale_models"
+                  role="Upscale model"
+                  names={upscaleModels}
+                  emptyText="No upscale models installed yet. Put one in upscale_models."
+                />
               )}
               {feature.note && <p className="settings-hint">{feature.note}</p>}
               <ExternalLink href={feature.source.url}>{feature.source.label} ↗</ExternalLink>

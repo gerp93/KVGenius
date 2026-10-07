@@ -472,6 +472,8 @@ export interface KVGeniusAPI {
   /** Opens a folder dialog; resolves the new state, or null if cancelled. */
   chooseModelsDir: () => Promise<ModelsDirInfo | null>;
   clearModelsDir: () => Promise<ModelsDirInfo>;
+  /** Opens the models folder in the file manager. Resolves why it could not (not set, missing), or null. */
+  openModelsDir: () => Promise<string | null>;
 
   getTheme: () => Promise<string>;
   setTheme: (themeId: string) => Promise<void>;

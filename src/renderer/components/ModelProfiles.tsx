@@ -191,7 +191,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
     if (!result) return;
     const s = result.settings;
     if (!s) {
-      setImageNote(`${result.fileName} has no settings saved in it (many sites remove them). A picture saved straight from ComfyUI or KVGenius has them.`);
+      setImageNote(`${result.fileName} has no settings saved in it (many sites remove them). An image saved straight from ComfyUI or KVGenius has them.`);
       return;
     }
     const known = (value: string | undefined, list: string[]) => value !== undefined && (list.length === 0 || list.includes(value));
@@ -221,7 +221,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
       return next;
     });
     const hint = s.fileHints?.diffusionModel;
-    const where = s.source === 'comfyui' ? "the picture's ComfyUI workflow" : 'its parameters text';
+    const where = s.source === 'comfyui' ? "the image's ComfyUI workflow" : 'its parameters text';
     setImageNote(
       `Read from ${result.fileName} (${where}): ${parts.join(', ') || 'nothing usable'}.${
         s.source === 'a1111' ? " Its sampler names differ from ComfyUI's, so those were left alone." : ''
@@ -240,7 +240,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
       await window.kvgenius.deleteModelProfile(selectedId);
       setProfiles(await window.kvgenius.listModelProfiles());
       select(null);
-      setNotice('Deleted. Pictures already made with it keep the settings they were made with.');
+      setNotice('Deleted. Images already made with it keep the settings they were made with.');
       onChanged();
     } catch (err) {
       setError(cleanError(err));
@@ -381,7 +381,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
             <h4 className="models-profile__heading">Settings</h4>
             <div className="button-row" style={{ marginBottom: 8 }}>
               <button type="button" onClick={() => void handleReadImage()}>
-                Read settings from a picture...
+                Read settings from an image...
               </button>
             </div>
             {imageNote && <p className="settings-hint">{imageNote}</p>}
@@ -427,7 +427,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
             </button>
             <span className="settings-hint" style={{ margin: 0 }}>
               {def.sampler
-                ? 'One small picture, to see that the files load and run. Needs ComfyUI running and the queue empty.'
+                ? 'One small image, to see that the files load and run. Needs ComfyUI running and the queue empty.'
                 : 'One tiny clip, to see that the files load and run. The video models are large, so this can take a few minutes. Needs ComfyUI running and the queue empty.'}
             </span>
           </div>
@@ -438,7 +438,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
               {testResult.imageBase64 && testResult.mime?.startsWith('video/') ? (
                 <video src={`data:${testResult.mime};base64,${testResult.imageBase64}`} autoPlay loop muted controls />
               ) : (
-                testResult.imageBase64 && <img src={`data:${testResult.mime ?? 'image/png'};base64,${testResult.imageBase64}`} alt="The test picture" />
+                testResult.imageBase64 && <img src={`data:${testResult.mime ?? 'image/png'};base64,${testResult.imageBase64}`} alt="The test image" />
               )}
             </div>
           )}

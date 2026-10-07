@@ -127,6 +127,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   double-click renames, ✕ closes, ＋ New tab). Only that list scrolls when the window is short - the rest of the rail keeps
   its place - down to a floor of three tabs, below which the whole rail scrolls as a last resort. Thin shows each tab as
   its IMG/VID tag. Footer groups are separated by rules.
+  Pages use the whole width (no max-width columns): Settings tabs flow their cards into as many 520px+ columns as fit
+  (`.settings-panel--cards`; the Models tab is one wide editor), and Styles, Upscale and the setup guide fill the page.
   The rail is full (labels; a section's head folds it) or thin (**icons only, no hover flyouts**: each page keeps its own
   icon, each section shrinks to a caption, so every page is one click away). Thin/full and folded sections are remembered
   in `localStorage`. Every page needs an icon and a `title` for that reason. The shell is a row: sidebar, then
@@ -232,7 +234,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,
   `listInstalledModels`), falling back to a scan of the models folder when ComfyUI is down (`modelsFolder.ts`;
   the folder is the user's choice, else guessed from the launcher and only trusted if it looks like a `models`
-  folder). A file inside a subfolder is reported as such, never as installed: the template asks for the plain name.
+  folder; it is set, opened (`openModelsDir`) and warned about in Settings > ComfyUI, and the Models tab only shows a
+  warning when it is not usable). A file inside a subfolder is reported as such, never as installed: the template asks for the plain name.
   The Models tab (Settings) and the setup guide both render from this.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a

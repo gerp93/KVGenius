@@ -31,7 +31,7 @@ export default function Settings({ theme, onThemeChange, onModelsChanged }: Prop
 
   return (
     <div className="page">
-      <div className={`settings-page${tab === 'models' ? ' settings-page--wide' : ''}`}>
+      <div className="settings-page">
         <h2 style={{ marginTop: 0 }}>Settings</h2>
 
         <div className="tab-strip" role="tablist">
@@ -51,7 +51,7 @@ export default function Settings({ theme, onThemeChange, onModelsChanged }: Prop
           ))}
         </div>
 
-        <div id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${tab}`}>
+        <div id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${tab}`} className={tab === 'models' ? undefined : 'settings-panel--cards'}>
           {tab === 'general' && <GeneralTab theme={theme} onThemeChange={onThemeChange} />}
           {tab === 'comfyui' && <ComfyUITab />}
           {tab === 'models' && <Models onModelsChanged={onModelsChanged} />}

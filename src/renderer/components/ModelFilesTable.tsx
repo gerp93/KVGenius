@@ -64,6 +64,37 @@ export default function ModelFilesTable({ feature, report, modelsDir, showStatus
   );
 }
 
+/** The files of a feature whose model the user picks themselves (upscaling): the same table as above, listing
+ * what ComfyUI has in `folder` - or a note saying where to put one when there is none. */
+export function ChosenModelsTable({ folder, role, names, emptyText }: { folder: string; role: string; names: string[]; emptyText: string }) {
+  if (names.length === 0) return <p className="settings-hint">{emptyText}</p>;
+  return (
+    <table className="models-table">
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Goes in</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {names.map((name) => (
+          <tr key={name}>
+            <td>
+              <code>{name}</code>
+              <div className="models-table__role">{role}</div>
+            </td>
+            <td>
+              <code>{folder}</code>
+            </td>
+            <td className="models-table__state models-table__state--present">{STATE_LABEL.present}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 /** "3 of 3 installed" style line for a feature; null when nothing is known. */
 export function summaryText(feature: ManifestFeature, report: ModelStatusReport | null): string | null {
   if (!report || report.source === 'none' || feature.files.length === 0) return null;
