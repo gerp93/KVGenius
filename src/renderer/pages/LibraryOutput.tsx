@@ -6,13 +6,14 @@ import CompareOverlay from '../components/CompareOverlay';
 import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
 import DetailsDock from '../components/DetailsDock';
+import OriginBadge from '../components/OriginBadge';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
 import GalleryLightbox from '../components/GalleryLightbox';
 import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
 import { justifyRows } from '../utils/justifiedRows';
-import { isUpscale, pinNotice } from '../utils/library';
+import { pinNotice } from '../utils/library';
 
 const PAGE_SIZE = 60;
 const TARGET_ROW_HEIGHT = 260;
@@ -651,11 +652,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                   × {record.groupCount}
                 </span>
               )}
-              {isUpscale(record) && (
-                <span className="library-card__upscale-badge" title="An enlarged copy of another picture, not generated from the prompt">
-                  Upscaled
-                </span>
-              )}
+              <OriginBadge record={record} />
               {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
             </div>
             {record.pinned && (

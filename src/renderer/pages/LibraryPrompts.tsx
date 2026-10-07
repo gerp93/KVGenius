@@ -5,12 +5,13 @@ import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
 import GalleryLightbox from '../components/GalleryLightbox';
 import DetailsDock from '../components/DetailsDock';
+import OriginBadge from '../components/OriginBadge';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
 import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
 import { justifyRows } from '../utils/justifiedRows';
-import { isUpscale, pinNotice } from '../utils/library';
+import { pinNotice } from '../utils/library';
 
 const TARGET_ROW_HEIGHT = 240;
 const GRID_GAP = 12;
@@ -124,11 +125,7 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
               {index + 1} / {group.items.length}
             </span>
           )}
-          {isUpscale(record) && (
-            <span className="library-card__upscale-badge" title="An enlarged copy of another picture, not generated from the prompt">
-              Upscaled
-            </span>
-          )}
+          <OriginBadge record={record} />
           {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
         </div>
         <div className="prompt-tile__prompt">{record.prompt}</div>

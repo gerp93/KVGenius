@@ -1153,7 +1153,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 
 .library-card__stack-badge,
 .library-card__hidden-badge,
-.library-card__upscale-badge {
+.library-card__origin-badge {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 12px;
@@ -1166,8 +1166,26 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   font-weight: 600;
 }
 
-.library-card__upscale-badge {
-  background: rgba(30, 90, 160, 0.85);
+/* How the item came to be: plain for the common text-to-image, colored for the others so they stand out. */
+.library-card__origin-badge {
+  padding: 2px 7px;
+  font-size: 11px;
+  /* On a narrow card, clip rather than run under the favorite button. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-card__origin-badge--image-to-video {
+  background: rgba(110, 60, 170, 0.88);
+}
+
+.library-card__origin-badge--upscale {
+  background: rgba(30, 90, 160, 0.88);
+}
+
+.library-card__origin-badge--gif {
+  background: rgba(30, 120, 80, 0.88);
 }
 
 /* A new picture in a cycling card fades in rather than snapping. */

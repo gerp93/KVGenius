@@ -125,6 +125,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   would come out clearly larger, it snaps to a two-column layout - the picture in a full-height column,
   the details beside it - decided by `shared/detailsLayout.ts` from the panel's measured size and the
   picture's aspect ratio (tall pictures gain a lot, wide ones usually stay stacked).
+- **Every Library item carries an origin tag** (`shared/origin.ts` -> `OriginBadge`): Text → Image,
+  Image → Video, Upscaled or GIF, from its `modelFamily`; an unknown family gets no tag rather than a
+  wrong one. It sits in the badge row of an Output card, a Prompts tile and the details panel header -
+  add a family to `generationOrigin` when adding a model.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned
