@@ -296,6 +296,9 @@ export interface KVGeniusAPI {
   /** Opens a native file dialog for picking a video mode's source image.
    * Resolves the chosen local path, or null if cancelled. */
   chooseSourceImage: () => Promise<string | null>;
+  /** Like chooseSourceImage, but for any number of images (Tools > Upscale). Resolves the chosen
+   * local paths, empty if cancelled. */
+  chooseSourceImages: () => Promise<string[]>;
   /** Puts an image on the clipboard as a picture (a GIF or other animation copies as one still frame).
    * Rejects for a file the app does not serve or cannot read as an image. */
   copyImageToClipboard: (imagePath: string) => Promise<void>;
