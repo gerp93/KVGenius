@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { MODEL_MANIFEST } from '../../shared/modelManifest';
 import { ModelsDirInfo } from '../../shared/types';
 import { ExternalLink } from '../components/Stepper';
-import ModelFilesTable, { summaryText } from '../components/ModelFilesTable';
+import ModelFilesTable, { ChosenModelsTable, summaryText } from '../components/ModelFilesTable';
 import ModelDownload from '../components/ModelDownload';
 import ModelProfiles from '../components/ModelProfiles';
 import { useModelStatus } from '../hooks/useModelStatus';
@@ -56,9 +56,12 @@ export default function Models({ onModelsChanged }: Props) {
               <ModelFilesTable feature={feature} report={report} modelsDir={modelsDir} />
               <ModelDownload feature={feature} report={report} modelsDir={modelsDir} />
               {upscaleModels && (
-                <p style={{ fontSize: 13 }}>
-                  {upscaleModels.length > 0 ? `Installed: ${upscaleModels.join(', ')}` : 'No upscale models installed yet. Put one in upscale_models.'}
-                </p>
+                <ChosenModelsTable
+                  folder="upscale_models"
+                  role="Upscale model"
+                  names={upscaleModels}
+                  emptyText="No upscale models installed yet. Put one in upscale_models."
+                />
               )}
               {feature.note && <p className="settings-hint">{feature.note}</p>}
               <ExternalLink href={feature.source.url}>{feature.source.label} ↗</ExternalLink>

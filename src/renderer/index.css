@@ -934,13 +934,26 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 }
 
 /* Settings: a readable column of titled cards under the tab strip. */
+/* Settings use the whole page: the cards of a tab flow into as many columns as fit (each at least 520px wide), and
+   the setup callout spans them all. The Models tab is one wide editor instead, so it is not a grid. */
 .settings-page {
-  max-width: 760px;
+  max-width: none;
 }
 
-/* The Models tab has a list and an editor side by side, so it takes the whole page. */
-.settings-page--wide {
-  max-width: none;
+.settings-panel--cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.settings-panel--cards > .settings-section {
+  margin-bottom: 0;
+}
+
+.settings-panel--cards > .setup-callout {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
 }
 
 .settings-section {

@@ -127,6 +127,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   double-click renames, ✕ closes, ＋ New tab). Only that list scrolls when the window is short - the rest of the rail keeps
   its place - down to a floor of three tabs, below which the whole rail scrolls as a last resort. Thin shows each tab as
   its IMG/VID tag. Footer groups are separated by rules.
+  Pages use the whole width (no max-width columns): Settings tabs flow their cards into as many 520px+ columns as fit
+  (`.settings-panel--cards`; the Models tab is one wide editor), and Styles, Upscale and the setup guide fill the page.
   The rail is full (labels; a section's head folds it) or thin (**icons only, no hover flyouts**: each page keeps its own
   icon, each section shrinks to a caption, so every page is one click away). Thin/full and folded sections are remembered
   in `localStorage`. Every page needs an icon and a `title` for that reason. The shell is a row: sidebar, then
