@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
-const DEFAULT_INTERVAL_MS = 2500;
+// Long enough to look at a picture between the (1.4s) crossfades.
+const DEFAULT_INTERVAL_MS = 4000;
 
 function prefersReducedMotion(): boolean {
   try {

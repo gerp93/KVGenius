@@ -1241,9 +1241,32 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   background: rgba(30, 120, 80, 0.88);
 }
 
-/* A new picture in a cycling card fades in rather than snapping. */
+/* A cycling card crossfades: the previous picture stays underneath (.cycle-under) while the next one
+   fades in slowly over it (.cycle-fade), so the card never dips to its background in between. The
+   duration matches CYCLE_FADE_MS in CycleMedia.tsx. */
+.cycle-under {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
 .cycle-fade {
-  animation: cycle-fade-in 0.5s ease;
+  position: relative;
+  z-index: 1;
+  animation: cycle-fade-in 1.4s ease-in-out;
+}
+
+/* A video's layer is wrapped in a span (see CycleMedia). */
+span.cycle-under,
+span.cycle-fade {
+  display: block;
+}
+
+span.cycle-fade {
+  height: 100%;
 }
 
 @keyframes cycle-fade-in {
