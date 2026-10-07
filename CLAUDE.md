@@ -129,7 +129,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   a divider line on the inner side. Folded (the default) it is a slim status strip: count, a tile
   per running/waiting/failed job, what the running job is doing and a progress line. Open, it is a
   drawer (`clamp(200px, 30vh, 320px)`) of horizontal cards that *pushes the page up* (it is in the
-  flex column, not an overlay). Open/folded is remembered in `localStorage`. The Library's details
+  flex column, not an overlay). Clicking anywhere on its head bar opens or folds it (not only the ▲/✕ button). Open/folded is remembered in `localStorage`. The Library's details
   panel is not collapsible: it docks to the right edge only once an item is clicked and ✕ closes it
   (its width scales with the screen) - which is why `.library-page` has no padding of its own and
   `.library-output__main` carries it. Likewise Generate has no page padding: the prompt-tab rail

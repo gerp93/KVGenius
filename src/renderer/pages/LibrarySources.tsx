@@ -94,24 +94,26 @@ export default function LibrarySources({ queue, onUpscale, onMakeVideo }: Props)
                 </span>
               </div>
               <div className="tools-upscale__card-actions">
-                <button type="button" disabled={entry.missing} onClick={() => onUpscale(entry.path)} title="Upscale this picture again">
-                  Upscale
+                <button type="button" disabled={entry.missing} onClick={() => onUpscale(entry.path)} title="Upscale this picture again" aria-label="Upscale">
+                  🔍
                 </button>
                 <button
                   type="button"
                   disabled={entry.missing || !size}
                   onClick={() => size && onMakeVideo({ imagePath: entry.path, width: size.width, height: size.height })}
                   title="Make a video from this picture"
+                  aria-label="Make video"
                 >
-                  Make video
+                  🎬
                 </button>
                 <button
                   type="button"
                   disabled={entry.missing || !size}
                   onClick={() => size && onMakeVideo({ target: 'image', imagePath: entry.path, width: size.width, height: size.height })}
                   title="Start a new picture from this one (image to image)"
+                  aria-label="Image to image"
                 >
-                  Image to image
+                  🎨
                 </button>
               </div>
             </div>

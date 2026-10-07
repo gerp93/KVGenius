@@ -31,7 +31,7 @@ export default function Settings({ theme, onThemeChange, onModelsChanged }: Prop
 
   return (
     <div className="page">
-      <div className="settings-page">
+      <div className={`settings-page${tab === 'models' ? ' settings-page--wide' : ''}`}>
         <h2 style={{ marginTop: 0 }}>Settings</h2>
 
         <div className="tab-strip" role="tablist">

@@ -539,12 +539,12 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   padding: 4px 12px;
 }
 
-.queue-bar--collapsed .queue-bar__head {
+.queue-bar__head {
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
-.queue-bar--collapsed .queue-bar__head:hover {
+.queue-bar__head:hover {
   background: var(--color-bg-hover);
 }
 
@@ -940,6 +940,11 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   max-width: 760px;
 }
 
+/* The Models tab has a list and an editor side by side, so it takes the whole page. */
+.settings-page--wide {
+  max-width: none;
+}
+
 .settings-section {
   margin-bottom: 20px;
   padding: 16px 20px;
@@ -1157,6 +1162,24 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 /* A Prompts tile also has two copy buttons along its right edge. */
 .prompt-tile .library-card__badges {
   right: 108px;
+}
+
+/* Prompt tiles are as narrow as their picture (a tall, thin one is ~120px): the corner buttons and the origin tag would
+   pile on top of each other, so the less important ones step aside as the tile narrows. */
+.prompt-tile {
+  container-type: inline-size;
+}
+
+@container (max-width: 260px) {
+  .prompt-tile .library-card__badges {
+    display: none;
+  }
+}
+
+@container (max-width: 170px) {
+  .prompt-tile button.copy-button.prompt-tile__copy--image {
+    display: none;
+  }
 }
 
 .library-card__stack-badge,
@@ -2390,7 +2413,8 @@ button.button-danger--armed:hover:not(:disabled) {
 
 /* Styles tab: a card listing the styles at the left, the selected one's editor card at the right. */
 .styles-page {
-  max-width: 1000px;
+  /* The whole width of the page: the list stays 300px and the editor takes the rest. */
+  max-width: none;
 }
 
 .styles-page__title {
@@ -2606,8 +2630,8 @@ button.button-danger--armed:hover:not(:disabled) {
 
 /* Tools > Upscale: the pictures at the left, a sticky settings card at the right, this session's results below. */
 .tools-upscale {
-  max-width: 1100px;
-  margin: 0 auto;
+  /* The whole width of the page, like the other tool pages. */
+  margin: 0;
 }
 
 .tools-upscale__title {

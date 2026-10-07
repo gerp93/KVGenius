@@ -53,7 +53,7 @@
 }
 
 .models-page {
-  max-width: 1000px;
+  max-width: none;
 }
 
 .models-page__status {
