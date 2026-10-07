@@ -305,7 +305,7 @@ export default function App() {
             {connectionLabel[connection]}
           </button>
         ) : (
-          <Link to="/settings" className="top-bar__connection">
+          <Link to="/settings?tab=comfyui" className="top-bar__connection">
             {connectionLabel[connection]}
           </Link>
         )}

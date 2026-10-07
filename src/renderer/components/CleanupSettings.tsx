@@ -122,8 +122,8 @@ export default function CleanupSettings() {
   }
 
   return (
-    <section style={{ marginBottom: 32 }}>
-      <h3>Library Cleanup</h3>
+    <section className="settings-section">
+      <h3 className="settings-section__title">Library Cleanup</h3>
       <p style={muted}>
         Deleting is two steps. Deleting an item anywhere in the app (or the cleanup below) only moves it to the Trash, so it
         can always be restored. Emptying the Trash sends the files to your computer's Recycle Bin. Favorites and pinned items
