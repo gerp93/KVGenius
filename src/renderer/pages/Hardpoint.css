@@ -6,13 +6,13 @@
   padding: 16px;
 }
 
-.hardpoint-page-header {
+.hardpoint-page-footer {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-end;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-top: 12px;
 }
 
 .hardpoint-page-actions {
