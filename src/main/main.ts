@@ -223,6 +223,7 @@ function cleanListOptions(options: LibraryListOptions | undefined): LibraryListO
     grouped: options?.grouped === true,
     prompt: typeof options?.prompt === 'string' ? options.prompt : null,
     origins: cleanOrigins(options?.origins),
+    originsByKind: { image: cleanOrigins(options?.originsByKind?.image), video: cleanOrigins(options?.originsByKind?.video) },
   };
 }
 

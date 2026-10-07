@@ -1,4 +1,5 @@
 import { GIF_FAMILY } from './gif';
+import { FAMILY_KIND, GenerationKind } from './types';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from './upscale';
 
 /** How a Library item came to be - shown as a small tag on its card so it can be told at a glance. */
@@ -57,4 +58,16 @@ export function passesOriginFilter(modelFamily: string, origins: readonly Origin
   if (origins.length === 0) return true;
   const origin = generationOrigin(modelFamily);
   return origin !== null && origins.includes(origin.kind);
+}
+
+/** Which Library tab an item of this model family is filed under (unknown families count as images). */
+function kindOfFamily(modelFamily: string): GenerationKind {
+  return FAMILY_KIND[modelFamily] === 'video' ? 'video' : 'image';
+}
+
+/** The origins that can occur on a Library tab - what its filter offers. Upscaled is on both, since
+ * pictures and videos can both be upscaled; Text -> Image and GIF are only on Images, Image -> Video
+ * only on Videos, so a chip is never offered where it could not match anything. */
+export function originsForKind(kind: GenerationKind): OriginKind[] {
+  return ORIGIN_KINDS.filter((origin) => FAMILIES_BY_ORIGIN[origin].some((family) => kindOfFamily(family) === kind));
 }

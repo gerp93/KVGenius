@@ -138,7 +138,9 @@ implementation here is exactly the kind of drift it exists to prevent.
   Image → Video, Upscaled or GIF, from its `modelFamily`; an unknown family gets no tag rather than a
   wrong one. It sits in the badge row of an Output card, a Prompts tile and the details panel header -
   add a family to `generationOrigin` when adding a model.
-  Library > Output can show only chosen origins (chips at the left of its toolbar; none on = all):
+  Library > Output can show only chosen origins (chips at the left of its toolbar; none on = all). Each
+  tab (Images / Videos) offers only the origins that can occur on it (`originsForKind`) and keeps its
+  own selection, and the tab counts follow each tab's own filter (`originsByKind`):
   `LibraryListOptions.origins` -> `originCondition` in `db.ts` (a fixed family table, never caller text),
   applied to listings, stacks, counts and select-all refs; `passesOriginFilter` keeps freshly made items
   (finished upscales, GIFs) consistent with it.
