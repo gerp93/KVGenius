@@ -194,6 +194,16 @@ export default function ToolsUpscale({ queue, onShowQueue, recall, onRecallHandl
   }
 
   const ready = picked.filter((p) => p.size).length;
+  // Why the Upscale button is off, shown under it so a disabled button is never a mystery.
+  const blocker = unreachable
+    ? "ComfyUI isn't reachable. Start it, then press Retry."
+    : models?.length === 0
+      ? 'ComfyUI has no upscale models installed.'
+      : picked.length === 0
+        ? 'Add at least one picture.'
+        : ready === 0
+          ? 'Reading picture sizes...'
+          : null;
   const results = queue.jobs
     .filter((job) => job.family === UPSCALE_FAMILY && !job.dismissed && !job.isRecall)
     .slice()
@@ -204,79 +214,123 @@ export default function ToolsUpscale({ queue, onShowQueue, recall, onRecallHandl
     <ImageDropZone className="tools-upscale" multiple onPaths={addPaths} onReject={setError}>
       <h2 className="tools-upscale__title">Upscale</h2>
       <p className="tools-upscale__hint">
-        Enlarge pictures with an AI upscale model. Drop images anywhere on this page, or choose them; results are saved to Library &gt;
+        Enlarge pictures with an AI upscale model. Drop images anywhere on this page, or choose them. Results are saved to Library &gt;
         Output as new images, and the originals are left alone.
       </p>
 
-      <div className="tools-upscale__controls">
-        <button type="button" onClick={() => void handleChoose()}>
-          Choose images...
-        </button>
-        <select value={model} onChange={(e) => setModel(e.target.value)} title="Upscale model" disabled={unreachable}>
-          {models === null && !unreachable && <option value="">Loading models...</option>}
-          {unreachable && <option value="">ComfyUI is not reachable</option>}
-          {models?.length === 0 && <option value="">No upscale models installed</option>}
-          {models?.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-        <select value={factor} onChange={(e) => setFactor(Number(e.target.value))} title="Size multiplier">
-          {UPSCALE_FACTORS.map((f) => (
-            <option key={f} value={f}>
-              {f}x
-            </option>
-          ))}
-        </select>
-        <button type="button" className="primary" onClick={handleUpscale} disabled={!model || ready === 0 || unreachable}>
-          {ready > 1 ? `Upscale ${ready} images` : 'Upscale'}
-        </button>
-        {unreachable && (
-          <button type="button" onClick={() => loadModels()}>
-            Retry
+      <div className="tools-upscale__layout">
+        <section className="panel tools-upscale__pictures">
+          <div className="tools-upscale__section-head">
+            <h3 className="panel__title">Pictures{picked.length > 0 ? ` (${picked.length})` : ''}</h3>
+            {picked.length > 1 && (
+              <button type="button" className="tools-upscale__clear" onClick={() => setPicked([])}>
+                Clear all
+              </button>
+            )}
+          </div>
+
+          {picked.length === 0 ? (
+            <button type="button" className="tools-upscale__empty" onClick={() => void handleChoose()}>
+              <span className="tools-upscale__empty-icon" aria-hidden>
+                🖼️
+              </span>
+              <strong>Drop pictures here</strong>
+              <span>or click to choose them (PNG, JPG or WebP)</span>
+            </button>
+          ) : (
+            <div className="tools-upscale__picked">
+              {picked.map((p) => {
+                const out = p.size ? upscaledSize(p.size.width, p.size.height, factor) : null;
+                return (
+                  <div key={p.path} className="tools-upscale__card">
+                    <img
+                      src={window.kvgenius.imageUrlFor(p.path)}
+                      alt={fileNameOf(p.path)}
+                      onLoad={(e) => handleLoaded(p.path, e.currentTarget)}
+                      onError={() => setError(`Could not read ${fileNameOf(p.path)} as an image.`)}
+                    />
+                    <div className="tools-upscale__card-text">
+                      <strong title={p.path}>{fileNameOf(p.path)}</strong>
+                      <span>
+                        {p.size && out ? `${p.size.width} × ${p.size.height}  →  ${out.width} × ${out.height}` : 'Reading size...'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="tools-upscale__remove"
+                      title="Remove"
+                      aria-label={`Remove ${fileNameOf(p.path)}`}
+                      onClick={() => setPicked((prev) => prev.filter((x) => x.path !== p.path))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+              <button type="button" className="tools-upscale__add" onClick={() => void handleChoose()}>
+                <span aria-hidden>+</span>
+                Add more
+              </button>
+            </div>
+          )}
+        </section>
+
+        <aside className="panel tools-upscale__settings">
+          <h3 className="panel__title">Settings</h3>
+
+          <div className="tools-upscale__field">
+            <label className="field-label" htmlFor="upscale-model">
+              Upscale model
+            </label>
+            <select id="upscale-model" value={model} onChange={(e) => setModel(e.target.value)} disabled={unreachable}>
+              {models === null && !unreachable && <option value="">Loading models...</option>}
+              {unreachable && <option value="">ComfyUI is not reachable</option>}
+              {models?.length === 0 && <option value="">No upscale models installed</option>}
+              {models?.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            {unreachable && (
+              <button type="button" onClick={() => loadModels()}>
+                Retry
+              </button>
+            )}
+          </div>
+
+          <div className="tools-upscale__field">
+            <span className="field-label" id="upscale-size-label">
+              Size
+            </span>
+            <div className="segmented" role="radiogroup" aria-labelledby="upscale-size-label">
+              {UPSCALE_FACTORS.map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  role="radio"
+                  aria-checked={f === factor}
+                  className={`segmented__option${f === factor ? ' segmented__option--on' : ''}`}
+                  onClick={() => setFactor(f)}
+                >
+                  {f}x
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button type="button" className="primary tools-upscale__go" onClick={handleUpscale} disabled={blocker !== null}>
+            {ready > 1 ? `Upscale ${ready} images` : 'Upscale'}
           </button>
-        )}
+          {blocker && <p className="tools-upscale__blocker">{blocker}</p>}
+          {error && <p className="tools-upscale__error">{error}</p>}
+          {notice && <p className="tools-upscale__notice">{notice}</p>}
+        </aside>
       </div>
 
-      {error && <p className="tools-upscale__error">{error}</p>}
-      {notice && <p className="tools-upscale__notice">{notice}</p>}
-
-      {picked.length > 0 && (
-        <div className="tools-upscale__picked">
-          {picked.map((p) => {
-            const out = p.size ? upscaledSize(p.size.width, p.size.height, factor) : null;
-            return (
-              <div key={p.path} className="tools-upscale__card">
-                <img
-                  src={window.kvgenius.imageUrlFor(p.path)}
-                  alt={fileNameOf(p.path)}
-                  onLoad={(e) => handleLoaded(p.path, e.currentTarget)}
-                  onError={() => setError(`Could not read ${fileNameOf(p.path)} as an image.`)}
-                />
-                <div className="tools-upscale__card-text">
-                  <strong title={p.path}>{fileNameOf(p.path)}</strong>
-                  <span>
-                    {p.size && out ? `${p.size.width} × ${p.size.height}  →  ${out.width} × ${out.height}` : 'Reading size...'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="tools-upscale__remove"
-                  title="Remove"
-                  onClick={() => setPicked((prev) => prev.filter((x) => x.path !== p.path))}
-                >
-                  ✕
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       {results.length > 0 && (
-        <>
-          <h3 className="tools-upscale__subtitle">This session</h3>
+        <section className="tools-upscale__session">
+          <h3 className="tools-upscale__subtitle">This session ({results.length})</h3>
           <div className="tools-upscale__results">
             {results.map((job) => (
               <div key={job.id} className="tools-upscale__card">
@@ -308,7 +362,7 @@ export default function ToolsUpscale({ queue, onShowQueue, recall, onRecallHandl
               </div>
             ))}
           </div>
-        </>
+        </section>
       )}
     </ImageDropZone>
   );

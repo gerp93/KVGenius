@@ -92,84 +92,118 @@ export default function Styles({ onChanged }: Props) {
     }
   }
 
+  const canSave = dirty && name.trim() !== '' && text.trim() !== '';
+  const count = styles?.length ?? 0;
+
   return (
-    <div className="page styles-page">
-      <h2 style={{ marginTop: 0 }}>Styles</h2>
-      <p className="styles-page__intro">
-        A style is wording for a look - say, <em>1930s movie poster, bold lithograph, limited palette, art-deco lettering</em>.
-        Pick one on the Generate page and it is added after your prompt, so the prompt can stay about what is in the picture.
-        With no style picked, nothing changes: your prompt is sent exactly as you wrote it.
-      </p>
+    <div className="page">
+      <div className="styles-page">
+        <h2 className="styles-page__title">Styles</h2>
+        <p className="styles-page__intro">
+          A style is wording for a look - say, <em>1930s movie poster, bold lithograph, limited palette, art-deco lettering</em>.
+          Pick one on the Generate page and it is added after your prompt, so the prompt can stay about what is in the picture.
+          With no style picked, your prompt is sent exactly as you wrote it.
+        </p>
 
-      <div className="styles-page__body">
-        <div className="styles-page__list">
-          <button type="button" className="primary" onClick={() => select(null)} disabled={selectedId === null && !dirty}>
-            + New style
-          </button>
-          {styles === null ? (
-            <p className="styles-page__empty">Loading...</p>
-          ) : styles.length === 0 ? (
-            <p className="styles-page__empty">No styles yet. Write one on the right.</p>
-          ) : (
-            <ul>
-              {styles.map((style) => (
-                <li key={style.id}>
-                  <button
-                    type="button"
-                    className={`styles-page__item${style.id === selectedId ? ' styles-page__item--active' : ''}`}
-                    onClick={() => select(style)}
-                    title={style.text}
-                  >
-                    {style.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="styles-page__editor">
-          <label className="field-label" htmlFor="style-name">
-            Name
-          </label>
-          <input
-            id="style-name"
-            type="text"
-            value={name}
-            maxLength={MAX_STYLE_NAME_LENGTH}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. 1930s movie poster"
-            style={{ width: '100%', maxWidth: 420 }}
-          />
-
-          <label className="field-label" htmlFor="style-text" style={{ marginTop: 12 }}>
-            Style text
-          </label>
-          <textarea
-            id="style-text"
-            value={text}
-            maxLength={MAX_STYLE_TEXT_LENGTH}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="The words that produce the look, added after your prompt"
-            rows={6}
-            style={{ width: '100%', resize: 'vertical' }}
-          />
-          <p className="styles-page__hint">
-            Example of what is sent: <code>{combinePrompt('a fox in a snowy forest', text.trim() || 'your style text')}</code>
-          </p>
-
-          <div className="button-row">
-            <button type="button" className="primary" onClick={() => void handleSave()} disabled={!dirty || !name.trim() || !text.trim()}>
-              {selected ? 'Save changes' : 'Save style'}
-            </button>
-            {selected && (
-              <button type="button" onClick={() => void handleDelete()} onBlur={() => setConfirmingDelete(false)}>
-                {confirmingDelete ? 'Click again to delete' : 'Delete'}
+        <div className="styles-page__body">
+          <aside className="panel styles-page__list">
+            <div className="styles-page__list-head">
+              <h3 className="panel__title">Your styles{styles ? ` (${count})` : ''}</h3>
+              <button type="button" className="primary" onClick={() => select(null)} disabled={selectedId === null && !dirty}>
+                + New
               </button>
+            </div>
+            {styles === null ? (
+              <p className="styles-page__empty">Loading...</p>
+            ) : styles.length === 0 ? (
+              <p className="styles-page__empty">No styles yet. Write your first one on the right.</p>
+            ) : (
+              <ul>
+                {styles.map((style) => (
+                  <li key={style.id}>
+                    <button
+                      type="button"
+                      className={`styles-page__item${style.id === selectedId ? ' styles-page__item--active' : ''}`}
+                      onClick={() => select(style)}
+                    >
+                      <span className="styles-page__item-name">{style.name}</span>
+                      <span className="styles-page__item-text">{style.text}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
-          </div>
-          {error && <p className="styles-page__error">{error}</p>}
-          {notice && <p className="styles-page__notice">{notice}</p>}
+          </aside>
+
+          <section className="panel styles-page__editor">
+            <div className="styles-page__editor-head">
+              <h3 className="panel__title">{selected ? `Edit "${selected.name}"` : 'New style'}</h3>
+              {dirty && <span className="styles-page__unsaved">Unsaved changes</span>}
+            </div>
+
+            <div className="styles-page__field">
+              <div className="styles-page__field-head">
+                <label className="field-label" htmlFor="style-name">
+                  Name
+                </label>
+                <span className="styles-page__count">
+                  {name.length} / {MAX_STYLE_NAME_LENGTH}
+                </span>
+              </div>
+              <input
+                id="style-name"
+                type="text"
+                value={name}
+                maxLength={MAX_STYLE_NAME_LENGTH}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. 1930s movie poster"
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div className="styles-page__field">
+              <div className="styles-page__field-head">
+                <label className="field-label" htmlFor="style-text">
+                  Style text
+                </label>
+                <span className="styles-page__count">
+                  {text.length} / {MAX_STYLE_TEXT_LENGTH}
+                </span>
+              </div>
+              <textarea
+                id="style-text"
+                value={text}
+                maxLength={MAX_STYLE_TEXT_LENGTH}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="The words that produce the look, added after your prompt"
+                rows={6}
+                style={{ width: '100%', resize: 'vertical' }}
+              />
+            </div>
+
+            <div className="styles-page__preview">
+              <span className="field-label">What is sent</span>
+              <code>{combinePrompt('a fox in a snowy forest', text.trim() || 'your style text')}</code>
+            </div>
+
+            <div className="styles-page__actions">
+              <button type="button" className="primary" onClick={() => void handleSave()} disabled={!canSave}>
+                {selected ? 'Save changes' : 'Save style'}
+              </button>
+              {error && <span className="styles-page__error">{error}</span>}
+              {!error && notice && <span className="styles-page__notice">{notice}</span>}
+              {selected && (
+                <button
+                  type="button"
+                  className={`button-danger${confirmingDelete ? ' button-danger--armed' : ''}`}
+                  onClick={() => void handleDelete()}
+                  onBlur={() => setConfirmingDelete(false)}
+                >
+                  {confirmingDelete ? 'Click again to delete' : 'Delete'}
+                </button>
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </div>
