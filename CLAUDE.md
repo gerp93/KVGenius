@@ -167,7 +167,12 @@ implementation here is exactly the kind of drift it exists to prevent.
   shipped. Re-rack picks a saved model again only if it still means *exactly* the recorded settings
   (`profileMatchesSettings`), otherwise it falls back to the built-in one and says so. The duplicate guard compares
   the model too. `modelPatch.ts`'s node ids must match the template (`modelPatch.test.ts` checks it); a new
-  family with profiles needs an entry in `PROFILE_FAMILIES`, `SLOT_NODES` and `SAMPLER_NODES`.
+  family with profiles needs an entry in `PROFILE_FAMILIES` and `SLOT_NODES` (plus `SAMPLER_NODES` if the app drives
+  its sampler). A family with `sampler: null` - Wan video - has **files only**: its quality stays the Fast / High
+  switch (`videoQuality.ts`), a video profile's sampler columns hold the unused `NO_SAMPLER` placeholder, its
+  `ModelSettings` carry no sampler fields, and `profileSettings` needs the family to know which. All six Wan files
+  (two models, text encoder, VAE, two LoRAs) are slots because the workflow contains both LoRAs. A video model's
+  test render animates a generated solid-colour picture (`solidPng.ts`), 9 frames at 256 px.
 - **A model file is looked over before it is used or copied** (`main/safetensors.ts`, `main/modelImport.ts`).
   Only the header of a `.safetensors` file is read: tensor names and shapes (never data types, so fp8 and bf16
   copies of one model match) are compared with the *known-good file for that slot* - the one the shipped

@@ -207,7 +207,8 @@
   border-left-color: var(--color-accent-red);
 }
 
-.model-test img {
+.model-test img,
+.model-test video {
   display: block;
   margin-top: 8px;
   width: 256px;

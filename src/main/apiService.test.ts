@@ -165,8 +165,9 @@ test('generate_image without a model, or with the built-in one, sends the templa
 test('an unknown model is refused with the saved names, and list_models shows what there is', async () => {
   await assert.rejects(() => call('generate_image', { prompt: 'a red fox', model: 'Nope' }), /No model named "Nope".*"Photoreal"/);
   const listed = await call('list_models', {});
-  assert.deepEqual(listed.models.map((m: { name: string }) => m.name), ['Z Image Turbo', 'Photoreal']);
+  assert.deepEqual(listed.models.map((m: { name: string }) => m.name), ['Z Image Turbo', 'Wan 2.2 image to video', 'Photoreal']);
   assert.equal(listed.models[0].built_in, true);
+  assert.equal(listed.models[1].tool, 'generate_video');
 });
 
 test('generate_image without a style sends the prompt untouched, with one it appends the style', async () => {
@@ -217,6 +218,21 @@ test('generate_video takes the source image path and keeps its aspect ratio', as
   released.shift()?.();
 });
 
+test('generate_video with a saved video model sends its files; a model of the other family is refused', async () => {
+  const files = { highNoiseModel: 'hi.safetensors', lowNoiseModel: 'lo.safetensors', textEncoder: 'umt5.safetensors', vae: 'v.safetensors', highNoiseLora: 'lh.safetensors', lowNoiseLora: 'll.safetensors' };
+  saveModelProfile(db, { family: 'wan22-i2v', name: 'Wan custom', files, sampler: { steps: 1, cfg: 0, sampler: '', scheduler: '', shift: 0 } });
+  const src = (await call('list_library', { origin: 'imported', kind: 'image' })).items.find((i: any) => i.name === 'img1.jpg');
+  const job = await call('generate_video', { prompt: 'slow pan', source: src.id, model: 'wan custom' });
+  const params = lastJobParams();
+  assert.equal(params.modelName, 'Wan custom');
+  assert.deepEqual(params.modelSettings, { files });
+  assert.equal(params.steps, 8, 'the video template ignores steps; the default is unchanged');
+  released.shift()?.();
+  await call('get_job', { job_id: job.job_id, wait_seconds: 5 });
+  // an image model cannot be used for video, nor a video model for an image
+  await assert.rejects(() => call('generate_video', { prompt: 'x', source: src.id, model: 'Photoreal' }), /"z-image" family, not "wan22-i2v"/);
+  await assert.rejects(() => call('generate_image', { prompt: 'x', model: 'Wan custom' }), /"wan22-i2v" family, not "z-image"/);
+});
 test('generate_video validates the source item', async () => {
   await rejects(service.callTool('generate_video', { prompt: 'x', source: 'imp-9999' }), 'not_found');
   await rejects(service.callTool('generate_video', { prompt: 'x', source: 'garbage' }), 'not_found');

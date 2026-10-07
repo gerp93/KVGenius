@@ -5,6 +5,14 @@ type Workflow = Record<string, { inputs: Record<string, unknown> } | undefined>;
 
 /** Which template node and input each profile slot sets (node ids are those of src/main/templates/<family>.json). */
 export const SLOT_NODES: Record<string, Record<string, { node: string; input: string }>> = {
+  'wan22-i2v': {
+    highNoiseModel: { node: '129:95', input: 'unet_name' },
+    lowNoiseModel: { node: '129:96', input: 'unet_name' },
+    textEncoder: { node: '129:84', input: 'clip_name' },
+    vae: { node: '129:90', input: 'vae_name' },
+    highNoiseLora: { node: '129:101', input: 'lora_name' },
+    lowNoiseLora: { node: '129:102', input: 'lora_name' },
+  },
   'z-image': {
     diffusionModel: { node: '57:28', input: 'unet_name' },
     textEncoder: { node: '57:30', input: 'clip_name' },
@@ -31,13 +39,18 @@ function nodeInputs(workflow: Workflow, node: string): Record<string, unknown> {
 export function applyModelSettings(workflow: Workflow, family: string, settings: ModelSettings): void {
   const def = profileFamily(family);
   const slots = SLOT_NODES[family];
-  const sampler = SAMPLER_NODES[family];
-  if (!def || !slots || !sampler) throw new Error(`Model profiles are not supported for '${family}'.`);
+  if (!def || !slots) throw new Error(`Model profiles are not supported for '${family}'.`);
   for (const slot of def.slots) {
     const file = settings.files[slot.key];
     if (!file) throw new Error(`The model settings have no ${slot.label.toLowerCase()} file.`);
     const target = slots[slot.key];
     nodeInputs(workflow, target.node)[target.input] = file;
+  }
+  // Only families whose sampler the app drives (images) set sampler values; video's come from its Fast / High switch.
+  if (!def.sampler) return;
+  const sampler = SAMPLER_NODES[family];
+  if (!sampler || settings.sampler === undefined || settings.scheduler === undefined || settings.shift === undefined) {
+    throw new Error(`The model settings for '${family}' have no sampler values.`);
   }
   const samplerInputs = nodeInputs(workflow, sampler.sampler);
   samplerInputs.sampler_name = settings.sampler;

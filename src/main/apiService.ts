@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/types';
 import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
-import { profileFamily, SAMPLER_LIMITS } from '../shared/modelFamilies';
+import { PROFILE_FAMILIES, profileFamily, SAMPLER_LIMITS } from '../shared/modelFamilies';
 import { ModelProfile, profileSettings } from '../shared/modelProfiles';
 import { findModelProfileByName, listModelProfiles } from './modelProfiles';
 import { isUpscaleFamily } from '../shared/upscale';
@@ -329,24 +329,25 @@ export class ApiService {
   }
 
   private listModelsTool() {
-    const def = profileFamily(Z_IMAGE_FAMILY);
+    const builtIns = PROFILE_FAMILIES.map((def) => ({
+      name: def.builtInName,
+      family: def.family,
+      tool: FAMILY_KIND[def.family] === 'video' ? 'generate_video' : 'generate_image',
+      built_in: true,
+      ...(def.sampler ? { steps: def.sampler.steps, cfg: def.sampler.cfg } : {}),
+    }));
     const saved = listModelProfiles(this.deps.db).map((p) => ({
       name: p.name,
       family: p.family,
-      steps: p.sampler.steps,
-      cfg: p.sampler.cfg,
-      sampler: p.sampler.sampler,
-      scheduler: p.sampler.scheduler,
+      tool: FAMILY_KIND[p.family] === 'video' ? 'generate_video' : 'generate_image',
+      ...(profileFamily(p.family)?.sampler ? { steps: p.sampler.steps, cfg: p.sampler.cfg, sampler: p.sampler.sampler, scheduler: p.sampler.scheduler } : {}),
       files: p.files,
     }));
     return {
-      models: [
-        { name: def?.builtInName, family: Z_IMAGE_FAMILY, built_in: true, steps: def?.sampler?.steps, cfg: def?.sampler?.cfg },
-        ...saved,
-      ],
+      models: [...builtIns, ...saved],
       note: saved.length
-        ? 'Pass a name as `model` to generate_image. Its steps and cfg are the defaults unless you pass your own.'
-        : 'Only the built-in model so far - the user adds others in the KVGenius Models page.',
+        ? 'Pass a name as `model` to the tool listed for it. For images its steps and cfg are the defaults unless you pass your own; video quality is decided by KVGenius.'
+        : 'Only the built-in models so far - the user adds others in the KVGenius Models page.',
     };
   }
 
@@ -377,6 +378,8 @@ export class ApiService {
       height = height ?? Math.max(256, Math.round((size.height * scale) / 16) * 16);
     }
     const seconds = optNumber(args, 'seconds', 1, 12) ?? 5;
+    // A saved video model swaps the Wan files inside the same graph, resolved here like generate_image's.
+    const model = this.resolveModel(optString(args, 'model', 200), family);
     const params: GenerationParams = {
       prompt,
       width: snap(width, 16, 256, 1280),
@@ -387,6 +390,7 @@ export class ApiService {
       cfg: 1,
       length: 4 * Math.round(seconds * (VIDEO_FPS / 4)) + 1,
       sourceImagePath: source.path,
+      ...(model ? { modelName: model.name, modelSettings: profileSettings(model) } : {}),
     };
     return this.jobView(this.deps.queue.submit({ family, params, source: 'mcp', batch: optBatch(args) }));
   }

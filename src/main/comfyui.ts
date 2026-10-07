@@ -250,6 +250,9 @@ async function patchTemplate(
     const loraSwitchNode = workflow[WAN22_I2V_NODE_MAP.fastLoraSwitch] as { inputs: Record<string, unknown> };
     loraSwitchNode.inputs.value = videoQualityFromCfg(params.cfg) === 'fast';
 
+    // A model profile swaps the model, text encoder, VAE and LoRA files inside this same graph.
+    if (params.modelSettings) applyModelSettings(workflow, canonicalFamily(family), params.modelSettings);
+
     return workflow;
   }
 

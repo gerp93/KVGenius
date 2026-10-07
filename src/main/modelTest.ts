@@ -7,6 +7,8 @@ import { ModelProfileInput, profileSettings, validateProfileInput } from '../sha
 const TEST_MAX_STEPS = 8;
 const TEST_SIZE = 256;
 const TEST_PROMPT = 'a red apple on a wooden table, soft daylight, photo';
+/** A video test is as small as the workflow allows (Fast quality: 4 steps, CFG 1). Loading the 14B models is what takes the time. */
+const VIDEO_TEST = { prompt: 'the scene gently comes to life', steps: 4, cfg: 1, length: 9 };
 
 /**
  * Turns what ComfyUI or the network said into something a person can act on. The raw text is kept at the end for
@@ -28,6 +30,8 @@ export function explainTestFailure(raw: string): string {
 export interface ModelTestDeps {
   /** Runs `work` only while the job queue is idle (see JobQueue.runExclusive). */
   runExclusive: <T>(work: () => Promise<T>) => Promise<T>;
+  /** Path of a small picture to animate, for a video model's test (written on demand). */
+  sourceImage?: () => string;
   generate: (family: string, params: GenerationParams) => Promise<{ bytes: Buffer; extension: string }>;
 }
 
@@ -43,25 +47,34 @@ export async function runModelTest(input: ModelProfileInput, deps: ModelTestDeps
   const family = profileFamily(checked.value.family);
   if (!family) return { ok: false, message: 'This kind of model cannot be tested.' };
 
-  const steps = Math.min(checked.value.sampler.steps, TEST_MAX_STEPS);
+  const isVideo = !family.sampler;
+  const steps = family.sampler ? Math.min(checked.value.sampler.steps, TEST_MAX_STEPS) : VIDEO_TEST.steps;
   const params: GenerationParams = {
-    prompt: TEST_PROMPT,
+    prompt: isVideo ? VIDEO_TEST.prompt : TEST_PROMPT,
     width: TEST_SIZE,
     height: TEST_SIZE,
     seed: 1234,
     steps,
-    cfg: checked.value.sampler.cfg,
+    cfg: isVideo ? VIDEO_TEST.cfg : checked.value.sampler.cfg,
+    ...(isVideo ? { length: VIDEO_TEST.length } : {}),
     modelName: checked.value.name,
     modelSettings: profileSettings(checked.value),
   };
+  if (isVideo) {
+    if (!deps.sourceImage) return { ok: false, message: 'A video model cannot be tested here.' };
+    params.sourceImagePath = deps.sourceImage();
+  }
   const started = Date.now();
   try {
     const output = await deps.runExclusive(() => deps.generate(checked.value.family, params));
     const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
-    const mime = output.extension.toLowerCase() === '.png' ? 'image/png' : output.extension.toLowerCase() === '.webp' ? 'image/webp' : 'image/jpeg';
+    const ext = output.extension.toLowerCase();
+    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : ext === '.mp4' ? 'video/mp4' : 'image/jpeg';
     return {
       ok: true,
-      message: `It loaded and rendered a ${TEST_SIZE}x${TEST_SIZE} test picture in ${seconds} s, at ${steps} step${steps === 1 ? '' : 's'}. The files work together; judge the settings on a full-size picture.`,
+      message: isVideo
+        ? `It loaded and rendered a ${VIDEO_TEST.length}-frame ${TEST_SIZE}x${TEST_SIZE} test clip in ${seconds} s. The files work together.`
+        : `It loaded and rendered a ${TEST_SIZE}x${TEST_SIZE} test picture in ${seconds} s, at ${steps} step${steps === 1 ? '' : 's'}. The files work together; judge the settings on a full-size picture.`,
       imageBase64: output.bytes.toString('base64'),
       mime,
     };

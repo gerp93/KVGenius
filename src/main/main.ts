@@ -95,6 +95,7 @@ import { isModelFileName, ModelImportOutcome } from '../shared/modelCheck';
 import { checkModelFile, importModelFile, ModelImportError } from './modelImport';
 import { settingsFromPng } from './imageMetadata';
 import { runModelTest } from './modelTest';
+import { solidPng } from './solidPng';
 import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, LibraryListOptions, McpInfo, ModelsDirInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
@@ -902,7 +903,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle('testModelProfile', async (_event, input: ModelProfileInput) => {
     if (!jobQueue) return { ok: false, message: 'The app is still starting - try again in a moment.' };
     const queue = jobQueue;
-    return runModelTest(input, { runExclusive: (work) => queue.runExclusive(work), generate: (family, params) => comfyGenerate(family, params) });
+    return runModelTest(input, {
+      runExclusive: (work) => queue.runExclusive(work),
+      generate: (family, params) => comfyGenerate(family, params),
+      sourceImage: () => {
+        const file = path.join(app.getPath('temp'), 'kvgenius-model-test-source.png');
+        fs.writeFileSync(file, solidPng(256, 256, [128, 128, 140]));
+        return file;
+      },
+    });
   });
   ipcMain.handle('getSamplerChoices', async () => {
     try {

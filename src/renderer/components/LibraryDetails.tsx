@@ -387,7 +387,8 @@ export default function LibraryDetails({
           <>
             <dt>Variant</dt>
             <dd title={Object.values(record.modelSettings.files).join('\n')}>
-              {record.modelName} - {record.modelSettings.sampler} / {record.modelSettings.scheduler}
+              {record.modelName}
+              {record.modelSettings.sampler && record.modelSettings.scheduler ? ` - ${record.modelSettings.sampler} / ${record.modelSettings.scheduler}` : ''}
             </dd>
           </>
         )}

@@ -64,7 +64,7 @@ test('a generation made with the shipped template carries no model', () => {
 
 test('the same seed and settings on a different model is not a duplicate', () => {
   const db = initDatabase(':memory:');
-  const a: ModelSettings = profileSettings({ files: { diffusionModel: 'a.safetensors', textEncoder: 't', vae: 'v' }, sampler: { steps: 30, cfg: 4, sampler: 'euler', scheduler: 'simple', shift: 3 } });
+  const a: ModelSettings = profileSettings({ family: 'z-image', files: { diffusionModel: 'a.safetensors', textEncoder: 't', vae: 'v' }, sampler: { steps: 30, cfg: 4, sampler: 'euler', scheduler: 'simple', shift: 3 } });
   const b: ModelSettings = { ...a, files: { ...a.files, diffusionModel: 'b.safetensors' } };
   insertGeneration(db, { ...params, modelName: 'A', modelSettings: a }, 'z-image', '/out/a.png');
   const query = { prompt: 'a fox', width: 64, height: 64, seed: 1, steps: 30, cfg: 4 };
