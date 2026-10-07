@@ -2335,12 +2335,16 @@ textarea:disabled {
 }
 
 /* The small IMG / VID tag on each Generate prompt tab: the tabs are shared, each remembers its own mode. */
+/* The tag sits in the row's top-left corner, out of the text's way, so the prompt text keeps the full
+   width; the label's top padding leaves room for it. */
 .prompt-slot-row__label {
-  gap: 8px;
+  padding-top: 22px;
 }
 
 .prompt-slot-row__mode {
-  flex: none;
+  position: absolute;
+  top: 5px;
+  left: 12px;
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 10px;

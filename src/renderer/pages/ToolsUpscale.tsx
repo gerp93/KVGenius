@@ -195,7 +195,7 @@ export default function ToolsUpscale({ queue, onShowQueue, recall, onRecallHandl
 
   const ready = picked.filter((p) => p.size).length;
   const results = queue.jobs
-    .filter((job) => job.family === UPSCALE_FAMILY && !job.dismissed)
+    .filter((job) => job.family === UPSCALE_FAMILY && !job.dismissed && !job.isRecall)
     .slice()
     .reverse()
     .slice(0, RESULTS_SHOWN);

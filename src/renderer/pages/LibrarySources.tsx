@@ -35,7 +35,7 @@ export default function LibrarySources({ queue, onUpscale, onMakeVideo }: Props)
   const [error, setError] = useState<string | null>(null);
 
   // A finished job may have kept a new source, so load again whenever one finishes.
-  const finished = queue.jobs.filter((j) => j.status === 'done').length;
+  const finished = queue.jobs.filter((j) => j.status === 'done' && !j.isRecall).length;
   useEffect(() => {
     let cancelled = false;
     window.kvgenius
