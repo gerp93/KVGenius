@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DEFAULT_GIF_FPS, DEFAULT_GIF_WIDTH, GIF_FPS_CHOICES, GIF_WIDTHS } from '../../shared/gif';
 import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord } from '../../shared/types';
 import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { formatBytes, formatDifference, formatDuration } from '../utils/format';
+import { shouldSplitDetails } from '../../shared/detailsLayout';
 import { isUpscale } from '../utils/library';
 import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
@@ -83,6 +84,25 @@ export default function LibraryDetails({
   const [gifWidth, setGifWidth] = useState(DEFAULT_GIF_WIDTH);
   const [gifFps, setGifFps] = useState(DEFAULT_GIF_FPS);
   const [makingGif, setMakingGif] = useState(false);
+  // Two-column layout once the panel is big enough for it to pay off (see shared/detailsLayout.ts): the
+  // picture gets a full-height column of its own beside the details. It depends on the panel's actual
+  // size and the picture's shape, so the panel is measured.
+  const panelRef = useRef<HTMLElement>(null);
+  const [panelSize, setPanelSize] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const measure = () => setPanelSize({ width: el.clientWidth, height: el.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const split = shouldSplitDetails({
+    panelWidth: panelSize.width,
+    panelHeight: panelSize.height,
+    aspect: record.width / Math.max(record.height, 1),
+  });
 
   function setUpscaleModel(model: string) {
     lastUpscaleModel = model;
@@ -185,53 +205,56 @@ export default function LibraryDetails({
     }
   }
 
-  return (
-    <aside className="library-panel">
-      <div className="library-panel__header">
-        <span className="library-panel__title">
-          <strong>Details</strong>
-          {isUpscale(record) && (
-            <span className="library-card__upscale-badge" title="An enlarged copy of another picture, not generated from the prompt">
-              Upscaled
-            </span>
-          )}
-        </span>
-        <span className="library-panel__window-buttons">
-          <button type="button" onClick={onClose} title="Close">
-            ✕
-          </button>
-        </span>
-        <span className="library-panel__header-buttons">
-          <button type="button" onClick={() => onToggleFavorite(record)}>
-            {record.favorite ? '★ Favorited' : '☆ Favorite'}
-          </button>
-          <button
-            type="button"
-            onClick={() => onTogglePinned(record)}
-            title={
-              record.pinned
-                ? 'Unpin - remove this from Library > Prompts'
-                : 'Pin as the example of this prompt, shown under Library > Prompts'
-            }
-          >
-            {record.pinned ? '📌 Pinned' : '📌 Pin'}
-          </button>
-          <button type="button" onClick={() => onToggleHidden(record)}>
-            {record.hidden ? 'Unhide' : 'Hide'}
-          </button>
-        </span>
-      </div>
-      <div className="library-panel__media">
-        <button type="button" className="expand-button" title="Expand" onClick={onExpand}>
-          ⤢
-        </button>
-        {kindOf(record) === 'video' ? (
-          <GeneratedVideo src={window.kvgenius.imageUrlFor(record.imagePath)} filePath={record.imagePath} />
-        ) : (
-          <img src={window.kvgenius.imageUrlFor(record.imagePath)} alt={record.prompt} />
+  const header = (
+    <div className="library-panel__header">
+      <span className="library-panel__title">
+        <strong>Details</strong>
+        {isUpscale(record) && (
+          <span className="library-card__upscale-badge" title="An enlarged copy of another picture, not generated from the prompt">
+            Upscaled
+          </span>
         )}
-      </div>
-
+      </span>
+      <span className="library-panel__window-buttons">
+        <button type="button" onClick={onClose} title="Close">
+          ✕
+        </button>
+      </span>
+      <span className="library-panel__header-buttons">
+        <button type="button" onClick={() => onToggleFavorite(record)}>
+          {record.favorite ? '★ Favorited' : '☆ Favorite'}
+        </button>
+        <button
+          type="button"
+          onClick={() => onTogglePinned(record)}
+          title={
+            record.pinned
+              ? 'Unpin - remove this from Library > Prompts'
+              : 'Pin as the example of this prompt, shown under Library > Prompts'
+          }
+        >
+          {record.pinned ? '📌 Pinned' : '📌 Pin'}
+        </button>
+        <button type="button" onClick={() => onToggleHidden(record)}>
+          {record.hidden ? 'Unhide' : 'Hide'}
+        </button>
+      </span>
+    </div>
+  );
+  const media = (
+    <div className="library-panel__media">
+      <button type="button" className="expand-button" title="Expand" onClick={onExpand}>
+        ⤢
+      </button>
+      {kindOf(record) === 'video' ? (
+        <GeneratedVideo src={window.kvgenius.imageUrlFor(record.imagePath)} filePath={record.imagePath} />
+      ) : (
+        <img src={window.kvgenius.imageUrlFor(record.imagePath)} alt={record.prompt} />
+      )}
+    </div>
+  );
+  const rest = (
+    <>
       <button type="button" className="primary" onClick={() => onRerack(record)} style={{ width: '100%' }}>
         ↺ Re-rack
       </button>
@@ -394,6 +417,22 @@ export default function LibraryDetails({
         <dt>File</dt>
         <dd>{record.imagePath.split(/[\\/]/).pop()}</dd>
       </dl>
+    </>
+  );
+
+  return split ? (
+    <aside ref={panelRef} className="library-panel library-panel--split">
+      <div className="library-panel__image">{media}</div>
+      <div className="library-panel__info">
+        {header}
+        {rest}
+      </div>
+    </aside>
+  ) : (
+    <aside ref={panelRef} className="library-panel">
+      {header}
+      {media}
+      {rest}
     </aside>
   );
 }
