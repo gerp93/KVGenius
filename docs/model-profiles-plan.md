@@ -1,7 +1,21 @@
 # Model profiles and model management plan
 
-Status: **planned, nothing built yet.** Written from a design conversation. The ComfyUI
-setup guide (`/setup`) already exists; this plan builds on it.
+Status: **all five stages are built and open as stacked draft PRs** (merge in this order, retargeting each to
+`main` as the one before it merges): #90 setup guide -> #92 stage 1 -> #93 stage 2 -> #94 stage 3a -> #95 stage 3b ->
+#96 stage 4 -> #97 stage 5. Nothing has been run against a real ComfyUI; each PR lists what is unverified.
+
+Where the build differs from the plan below:
+
+- Stage 3 was split into **3a** (profiles core) and **3b** (header check, local-file import, picture reader, test render).
+- The video LoRAs are **required**, not optional: the Wan workflow contains both, so the manifest lists six files.
+- Sizes and licences are **not** in the manifest yet (an unverified number is worse than none).
+- The header comparison uses the user's own working file as the reference, as planned; its thresholds are a judgement
+  and have not seen real model files. A real bug caught on the way: safetensors calls a tensor's byte range
+  `data_offsets`, not `offsets`.
+- The Hugging Face download links follow ComfyUI's `split_files/<folder>/<file>` layout but were **not opened** from the
+  build environment; a moved file shows as a 404 in the terminal.
+- The test render for video (9 frames, 256 px, Fast quality) and the PowerShell download script are **unrun**.
+- When ComfyUI fails a run, its own reason is now reported (was "finished with no output") - for every generation.
 
 ## Goal
 
