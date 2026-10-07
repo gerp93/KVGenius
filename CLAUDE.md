@@ -168,6 +168,18 @@ implementation here is exactly the kind of drift it exists to prevent.
   (`profileMatchesSettings`), otherwise it falls back to the built-in one and says so. The duplicate guard compares
   the model too. `modelPatch.ts`'s node ids must match the template (`modelPatch.test.ts` checks it); a new
   family with profiles needs an entry in `PROFILE_FAMILIES`, `SLOT_NODES` and `SAMPLER_NODES`.
+- **A model file is looked over before it is used or copied** (`main/safetensors.ts`, `main/modelImport.ts`).
+  Only the header of a `.safetensors` file is read: tensor names and shapes (never data types, so fp8 and bf16
+  copies of one model match) are compared with the *known-good file for that slot* - the one the shipped
+  template loads, found in the models folder - so no fingerprints ship with the app and a new family needs
+  none. A header also implies the exact file size, so a cut-off download is caught. `.gguf` is refused,
+  `.ckpt`/`.pt` warned about (they can run code; `.pth` in `upscale_models` is the normal upscaler format and is
+  not). Import copies to `<name>.part` and renames only when whole, keeps the original name (the template
+  finds a file by name), never overwrites without asking, and only files the user chose or dropped are
+  accepted (`pickedModelFiles` in `main.ts`). The test render goes through `JobQueue.runExclusive`, which
+  refuses while a job runs and holds the queue while it works, so it never shares the GPU or the module-level
+  in-flight prompt with a queued job. "Read settings from a picture" parses PNG text chunks only
+  (`imageMetadata.ts`); pictures with the metadata stripped yield nothing, and nothing is guessed.
 - **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and
   `main/modelManifest.test.ts` pins it to the template JSON - change a template's loader file and that test fails
   until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,

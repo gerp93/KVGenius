@@ -1,4 +1,5 @@
 import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
+import type { ImageSettingsResult, ModelFileCheck, ModelImportOutcome, ModelImportProgress, ModelTestResult, PickedModelFile } from './modelCheck';
 import type { ModelProfile, ModelProfileInput, ModelSettings } from './modelProfiles';
 import type { ModelStatusReport } from './modelStatus';
 import type { OriginKind } from './origin';
@@ -418,6 +419,20 @@ export interface KVGeniusAPI {
   deleteModelProfile: (id: number) => Promise<void>;
   /** The sampler and scheduler names ComfyUI offers (empty lists when it is not reachable). */
   getSamplerChoices: () => Promise<{ samplers: string[]; schedulers: string[] }>;
+  /** A file dialog for a model file; the chosen file may then be checked and imported. Null if cancelled. */
+  chooseModelFile: () => Promise<PickedModelFile | null>;
+  /** Dropped files (from a drag) that are model files; they may then be checked and imported. */
+  droppedModelFilePaths: (files: unknown[]) => Promise<string[]>;
+  /** Looks a chosen file over for the slot (see shared/modelCheck.ts) without copying anything. */
+  checkModelFile: (path: string, family: string, slotKey: string) => Promise<ModelFileCheck>;
+  /** Copies (or moves) a checked file into the slot's folder under ComfyUI's models folder. Resolves, never rejects. */
+  importModelFile: (path: string, family: string, slotKey: string, options: { move: boolean; overwrite: boolean }) => Promise<ModelImportOutcome>;
+  cancelModelImport: () => Promise<void>;
+  onModelImportProgress: (callback: (progress: ModelImportProgress) => void) => () => void;
+  /** A file dialog for a picture, and the generation settings found in it. Null if cancelled. */
+  readImageSettings: () => Promise<ImageSettingsResult | null>;
+  /** One small render with the model as set up, to see that its files load and run. Resolves, never rejects. */
+  testModelProfile: (input: ModelProfileInput) => Promise<ModelTestResult>;
 
   getComfyUIHost: () => Promise<ComfyUIHostInfo>;
   setComfyUIHost: (host: string) => Promise<void>;

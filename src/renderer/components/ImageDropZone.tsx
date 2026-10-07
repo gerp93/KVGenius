@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { CSSProperties, DragEvent, ReactNode } from 'react';
 import { isImageFileName } from '../../shared/imageFiles';
+import { isModelFileName } from '../../shared/modelCheck';
 
 interface Props {
   /** The dropped pictures' local paths, ready to use as source images. */
@@ -9,6 +10,8 @@ interface Props {
   onReject?: (message: string) => void;
   /** Take every dropped picture (Tools > Upscale) rather than only the first (a video's source image). */
   multiple?: boolean;
+  /** What is accepted: pictures (the default), or model files (.safetensors and friends). */
+  kind?: 'image' | 'model';
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
@@ -24,7 +27,7 @@ function carriesFiles(event: DragEvent): boolean {
  * preload (the renderer cannot read a dropped file's path itself), which also allows the app to show
  * and upload them, as a file dialog pick does.
  */
-export default function ImageDropZone({ onPaths, onReject, multiple = false, className, style, children }: Props) {
+export default function ImageDropZone({ onPaths, onReject, multiple = false, kind = 'image', className, style, children }: Props) {
   const [over, setOver] = useState(false);
   // dragenter / dragleave fire for every child entered or left; count them to know when the drag really left.
   const depth = useRef(0);
@@ -53,13 +56,15 @@ export default function ImageDropZone({ onPaths, onReject, multiple = false, cla
     event.preventDefault();
     depth.current = 0;
     setOver(false);
-    const images = Array.from(event.dataTransfer.files).filter((file) => isImageFileName(file.name));
+    const accepted = kind === 'model' ? isModelFileName : isImageFileName;
+    const images = Array.from(event.dataTransfer.files).filter((file) => accepted(file.name));
     if (images.length === 0) {
-      onReject?.('Drop PNG, JPG or WebP pictures.');
+      onReject?.(kind === 'model' ? 'Drop a model file (.safetensors).' : 'Drop PNG, JPG or WebP pictures.');
       return;
     }
     try {
-      const paths = await window.kvgenius.droppedImagePaths(multiple ? images : images.slice(0, 1));
+      const chosen = multiple ? images : images.slice(0, 1);
+      const paths = await (kind === 'model' ? window.kvgenius.droppedModelFilePaths(chosen) : window.kvgenius.droppedImagePaths(chosen));
       if (paths.length === 0) onReject?.('Those files could not be used.');
       else onPaths(paths);
     } catch (err) {

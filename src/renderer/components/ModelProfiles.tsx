@@ -2,12 +2,18 @@ import { useEffect, useState } from 'react';
 import { PROFILE_FAMILIES, SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
 import { MAX_PROFILE_NAME_LENGTH, ModelProfile, SamplerSettings } from '../../shared/modelProfiles';
 import { ModelStatusReport } from '../../shared/modelStatus';
+import { ImageSettingsResult, ModelTestResult } from '../../shared/modelCheck';
+import ModelFileImport from './ModelFileImport';
 
 interface Props {
   /** What ComfyUI (or the models folder) has, to choose files from. null while the first check runs. */
   report: ModelStatusReport | null;
   /** Tells the app a model was added, edited or deleted, so Generate's dropdown can reload. */
   onChanged: () => void;
+  /** ComfyUI's models folder is known, so files can be copied into it. */
+  canImport: boolean;
+  /** A file was copied into ComfyUI's folder: look again at what it has. */
+  onFilesChanged: () => void;
 }
 
 /** Electron prefixes errors thrown in an ipcMain handler with "Error invoking remote method". */
@@ -67,7 +73,7 @@ function sameDraft(a: Draft, b: Draft): boolean {
  * selected model's editor on the right - the same layout as Styles. The built-in model is always there and
  * is not edited.
  */
-export default function ModelProfiles({ report, onChanged }: Props) {
+export default function ModelProfiles({ report, onChanged, canImport, onFilesChanged }: Props) {
   const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [draft, setDraft] = useState<Draft>(newDraft());
@@ -76,6 +82,13 @@ export default function ModelProfiles({ report, onChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<ModelTestResult | null>(null);
+  const [imageNote, setImageNote] = useState<string | null>(null);
+
+  // A test result describes the settings as they were; once anything changes it no longer applies.
+  const draftKey = JSON.stringify(draft);
+  useEffect(() => setTestResult(null), [draftKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +155,78 @@ export default function ModelProfiles({ report, onChanged }: Props) {
     } catch (err) {
       setError(cleanError(err));
     }
+  }
+
+  function currentInput() {
+    return {
+      family: draft.family,
+      name: draft.name,
+      files: draft.files,
+      sampler: { steps: Number(draft.steps), cfg: Number(draft.cfg), shift: Number(draft.shift), sampler: draft.sampler, scheduler: draft.scheduler },
+    };
+  }
+
+  async function handleTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      setTestResult(await window.kvgenius.testModelProfile(currentInput()));
+    } catch (err) {
+      setTestResult({ ok: false, message: cleanError(err) });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  /** Fills steps, CFG, sampler, scheduler and shift from what a picture says about how it was made. */
+  async function handleReadImage() {
+    setImageNote(null);
+    let result: ImageSettingsResult | null;
+    try {
+      result = await window.kvgenius.readImageSettings();
+    } catch (err) {
+      setImageNote(cleanError(err));
+      return;
+    }
+    if (!result) return;
+    const s = result.settings;
+    if (!s) {
+      setImageNote(`${result.fileName} has no settings saved in it (many sites remove them). A picture saved straight from ComfyUI or KVGenius has them.`);
+      return;
+    }
+    const known = (value: string | undefined, list: string[]) => value !== undefined && (list.length === 0 || list.includes(value));
+    const parts: string[] = [];
+    setDraft((d) => {
+      const next = { ...d };
+      if (s.steps !== undefined) {
+        next.steps = String(s.steps);
+        parts.push(`${s.steps} steps`);
+      }
+      if (s.cfg !== undefined) {
+        next.cfg = String(s.cfg);
+        parts.push(`CFG ${s.cfg}`);
+      }
+      if (s.shift !== undefined) {
+        next.shift = String(s.shift);
+        parts.push(`shift ${s.shift}`);
+      }
+      if (s.sampler !== undefined && known(s.sampler, choices.samplers)) {
+        next.sampler = s.sampler;
+        parts.push(s.sampler);
+      }
+      if (s.scheduler !== undefined && known(s.scheduler, choices.schedulers)) {
+        next.scheduler = s.scheduler;
+        parts.push(s.scheduler);
+      }
+      return next;
+    });
+    const hint = s.fileHints?.diffusionModel;
+    const where = s.source === 'comfyui' ? "the picture's ComfyUI workflow" : 'its parameters text';
+    setImageNote(
+      `Read from ${result.fileName} (${where}): ${parts.join(', ') || 'nothing usable'}.${
+        s.source === 'a1111' ? " Its sampler names differ from ComfyUI's, so those were left alone." : ''
+      }${hint ? ` It used the image model ${hint}.` : ''}`,
+    );
   }
 
   async function handleDelete() {
@@ -271,12 +356,27 @@ export default function ModelProfiles({ report, onChanged }: Props) {
                   </select>
                 )}
                 {missing && <p className="models-profile__warn">ComfyUI does not list this file. Put it in {slot.folder} and use Check Again above.</p>}
+                <ModelFileImport
+                  family={draft.family}
+                  slot={slot}
+                  canImport={canImport}
+                  onImported={(fileName) => {
+                    setFile(slot.key, fileName);
+                    onFilesChanged();
+                  }}
+                />
               </div>
             );
           })}
           <FilesNote installed={installed} />
 
           <h4 className="models-profile__heading">Settings</h4>
+          <div className="button-row" style={{ marginBottom: 8 }}>
+            <button type="button" onClick={() => void handleReadImage()}>
+              Read settings from a picture...
+            </button>
+          </div>
+          {imageNote && <p className="settings-hint">{imageNote}</p>}
           <div className="models-profile__grid">
             <label>
               <span className="field-label">Steps</span>
@@ -305,6 +405,22 @@ export default function ModelProfiles({ report, onChanged }: Props) {
                 ? 'The file name suggests a distilled model, which wants few steps and a CFG near 1 - like the starting values here.'
                 : 'The starting values are the built-in Turbo model\'s, which is distilled. If this model is not, it probably wants more steps and a higher CFG - check its model page for what it recommends.'}
             </p>
+          )}
+
+          <div className="button-row" style={{ marginTop: 12 }}>
+            <button type="button" onClick={() => void handleTest()} disabled={testing}>
+              {testing ? 'Testing...' : 'Test this model'}
+            </button>
+            <span className="settings-hint" style={{ margin: 0 }}>
+              One small picture, to see that the files load and run. Needs ComfyUI running and the queue empty.
+            </span>
+          </div>
+          {testResult && (
+            <div className={`model-test model-test--${testResult.ok ? 'ok' : 'failed'}`}>
+              {testResult.ok ? '✓ ' : '✗ '}
+              {testResult.message}
+              {testResult.imageBase64 && <img src={`data:${testResult.mime ?? 'image/png'};base64,${testResult.imageBase64}`} alt="The test picture" />}
+            </div>
           )}
 
           <div className="styles-page__actions">
