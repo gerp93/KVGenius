@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { GenerationKind, GenerationParams, GenerationProgress, KVGeniusAPI, LibraryListOptions } from '../shared/types';
 import { PromptSlot } from '../shared/promptSlots';
 
@@ -49,6 +49,17 @@ const api: KVGeniusAPI = {
   imageUrlFor: (imagePath: string) => mediaUrlFor(imagePath),
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),
   chooseSourceImages: () => ipcRenderer.invoke('chooseSourceImages'),
+  droppedImagePaths: (files: unknown[]) => {
+    const paths = files.flatMap((file) => {
+      try {
+        const found = webUtils.getPathForFile(file as File);
+        return found ? [found] : [];
+      } catch {
+        return [];
+      }
+    });
+    return ipcRenderer.invoke('registerDroppedImages', paths);
+  },
   copyImageToClipboard: (imagePath: string) => ipcRenderer.invoke('copyImageToClipboard', imagePath),
   revealGenerationInFileManager: (imagePath: string) => ipcRenderer.invoke('revealGenerationInFileManager', imagePath),
   diagnoseVideo: (imagePath: string) => ipcRenderer.invoke('diagnoseVideo', imagePath),

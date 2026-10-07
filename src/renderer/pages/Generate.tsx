@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CopyButton from '../components/CopyButton';
+import ImageDropZone from '../components/ImageDropZone';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
 import GalleryLightbox from '../components/GalleryLightbox';
@@ -566,7 +567,14 @@ export default function Generate({
           </div>
 
           {mode === 'video' && (
-            <div style={{ marginBottom: 12 }}>
+            <ImageDropZone
+              style={{ marginBottom: 12 }}
+              onPaths={(paths) => {
+                setError(null);
+                setSourceImagePath(paths[0] ?? null);
+              }}
+              onReject={setError}
+            >
               <label className="field-label">Source Image</label>
               <button
                 type="button"
@@ -575,7 +583,7 @@ export default function Generate({
                 title={sourceImagePath ?? undefined}
               >
                 <span className="source-image-button__name">
-                  {sourceImagePath ? sourceImagePath.split(/[\\/]/).pop() : 'Choose Source Image...'}
+                  {sourceImagePath ? sourceImagePath.split(/[\\/]/).pop() : 'Choose Source Image... (or drop one here)'}
                 </span>
               </button>
               {sourceImagePath && (
@@ -588,7 +596,7 @@ export default function Generate({
                   />
                 </div>
               )}
-            </div>
+            </ImageDropZone>
           )}
 
           <div className="field-label-row">

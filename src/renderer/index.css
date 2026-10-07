@@ -2329,3 +2329,26 @@ textarea:disabled {
   min-height: 28px;
   padding: 0 8px;
 }
+
+/* A region that takes picture files dropped from the file manager (ImageDropZone). */
+.image-drop {
+  border-radius: 8px;
+  transition: outline-color 0.1s ease, background-color 0.1s ease;
+  outline: 2px dashed transparent;
+  outline-offset: 4px;
+}
+
+.image-drop--over {
+  outline-color: var(--color-accent-blue);
+  background-color: rgba(60, 130, 220, 0.08);
+}
+
+.tools-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.tools-upscale {
+  flex: 1;
+  width: 100%;
+}
