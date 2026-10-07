@@ -108,7 +108,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   style picked (else the style would be added twice). Editing or deleting a style never touches past
   generations.
 - **Group by prompt is an opt-in filter, not the default view** (`listPromptStacks` in
-  `db.ts`). Only *exactly* equal prompts stack. The cover is pinned > favorite > newest;
+  `db.ts`). A stack card must take exactly the width `justifyRows` gave it (its stacked edges are box-shadow, no margin): a
+  row even a few pixels too wide made the page grow, which fitted more cards per row, until everything sat in one row. Only *exactly* equal prompts stack. The cover is pinned > favorite > newest;
   stacks are ordered and cursor-paged by their newest item (`groupNewestId`), and the
   Library's filters apply to items before they are grouped. Images and videos stack
   separately; trashed items are never in a stack.
@@ -120,6 +121,12 @@ implementation here is exactly the kind of drift it exists to prevent.
   connection check, so it is also right for a ComfyUI on another machine). **Models is a tab of Settings**
   (`/settings?tab=models`; the old `/models` redirects there), reached from Generate's "Model settings" link beside the
   Model dropdown, Settings > ComfyUI and the setup guide - not from the rail.
+  **The Generate page's prompt tabs are listed in the sidebar under Image / Video** (`PromptTabs` in `SideNav.tsx`):
+  Generate still owns them (`usePromptSlots`, each tab a full copy of its form) and publishes `PromptTabsModel`
+  (`utils/promptTabs.ts`) through `onTabsChange`; the sidebar only lists them (click selects and goes to Generate,
+  double-click renames, ✕ closes, ＋ New tab). Only that list scrolls when the window is short - the rest of the rail keeps
+  its place - down to a floor of three tabs, below which the whole rail scrolls as a last resort. Thin shows each tab as
+  its IMG/VID tag. Footer groups are separated by rules.
   The rail is full (labels; a section's head folds it) or thin (**icons only, no hover flyouts**: each page keeps its own
   icon, each section shrinks to a caption, so every page is one click away). Thin/full and folded sections are remembered
   in `localStorage`. Every page needs an icon and a `title` for that reason. The shell is a row: sidebar, then
@@ -206,7 +213,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   `powershellQuote`; the POSIX script is run against a hostile path in a test). Files go to `<name>.part` and are
   renamed when whole, so running the script again resumes. Only missing files are fetched; a file in a subfolder is
   reported, not fetched again. A link that has moved shows as a 404 in the terminal and the rest carry on.
-- **Image to image is Generate's image mode with a start picture, and its own family** (`z-image-i2i`,
+- **Image to image is Generate's image mode with a source image, and its own family** (`z-image-i2i`,
   `shared/imageToImage.ts`, `templates/z-image-i2i.json`, `main/imageToImagePatch.ts`). It is the text-to-image graph
   with the empty latent replaced by load picture -> scale to the output size (centre-cropped) -> VAE encode, and the
   sampler's `denoise` ("How much to change it", 0.05-1, default 0.6) says how much is re-drawn. Image mode has a Text → Image / Image → Image radio (the tab's `imageFromPicture`; the start
@@ -217,7 +224,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   re-racked once the copy is gone - and has its own origin tag (Image -> Image). The loader/prompt/sampler/shift node ids
   are the same as text to image's, so **model profiles apply unchanged** (`profileFamilyKey`; `modelPatch.test.ts`
   holds both templates to Z-Image's slots). `generations.denoise` stores the strength; the duplicate guard compares it
-  and the start picture. MCP: `generate_image` with `source` (a library picture) and `strength`; naming the family
+  and the source image. MCP: `generate_image` with `source` (a library picture) and `strength`; naming the family
   `z-image-i2i` directly is refused. The details panel's "🎨 Image" and Sources' "Image to image" send a picture to
   Generate through the same request as "🎬 Video" (`VideoSourceRequest.target`).
 - **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and

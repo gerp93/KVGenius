@@ -43,7 +43,7 @@ interface Props {
   /** Load the generation into a Generate tab. */
   onRerack: (record: GenerationRecord) => void;
   onImageToVideo: (record: GenerationRecord) => void;
-  /** Start an image to image run from this picture (opens Generate with it as the start picture). */
+  /** Start an image to image run from this picture (opens Generate with it as the source image). */
   onImageToImage: (record: GenerationRecord) => void;
   onSaveAs: (record: GenerationRecord) => void;
   onReveal: (record: GenerationRecord) => void;
