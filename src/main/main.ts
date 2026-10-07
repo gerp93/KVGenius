@@ -69,6 +69,7 @@ import {
 } from './db';
 import {
   isAvailable as comfyIsAvailable,
+  getGpuInfo as comfyGetGpuInfo,
   cancelCurrentGeneration,
   generate as comfyGenerate,
   listUpscaleModels,
@@ -969,6 +970,8 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('checkComfyUIConnection', () => comfyIsAvailable());
+
+  ipcMain.handle('getGpuInfo', () => comfyGetGpuInfo());
 
   ipcMain.handle('getTheme', () => getEffectiveTheme());
 

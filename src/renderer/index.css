@@ -2919,3 +2919,15 @@ button.button-danger--armed:hover:not(:disabled) {
   gap: 6px;
   cursor: pointer;
 }
+
+/* A small link beside a field's label (Generate: Model settings). */
+.field-hint-link {
+  font-size: 12px;
+  color: var(--color-accent-blue);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.field-hint-link:hover {
+  text-decoration: underline;
+}

@@ -94,7 +94,7 @@ export default function ComfyUITab() {
         <div className="setup-callout__card">
           <h3 className="setup-callout__title">Model files</h3>
           <p className="setup-callout__text">See which files ComfyUI has and which are missing, download them, or add and test your own models.</p>
-          <button type="button" className="primary" onClick={() => navigate('/models')}>
+          <button type="button" className="primary" onClick={() => navigate('/settings?tab=models')}>
             Check model files
           </button>
         </div>

@@ -113,9 +113,13 @@ implementation here is exactly the kind of drift it exists to prevent.
   Library's filters apply to items before they are grouped. Images and videos stack
   separately; trashed items are never in a stack.
 - **Navigation is a left sidebar, not a top bar** (`components/SideNav.tsx`/`.css`, rendered by `App.tsx`). Pages are
-  grouped in sections (Library: Output/Prompts/Sources/Trash; Tools: Upscale; Presets: Styles/Models; Utilities:
+  grouped in sections (Create: Image / Video, Upscale, Styles; Library: Output/Prompts/Sources/Trash; Utilities:
   Timing/Hardpoint) in the `SECTIONS` data at the top of `SideNav.tsx` - add a page there. The footer holds
-  Settings, Setup guide, the app-wide Show hidden switch and the ComfyUI status (click to launch when unreachable).
+  Settings, Setup guide, the app-wide Show hidden switch, the ComfyUI status (click to launch when unreachable) and the
+  graphics card ComfyUI runs on (`getGpuInfo` -> ComfyUI's `/system_stats`, `shared/gpuInfo.ts`; refreshed with the
+  connection check, so it is also right for a ComfyUI on another machine). **Models is a tab of Settings**
+  (`/settings?tab=models`; the old `/models` redirects there), reached from Generate's "Model settings" link beside the
+  Model dropdown, Settings > ComfyUI and the setup guide - not from the rail.
   The rail is full (labels; a section's head folds it) or thin (**icons only, no hover flyouts**: each page keeps its own
   icon, each section shrinks to a caption, so every page is one click away). Thin/full and folded sections are remembered
   in `localStorage`. Every page needs an icon and a `title` for that reason. The shell is a row: sidebar, then
@@ -156,7 +160,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   Steps are plain `Step[]` data; the file names/folders in its tables must match the templates in
   `src/main/templates/` (change one, change the other). It polls `checkComfyUIConnection` so the connect step
   turns green by itself. Entry points are two buttons at the top of Settings > ComfyUI (the guide, and the
-  Models page) and a "Setup guide" item in the sidebar's footer (a red dot while ComfyUI cannot be reached) - not
+  Models tab) and a "Setup guide" item in the sidebar's footer (a red dot while ComfyUI cannot be reached) - not
   an app-menu item, which KVG_Standards keeps to View/Help basics. External links go through the `openExternal` IPC (http/https only,
   `shared/externalUrl.ts`), never a plain `<a href>`.
 - **The image family key is `z-image`** (the family), not `z-image-turbo` (one variant of it). The old key is
@@ -222,7 +226,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   `listInstalledModels`), falling back to a scan of the models folder when ComfyUI is down (`modelsFolder.ts`;
   the folder is the user's choice, else guessed from the launcher and only trusted if it looks like a `models`
   folder). A file inside a subfolder is reported as such, never as installed: the template asks for the plain name.
-  The Models page (`/models`) and the setup guide both render from this.
+  The Models tab (Settings) and the setup guide both render from this.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned

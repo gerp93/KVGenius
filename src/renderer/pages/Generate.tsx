@@ -851,9 +851,14 @@ export default function Generate({
           />
 
           <div style={{ marginTop: 12 }}>
-            <label className="field-label" htmlFor="model-select">
-              Model
-            </label>
+            <div className="field-label-row">
+              <label className="field-label" htmlFor="model-select">
+                Model
+              </label>
+              <Link to="/settings?tab=models" className="field-hint-link" title="Add, edit or check the model files">
+                ⚙ Model settings
+              </Link>
+            </div>
             <select
               id="model-select"
               value={activeModel ? String(activeModel.id) : ''}
@@ -867,12 +872,11 @@ export default function Generate({
                 </option>
               ))}
             </select>
-            <p className="style-picker__preview">
-              {activeModel && mode === 'image'
-                ? `${activeModel.sampler.steps} steps, CFG ${activeModel.sampler.cfg}, ${activeModel.sampler.sampler} / ${activeModel.sampler.scheduler}. `
-                : ''}
-              <Link to="/models">Add or edit models</Link>
-            </p>
+            {activeModel && mode === 'image' && (
+              <p className="style-picker__preview">
+                {activeModel.sampler.steps} steps, CFG {activeModel.sampler.cfg}, {activeModel.sampler.sampler} / {activeModel.sampler.scheduler}
+              </p>
+            )}
           </div>
 
           {mode === 'image' && (

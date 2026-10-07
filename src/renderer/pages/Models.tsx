@@ -21,7 +21,7 @@ interface Props {
   onModelsChanged: () => void;
 }
 
-/** What model files KVGenius needs, which of them ComfyUI has, and where the missing ones go. */
+/** What model files KVGenius needs, which of them ComfyUI has, and where the missing ones go. Shown as Settings' Models tab. */
 export default function Models({ onModelsChanged }: Props) {
   const { report, refresh } = useModelStatus();
   const [dir, setDir] = useState<ModelsDirInfo | null>(null);
@@ -40,9 +40,7 @@ export default function Models({ onModelsChanged }: Props) {
   const modelsDir = dir?.valid ? dir.effective : null;
 
   return (
-    <div className="page">
-      <div className="models-page">
-        <h2 style={{ marginTop: 0 }}>Models</h2>
+    <div className="models-page">
         <p className="models-page__status">
           {report ? SOURCE_TEXT[report.source] : 'Checking...'} <Link to="/setup">Setup guide</Link>
         </p>
@@ -93,7 +91,6 @@ export default function Models({ onModelsChanged }: Props) {
             </SettingsSection>
           );
         })}
-      </div>
     </div>
   );
 }
