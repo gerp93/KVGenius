@@ -509,8 +509,14 @@ export default function Generate({
                       className="prompt-slot-row__label"
                       onClick={() => switchSlot(slot.id)}
                       onDoubleClick={() => startRenameSlot(slot)}
-                      title={`${slotLabelFor(slot)} (double-click to rename)`}
+                      title={`${slotLabelFor(slot)} - ${(slot.id === activeSlotId ? mode : slot.data.mode) === 'video' ? 'video' : 'image'} (double-click to rename)`}
                     >
+                      {/* The active tab's mode is the live form value; the others' is what they last saved. */}
+                      <span
+                        className={`prompt-slot-row__mode prompt-slot-row__mode--${slot.id === activeSlotId ? mode : slot.data.mode}`}
+                      >
+                        {(slot.id === activeSlotId ? mode : slot.data.mode) === 'video' ? 'VID' : 'IMG'}
+                      </span>
                       <span className="prompt-slot-row__text">{slotLabelFor(slot)}</span>
                     </button>
                   )}

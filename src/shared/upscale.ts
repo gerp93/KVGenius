@@ -13,3 +13,15 @@ export function isUpscaleFamily(family: string): boolean {
  * fixed amount (usually 4x); the template then resizes the result to exactly this factor. */
 export const UPSCALE_FACTORS = [1.5, 2, 3, 4];
 export const DEFAULT_UPSCALE_FACTOR = 2;
+
+/** The size an image comes out at when enlarged by `factor`. Video encoders need even sides, so a
+ * video's are rounded to even numbers; a picture's are just rounded. */
+export function upscaledSize(width: number, height: number, factor: number, isVideo = false): { width: number; height: number } {
+  const scale = (n: number) => (isVideo ? 2 * Math.round((n * factor) / 2) : Math.round(n * factor));
+  return { width: scale(width), height: scale(height) };
+}
+
+/** The base name of a file path, for labelling an upload (either path separator). */
+export function fileNameOf(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() ?? filePath;
+}
