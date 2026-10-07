@@ -768,6 +768,18 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   padding: 10px 14px;
 }
 
+/* Recently completed takes exactly the room left after Generating now and Up next (which keep their
+   own width): its cards share it, and past what fits that group scrolls sideways on its own. It never
+   gets narrower than two cards, so a long queue scrolls the whole drawer instead. */
+.queue-bar__group--done {
+  flex: 1 1 0;
+  min-width: 360px;
+}
+
+.queue-bar__group--done .queue-bar__cards {
+  overflow-x: auto;
+}
+
 .queue-bar__group + .queue-bar__group {
   border-left: 1px solid var(--color-border);
 }
@@ -2028,10 +2040,11 @@ textarea:disabled {
 
 /* A completed generation shown as a card in the queue drawer (QueuePanel's "Recently completed"). */
 .queue-done {
-  flex: none;
+  /* At least 170px; grows to share the group's spare room, up to 260px each. */
+  flex: 1 0 170px;
+  max-width: 260px;
   display: flex;
   flex-direction: column;
-  width: 170px;
   min-height: 0;
   border: 1px solid var(--color-border);
   border-radius: 6px;

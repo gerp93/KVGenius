@@ -37,7 +37,7 @@ interface Props {
 
 /** Most recently completed jobs shown full-width in the queue itself, so a result is visible
  * right where it just finished without switching over to the result viewer. */
-const MAX_COMPLETED_SHOWN = 5;
+const MAX_COMPLETED_SHOWN = 20;
 
 /** Size of a job tile on the folded bar and the gap between them (keep in step with `.queue-bar__tile`
  * and `.queue-bar__tiles` in index.css). */
@@ -294,7 +294,7 @@ export default function QueuePanel({
           )}
 
           {done.length > 0 && (
-            <section className="queue-bar__group">
+            <section className="queue-bar__group queue-bar__group--done">
               <div className="queue-panel__section-title">
                 Recently completed
                 {olderDoneCount > 0 && (
