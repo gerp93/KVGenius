@@ -3,6 +3,7 @@ import { GenerationKind, GenerationParams, GenerationProgress, KVGeniusAPI, Libr
 import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
 import { ModelProfileInput } from '../shared/modelProfiles';
+import type { ModelImportProgress } from '../shared/modelCheck';
 
 // Videos are served by a local HTTP server, everything else by the kvimage:// protocol - the same
 // rule as imageUrlFor() in main.ts (the sandboxed preload can't import it).
@@ -100,6 +101,29 @@ const api: KVGeniusAPI = {
   saveModelProfile: (input: ModelProfileInput, id?: number | null) => ipcRenderer.invoke('saveModelProfile', input, id ?? null),
   deleteModelProfile: (id: number) => ipcRenderer.invoke('deleteModelProfile', id),
   getSamplerChoices: () => ipcRenderer.invoke('getSamplerChoices'),
+  chooseModelFile: () => ipcRenderer.invoke('chooseModelFile'),
+  droppedModelFilePaths: (files: unknown[]) => {
+    const paths = files.flatMap((file) => {
+      try {
+        const found = webUtils.getPathForFile(file as File);
+        return found ? [found] : [];
+      } catch {
+        return [];
+      }
+    });
+    return ipcRenderer.invoke('registerDroppedModelFiles', paths);
+  },
+  checkModelFile: (path: string, family: string, slotKey: string) => ipcRenderer.invoke('checkModelFile', path, family, slotKey),
+  importModelFile: (path: string, family: string, slotKey: string, options: { move: boolean; overwrite: boolean }) =>
+    ipcRenderer.invoke('importModelFile', path, family, slotKey, options),
+  cancelModelImport: () => ipcRenderer.invoke('cancelModelImport'),
+  onModelImportProgress: (callback: (progress: ModelImportProgress) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: ModelImportProgress) => callback(progress);
+    ipcRenderer.on('modelImportProgress', listener);
+    return () => ipcRenderer.removeListener('modelImportProgress', listener);
+  },
+  readImageSettings: () => ipcRenderer.invoke('readImageSettings'),
+  testModelProfile: (input: ModelProfileInput) => ipcRenderer.invoke('testModelProfile', input),
 
   getComfyUIHost: () => ipcRenderer.invoke('getComfyUIHost'),
   setComfyUIHost: (host: string) => ipcRenderer.invoke('setComfyUIHost', host),

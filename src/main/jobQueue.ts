@@ -42,6 +42,8 @@ type ProgressListener = (jobId: number, progress: GenerationProgress) => void;
 export class JobQueue {
   private runningId: number | null = null;
   private pumping = false;
+  /** Something other than a queued job (a model test render) holds the GPU; the queue waits for it. */
+  private exclusive = 0;
   private readonly cancelRequested = new Set<number>();
   private readonly estimates = new Map<number, JobRequest['estimate']>();
   private readonly waiters = new Map<number, Array<(job: JobInfo) => void>>();
@@ -128,11 +130,28 @@ export class JobQueue {
     return () => this.progressListeners.delete(listener);
   }
 
+  /**
+   * Runs `work` while no queued job runs and none starts (jobs submitted meanwhile simply wait). It is for the
+   * few things that must use ComfyUI directly, like a model's test render. Refuses, rather than waits, when the
+   * queue is busy: the user is told to try again once it has finished.
+   */
+  async runExclusive<T>(work: () => Promise<T>): Promise<T> {
+    if (this.pumping || this.runningId !== null) throw new Error('The queue is busy - wait for it to finish, then try again.');
+    this.exclusive++;
+    try {
+      return await work();
+    } finally {
+      this.exclusive--;
+      void this.pump();
+    }
+  }
+
   private async pump(): Promise<void> {
-    if (this.pumping) return;
+    if (this.pumping || this.exclusive > 0) return;
     this.pumping = true;
     try {
       for (;;) {
+        if (this.exclusive > 0) return;
         const job = nextQueuedJob(this.db);
         if (!job) return;
         await this.run(job);

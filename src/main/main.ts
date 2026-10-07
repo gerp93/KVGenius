@@ -70,6 +70,7 @@ import {
 import {
   isAvailable as comfyIsAvailable,
   cancelCurrentGeneration,
+  generate as comfyGenerate,
   listUpscaleModels,
   listInstalledModels,
   listSamplerChoices,
@@ -89,6 +90,11 @@ import { guessModelsDir, looksLikeModelsDir, scanModelsDir } from './modelsFolde
 import { emptyInstalled, ModelStatusReport } from '../shared/modelStatus';
 import { migrationBackups } from '../shared/dbBackups';
 import { ModelProfileInput } from '../shared/modelProfiles';
+import { profileFamily } from '../shared/modelFamilies';
+import { isModelFileName, ModelImportOutcome } from '../shared/modelCheck';
+import { checkModelFile, importModelFile, ModelImportError } from './modelImport';
+import { settingsFromPng } from './imageMetadata';
+import { runModelTest } from './modelTest';
 import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, LibraryListOptions, McpInfo, ModelsDirInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
@@ -285,6 +291,18 @@ async function chooseComfyUIProgram(): Promise<string | null> {
   if (result.canceled || result.filePaths.length === 0) return null;
   setComfyUILaunchPath(result.filePaths[0]);
   return result.filePaths[0];
+}
+
+/** Model files the user chose in this session (by dialog or drop). */
+const pickedModelFiles = new Set<string>();
+let modelImportAbort: AbortController | null = null;
+
+/** A picked file and the slot it is for; throws if the file was not picked by the user or the slot is unknown. */
+function pickedModelSlot(filePath: unknown, family: unknown, slotKey: unknown) {
+  if (typeof filePath !== 'string' || !pickedModelFiles.has(path.resolve(filePath))) throw new Error('Choose the file again.');
+  const slot = typeof family === 'string' ? profileFamily(family)?.slots.find((s) => s.key === slotKey) : undefined;
+  if (!slot) throw new Error('That kind of model has no such file slot.');
+  return { slot, resolved: path.resolve(filePath) };
 }
 
 function listMigrationBackups(dbPath: string): string[] {
@@ -805,6 +823,86 @@ function registerIpcHandlers(): void {
   ipcMain.handle('deleteModelProfile', (_event, id: number) => {
     if (!db) throw new Error('Database not initialized');
     deleteModelProfile(db, id);
+  });
+  // Model files the user picked (dialog or drop): only these may be looked at and copied, so the renderer
+  // cannot ask the main process to read or copy an arbitrary path.
+  ipcMain.handle('chooseModelFile', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a model file',
+      filters: [{ name: 'Model files', extensions: ['safetensors', 'ckpt', 'pt', 'pth', 'gguf'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const chosen = path.resolve(result.filePaths[0]);
+    pickedModelFiles.add(chosen);
+    return { path: chosen, fileName: path.basename(chosen) };
+  });
+  ipcMain.handle('registerDroppedModelFiles', (_event, paths: unknown) => {
+    if (!Array.isArray(paths)) return [];
+    const accepted: string[] = [];
+    for (const candidate of paths.slice(0, 20)) {
+      if (typeof candidate !== 'string' || !isModelFileName(candidate)) continue;
+      const resolved = path.resolve(candidate);
+      try {
+        if (!fs.statSync(resolved).isFile()) continue;
+      } catch {
+        continue;
+      }
+      pickedModelFiles.add(resolved);
+      accepted.push(resolved);
+    }
+    return accepted;
+  });
+  ipcMain.handle('checkModelFile', async (_event, filePath: string, family: string, slotKey: string) => {
+    const { slot, resolved } = pickedModelSlot(filePath, family, slotKey);
+    const dir = modelsDirInfo();
+    return checkModelFile(resolved, { folder: slot.folder, modelsDir: dir.valid ? dir.effective : null, referenceFile: slot.defaultFile });
+  });
+  ipcMain.handle('importModelFile', async (event, filePath: string, family: string, slotKey: string, options: { move?: boolean; overwrite?: boolean }): Promise<ModelImportOutcome> => {
+    if (modelImportAbort) return { ok: false, code: 'failed', message: 'Another import is already running.' };
+    try {
+      const { slot, resolved } = pickedModelSlot(filePath, family, slotKey);
+      const dir = modelsDirInfo();
+      if (!dir.valid || !dir.effective) return { ok: false, code: 'bad-target', message: "Set ComfyUI's models folder first." };
+      modelImportAbort = new AbortController();
+      const result = await importModelFile(resolved, {
+        modelsDir: dir.effective,
+        folder: slot.folder,
+        move: !!options?.move,
+        overwrite: !!options?.overwrite,
+        signal: modelImportAbort.signal,
+        onProgress: (copied, total) => event.sender.send('modelImportProgress', { copied, total }),
+      });
+      return { ok: true, fileName: path.basename(result.destPath), bytes: result.bytes, originalKept: result.originalKept };
+    } catch (err) {
+      if (err instanceof ModelImportError) return { ok: false, code: err.code, message: err.message };
+      return { ok: false, code: 'failed', message: err instanceof Error ? err.message : String(err) };
+    } finally {
+      modelImportAbort = null;
+    }
+  });
+  ipcMain.handle('cancelModelImport', () => {
+    modelImportAbort?.abort();
+  });
+  ipcMain.handle('readImageSettings', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a picture made with the model',
+      message: 'A picture saved straight from ComfyUI or KVGenius carries its settings.',
+      filters: [{ name: 'PNG pictures', extensions: ['png'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const file = result.filePaths[0];
+    const stat = fs.statSync(file);
+    if (stat.size > 64 * 1024 * 1024) return { fileName: path.basename(file), settings: null };
+    return { fileName: path.basename(file), settings: settingsFromPng(fs.readFileSync(file)) };
+  });
+  ipcMain.handle('testModelProfile', async (_event, input: ModelProfileInput) => {
+    if (!jobQueue) return { ok: false, message: 'The app is still starting - try again in a moment.' };
+    const queue = jobQueue;
+    return runModelTest(input, { runExclusive: (work) => queue.runExclusive(work), generate: (family, params) => comfyGenerate(family, params) });
   });
   ipcMain.handle('getSamplerChoices', async () => {
     try {

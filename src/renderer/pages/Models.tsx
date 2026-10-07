@@ -72,7 +72,7 @@ export default function Models({ onModelsChanged }: Props) {
           </div>
         </SettingsSection>
 
-        <ModelProfiles report={report} onChanged={onModelsChanged} />
+        <ModelProfiles report={report} onChanged={onModelsChanged} canImport={modelsDir !== null} onFilesChanged={refresh} />
 
         {MODEL_MANIFEST.map((feature) => {
           const summary = summaryText(feature, report);

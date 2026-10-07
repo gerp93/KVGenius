@@ -293,6 +293,20 @@ interface HistoryFile {
 
 interface HistoryEntry {
   outputs?: Record<string, Record<string, HistoryFile[]>>;
+  /** ComfyUI marks a run that failed here, with the reason in its messages. */
+  status?: { status_str?: string; messages?: unknown[] };
+}
+
+/** The reason ComfyUI gave for a failed run (its `execution_error` message), if there is one. */
+export function describeExecutionError(entry: HistoryEntry): string | null {
+  if (entry.status?.status_str !== 'error') return null;
+  for (const message of entry.status.messages ?? []) {
+    if (!Array.isArray(message) || message[0] !== 'execution_error') continue;
+    const data = (message[1] ?? {}) as { exception_message?: unknown; node_type?: unknown };
+    const text = typeof data.exception_message === 'string' ? data.exception_message.trim() : '';
+    if (text) return typeof data.node_type === 'string' ? `${text} (in ${data.node_type})` : text;
+  }
+  return 'ComfyUI reported an error but gave no reason.';
 }
 
 async function getHistory(promptId: string, signal: AbortSignal): Promise<HistoryEntry | null> {
@@ -367,6 +381,8 @@ function extractOutputFile(entry: HistoryEntry, promptId: string): HistoryFile {
       if (Array.isArray(files) && files.length > 0) return files[0];
     }
   }
+  const failure = describeExecutionError(entry);
+  if (failure) throw new Error(`ComfyUI could not run it: ${failure}`);
   throw new Error(`ComfyUI prompt ${promptId} finished with no image/video output`);
 }
 
