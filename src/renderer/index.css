@@ -1496,11 +1496,12 @@ button.link-button:hover:not(:disabled) {
 
 .library-panel__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .library-panel__actions button {
-  flex: 1;
+  flex: 1 1 auto;
 }
 
 /* The icon-only copy button is small by default; in this row it is the same size as its neighbours. */
@@ -2902,4 +2903,17 @@ button.button-danger--armed:hover:not(:disabled) {
 
 .library-card__origin-badge--image-to-image {
   background: rgba(170, 95, 20, 0.88);
+}
+
+/* A short row of radio choices (Generate: Text -> Image / Image -> Image). */
+.radio-row {
+  display: flex;
+  gap: 18px;
+}
+
+.radio-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }

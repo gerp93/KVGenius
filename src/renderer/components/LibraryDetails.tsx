@@ -351,13 +351,13 @@ export default function LibraryDetails({
       )}
       <div className="library-panel__actions">
         {kindOf(record) === 'image' && !isGif(record) && (
-          <button type="button" onClick={() => onImageToVideo(record)} title="Create video from image">
-            🎬 Video
+          <button type="button" onClick={() => onImageToVideo(record)} title="Make a video starting from this picture">
+            🎬 Image to video
           </button>
         )}
         {kindOf(record) === 'image' && !isGif(record) && (
           <button type="button" onClick={() => onImageToImage(record)} title="Start a new picture from this one (image to image)">
-            🎨 Image
+            🎨 Image to image
           </button>
         )}
         {kindOf(record) === 'image' && (
