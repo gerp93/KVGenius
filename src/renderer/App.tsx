@@ -14,6 +14,7 @@ import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
 import Styles from './pages/Styles';
+import Setup from './pages/Setup';
 import LibrarySources from './pages/LibrarySources';
 import ToolsLayout from './pages/ToolsLayout';
 import ToolsUpscale from './pages/ToolsUpscale';
@@ -290,6 +291,11 @@ export default function App() {
             {launchError}
           </span>
         )}
+        {connection === 'unreachable' && (
+          <Link to="/setup" className="top-bar__link" title="Step-by-step: install ComfyUI, add the models, connect">
+            Setup guide
+          </Link>
+        )}
         {connection === 'unreachable' || connection === 'starting' ? (
           <button
             type="button"
@@ -395,6 +401,7 @@ export default function App() {
               <Route path="/styles" element={<Styles onChanged={() => setStylesVersion((v) => v + 1)} />} />
               <Route path="/timing" element={<Timing />} />
               <Route path="/hardpoint" element={<Hardpoint />} />
+              <Route path="/setup" element={<Setup />} />
               <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
             </Routes>
           </div>

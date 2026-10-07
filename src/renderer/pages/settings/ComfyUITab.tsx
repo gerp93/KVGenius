@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ComfyUILauncherInfo } from '../../../shared/types';
 import SettingsSection from './SettingsSection';
 
@@ -81,6 +82,13 @@ export default function ComfyUITab() {
 
   return (
     <>
+      <SettingsSection
+        title="Setting up ComfyUI?"
+        description="A step-by-step guide: install ComfyUI, download the models KVGenius expects, and connect."
+      >
+        <Link to="/setup">Open the setup guide</Link>
+      </SettingsSection>
+
       <SettingsSection
         title="Server"
         description={

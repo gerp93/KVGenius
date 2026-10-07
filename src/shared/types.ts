@@ -392,6 +392,8 @@ export interface KVGeniusAPI {
   setComfyUIHost: (host: string) => Promise<void>;
   resetComfyUIHost: () => Promise<void>;
   checkComfyUIConnection: () => Promise<boolean>;
+  /** Opens a web link (http/https only) in the default browser. */
+  openExternal: (url: string) => Promise<void>;
   /** Starts ComfyUI if it is not already up. Asks which program to run the first time if none is
    * set or found ('cancelled' if that dialog is dismissed). Resolves once the program has started,
    * not once ComfyUI is ready - keep checking checkComfyUIConnection() for that. */

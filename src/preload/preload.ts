@@ -110,6 +110,7 @@ const api: KVGeniusAPI = {
   chooseNewDbLocation: () => ipcRenderer.invoke('chooseNewDbLocation'),
   resetDbToDefault: () => ipcRenderer.invoke('resetDbToDefault'),
 
+  openExternal: (url: string) => ipcRenderer.invoke('openExternal', url),
   launchComfyUI: () => ipcRenderer.invoke('launchComfyUI'),
   getComfyUILauncher: () => ipcRenderer.invoke('getComfyUILauncher'),
   chooseComfyUILauncher: () => ipcRenderer.invoke('chooseComfyUILauncher'),
