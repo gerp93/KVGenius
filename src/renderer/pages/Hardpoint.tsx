@@ -49,30 +49,8 @@ export default function HardpointPage() {
 
   return (
     <div className="hardpoint-page">
-      <div className="hardpoint-page-header">
-        <div>
-          <h1 style={{ fontSize: 18, margin: 0 }}>Hardpoint</h1>
-          <p style={{ marginTop: 6, marginBottom: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
-            GPU and loaded models, plus Start / Stop for local AI services, live in Hardpoint —
-            the shared dashboard. KVGenius only embeds it here.
-          </p>
-        </div>
-        <div className="hardpoint-page-actions">
-          <button type="button" disabled={busy} onClick={() => void refresh()}>
-            Refresh
-          </button>
-          <button type="button" disabled={busy} onClick={() => void handleOpen()}>
-            {reachable ? 'Open Hardpoint window' : 'Start Hardpoint'}
-          </button>
-        </div>
-      </div>
-      {notice && (
-        <p style={{ fontSize: 13, marginTop: 8, color: 'var(--color-text-muted)' }}>
-          {notice}
-        </p>
-      )}
       {reachable === false && (
-        <p style={{ color: 'var(--color-accent-red, #c44)', fontSize: 13, marginTop: 12 }}>
+        <p style={{ color: 'var(--color-accent-red, #c44)', fontSize: 13, marginTop: 0 }}>
           Hardpoint&apos;s embed API is not answering at {HARDPOINT_API_BASE}/api/status.
           The Hardpoint <em>window</em> can still be open (it talks over IPC); embeds need that
           loopback HTTP server. Restart Hardpoint, then click Refresh — or open{' '}
@@ -87,6 +65,21 @@ export default function HardpointPage() {
           allow="local-network-access; clipboard-read; clipboard-write"
         />
       )}
+      <div className="hardpoint-page-footer">
+        {notice && (
+          <span style={{ fontSize: 13, color: 'var(--color-text-muted)', marginRight: 'auto' }}>
+            {notice}
+          </span>
+        )}
+        <div className="hardpoint-page-actions">
+          <button type="button" disabled={busy} onClick={() => void refresh()}>
+            Refresh
+          </button>
+          <button type="button" disabled={busy} onClick={() => void handleOpen()}>
+            {reachable ? 'Open Hardpoint window' : 'Start Hardpoint'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
