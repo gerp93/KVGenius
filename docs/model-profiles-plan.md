@@ -48,6 +48,7 @@ Three things make that work:
 | Download helper | Only the files in our manifest (public Hugging Face files, no token). |
 | Site tokens / pasted URLs | Deferred (see below). |
 | Video profiles | Carry files and defaults only; the Fast/High switch is unchanged. |
+| Migration backup | Created automatically; never deleted automatically. |
 
 ## Stages
 
@@ -89,7 +90,7 @@ Each stage is its own PR, in this order.
   check the rename; run again and check nothing changes.
 - Risk to note in release notes: an older version opening a migrated database will not
   recognise the key. Only matters for people sharing one database file across versions.
-- Open: delete the backup automatically after some launches, or leave it until removed.
+- The backup is **never deleted by the app**: the user removes it by hand when they are satisfied. Settings > Library & Data should say where it is so it is not forgotten.
 
 ### 3. Image profiles, validation and local-file import
 
