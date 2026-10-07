@@ -151,6 +151,13 @@ implementation here is exactly the kind of drift it exists to prevent.
   indicator (deliberately not a top-bar item - the bar is already full - and not an app-menu item, which
   KVG_Standards keeps to View/Help basics). External links go through the `openExternal` IPC (http/https only,
   `shared/externalUrl.ts`), never a plain `<a href>`.
+- **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and
+  `main/modelManifest.test.ts` pins it to the template JSON - change a template's loader file and that test fails
+  until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,
+  `listInstalledModels`), falling back to a scan of the models folder when ComfyUI is down (`modelsFolder.ts`;
+  the folder is the user's choice, else guessed from the launcher and only trusted if it looks like a `models`
+  folder). A file inside a subfolder is reported as such, never as installed: the template asks for the plain name.
+  The Models page (`/models`) and the setup guide both render from this.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned

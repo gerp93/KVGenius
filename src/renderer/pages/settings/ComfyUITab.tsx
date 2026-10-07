@@ -84,9 +84,12 @@ export default function ComfyUITab() {
     <>
       <SettingsSection
         title="Setting up ComfyUI?"
-        description="A step-by-step guide: install ComfyUI, download the models KVGenius expects, and connect."
+        description="A step-by-step guide: install ComfyUI, download the models KVGenius expects, and connect. The Models page shows which of those files ComfyUI already has."
       >
-        <Link to="/setup">Open the setup guide</Link>
+        <div className="button-row">
+          <Link to="/setup">Open the setup guide</Link>
+          <Link to="/models">Check model files</Link>
+        </div>
       </SettingsSection>
 
       <SettingsSection

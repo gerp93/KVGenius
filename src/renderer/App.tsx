@@ -15,6 +15,7 @@ import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
 import Styles from './pages/Styles';
 import Setup from './pages/Setup';
+import Models from './pages/Models';
 import LibrarySources from './pages/LibrarySources';
 import ToolsLayout from './pages/ToolsLayout';
 import ToolsUpscale from './pages/ToolsUpscale';
@@ -402,6 +403,7 @@ export default function App() {
               <Route path="/timing" element={<Timing />} />
               <Route path="/hardpoint" element={<Hardpoint />} />
               <Route path="/setup" element={<Setup />} />
+              <Route path="/models" element={<Models />} />
               <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
             </Routes>
           </div>
