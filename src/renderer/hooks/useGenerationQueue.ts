@@ -24,6 +24,9 @@ export interface Job {
   error?: string;
   /** A failed job the user has cleared from the queue panel (it stays a slot in the viewer). */
   dismissed?: boolean;
+  /** Not a run at all: an existing record put on screen by Re-rack (see showRecord). It is a slot in the
+   * viewer only - never listed as completed, merged into the Library, or counted as finished work. */
+  isRecall?: boolean;
 }
 
 /** Live progress of the running job, plus when (local clock) the last sampling step reported. */
@@ -243,8 +246,8 @@ export function useGenerationQueue() {
 
   const dismissFailed = useCallback((id: number) => patchJob(id, { dismissed: true }), [patchJob]);
 
-  /** Puts an existing record on screen in working tab `slotId` (e.g. recalled from the Library) as
-   * a finished one-off. */
+  /** Puts an existing record on screen in working tab `slotId` (e.g. recalled from the Library). It is
+   * shown like a finished job but flagged `isRecall`, because nothing was run: it is not a new result. */
   const showRecord = useCallback((record: GenerationRecord, kind: JobKind, imageUrl: string, slotId: string) => {
     const batchId = nextBatchRef.current++;
     const job: Job = {
@@ -264,6 +267,7 @@ export function useGenerationQueue() {
       status: 'done',
       record,
       imageUrl,
+      isRecall: true,
     };
     setJobs((prev) => [...prev, job]);
     pointView(slotId, batchId);

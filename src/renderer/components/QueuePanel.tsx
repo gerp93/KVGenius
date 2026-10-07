@@ -47,7 +47,8 @@ const TILE_GAP = 6;
 type DoneJob = Job & { record: GenerationRecord; imageUrl: string; kind: JobKind };
 
 function isDone(job: Job): job is DoneJob {
-  return job.status === 'done' && !!job.record && !!job.imageUrl;
+  // A recalled record (Re-rack) was never run, so it is not a completed job.
+  return job.status === 'done' && !job.isRecall && !!job.record && !!job.imageUrl;
 }
 
 function describe(job: Job): string {

@@ -484,12 +484,12 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   // A finished upscale is a new image: put it at the top of the list without a reload.
   useEffect(() => {
     if (mergedUpscales.current === null) {
-      mergedUpscales.current = new Set(queue.jobs.filter((j) => isUpscaleFamily(j.family) && j.status === 'done').map((j) => j.id));
+      mergedUpscales.current = new Set(queue.jobs.filter((j) => isUpscaleFamily(j.family) && j.status === 'done' && !j.isRecall).map((j) => j.id));
       return;
     }
     const merged = mergedUpscales.current;
     for (const job of queue.jobs) {
-      if (!isUpscaleFamily(job.family) || job.status !== 'done' || !job.record || merged.has(job.id)) continue;
+      if (!isUpscaleFamily(job.family) || job.status !== 'done' || job.isRecall || !job.record || merged.has(job.id)) continue;
       merged.add(job.id);
       const made = job.record;
       if (made.hidden && !showHidden) continue;
