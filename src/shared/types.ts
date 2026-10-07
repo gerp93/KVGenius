@@ -1,4 +1,5 @@
 import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
+import type { GpuInfo } from './gpuInfo';
 import type { DownloadPlanInfo, DownloadStartResult } from './modelDownloads';
 import type { ImageSettingsResult, ModelFileCheck, ModelImportOutcome, ModelImportProgress, ModelTestResult, PickedModelFile } from './modelCheck';
 import type { ModelProfile, ModelProfileInput, ModelSettings } from './modelProfiles';
@@ -452,6 +453,8 @@ export interface KVGeniusAPI {
   setComfyUIHost: (host: string) => Promise<void>;
   resetComfyUIHost: () => Promise<void>;
   checkComfyUIConnection: () => Promise<boolean>;
+  /** The device(s) ComfyUI runs on (name, memory); empty when ComfyUI cannot be reached. */
+  getGpuInfo: () => Promise<GpuInfo[]>;
   /** Opens a web link (http/https only) in the default browser. */
   openExternal: (url: string) => Promise<void>;
   /** Starts ComfyUI if it is not already up. Asks which program to run the first time if none is

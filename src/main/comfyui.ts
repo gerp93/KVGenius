@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { GpuInfo, parseSystemStats } from '../shared/gpuInfo';
 import { GenerationParams, GenerationProgress } from '../shared/types';
 import { videoQualityFromCfg } from '../shared/videoQuality';
 import { ComfyMessage, ProgressTracker, RunTimings } from './progressTracker';
@@ -164,6 +165,17 @@ export async function listInstalledModels(): Promise<InstalledModels> {
   const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
   if (failures.length === results.length) throw failures[0].reason;
   return installed;
+}
+
+/** The compute devices ComfyUI is using (name and memory), or none if it cannot be asked. This is the card that
+ * actually runs generations - which is also right for a ComfyUI on another machine. */
+export async function getGpuInfo(): Promise<GpuInfo[]> {
+  try {
+    const resp = await comfyRequest('/system_stats', { signal: AbortSignal.timeout(5000) });
+    return parseSystemStats(await resp.json());
+  } catch {
+    return [];
+  }
 }
 
 export async function isAvailable(): Promise<boolean> {

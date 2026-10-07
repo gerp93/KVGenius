@@ -132,6 +132,7 @@ const api: KVGeniusAPI = {
   setComfyUIHost: (host: string) => ipcRenderer.invoke('setComfyUIHost', host),
   resetComfyUIHost: () => ipcRenderer.invoke('resetComfyUIHost'),
   checkComfyUIConnection: () => ipcRenderer.invoke('checkComfyUIConnection'),
+  getGpuInfo: () => ipcRenderer.invoke('getGpuInfo'),
 
   getTheme: () => ipcRenderer.invoke('getTheme'),
   setTheme: (themeId: string) => ipcRenderer.invoke('setTheme', themeId),

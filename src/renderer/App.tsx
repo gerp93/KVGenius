@@ -16,11 +16,11 @@ import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
 import Styles from './pages/Styles';
 import Setup from './pages/Setup';
-import Models from './pages/Models';
 import LibrarySources from './pages/LibrarySources';
 import ToolsLayout from './pages/ToolsLayout';
 import ToolsUpscale from './pages/ToolsUpscale';
 import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../shared/types';
+import type { GpuInfo } from '../shared/gpuInfo';
 import { UPSCALE_FAMILY } from '../shared/upscale';
 import type { UpscaleRecall } from '../shared/upscale';
 import { announceGenerationChange, useGenerationChanges } from './utils/generationChanges';
@@ -55,6 +55,8 @@ export default function App() {
   // Bumped when a saved model is added, edited or deleted, so Generate's Model dropdown reloads.
   const [modelsVersion, setModelsVersion] = useState(0);
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
+  // The card ComfyUI runs on, shown in the sidebar footer; refreshed with the connection check (its free memory moves).
+  const [gpus, setGpus] = useState<GpuInfo[]>([]);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<string | null>(null);
   // One "Show hidden" switch for the whole app (the top bar button), so it need not be flipped on
@@ -95,6 +97,8 @@ export default function App() {
       const reachable = await window.kvgenius.checkComfyUIConnection();
       // A launch in progress keeps its own 'starting' state until ComfyUI answers or gives up.
       if (!cancelled) setConnection((prev) => (reachable ? 'connected' : prev === 'starting' ? 'starting' : 'unreachable'));
+      const found = reachable ? await window.kvgenius.getGpuInfo().catch(() => []) : [];
+      if (!cancelled) setGpus(found);
     }
     check();
     const interval = setInterval(check, CONNECTION_POLL_MS);
@@ -241,6 +245,7 @@ export default function App() {
     <div className="app-shell">
       <SideNav
         connection={connection}
+        gpus={gpus}
         launchError={launchError}
         onLaunchComfyUI={handleLaunchComfyUI}
         showHidden={showHidden}
@@ -333,8 +338,8 @@ export default function App() {
               <Route path="/timing" element={<Timing />} />
               <Route path="/hardpoint" element={<Hardpoint theme={theme} />} />
               <Route path="/setup" element={<Setup />} />
-              <Route path="/models" element={<Models onModelsChanged={() => setModelsVersion((v) => v + 1)} />} />
-              <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
+              <Route path="/models" element={<Navigate to="/settings?tab=models" replace />} />
+              <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} onModelsChanged={() => setModelsVersion((v) => v + 1)} />} />
             </Routes>
           </div>
           <QueuePanel

@@ -127,7 +127,7 @@ export default function Setup() {
           </Callout>
         </>
       ),
-      links: [{ label: zImage.source.label, href: zImage.source.url }, { label: 'Check all model files', to: '/models' }],
+      links: [{ label: zImage.source.label, href: zImage.source.url }, { label: 'Check all model files', to: '/settings?tab=models' }],
     },
     {
       kicker: 'Optional',
@@ -224,7 +224,7 @@ export default function Setup() {
       ),
       links: [
         { label: 'Open Settings > ComfyUI', to: '/settings?tab=comfyui' },
-        { label: 'Check all model files', to: '/models' },
+        { label: 'Check all model files', to: '/settings?tab=models' },
       ],
     },
     {

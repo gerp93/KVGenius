@@ -1,14 +1,25 @@
 import { useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
+import { GpuInfo, formatVram, gpuLabel } from '../../shared/gpuInfo';
 import './SideNav.css';
 
 type NavItem = { to: string; icon: string; label: string; end?: boolean };
 type NavSection = { id: string; label: string; icon: string; items: NavItem[] };
 
 // Sections hold the pages that belong together; each page has its own icon so the rail stays fully
-// usable when thin. Models and Styles are the "presets" a generation picks from; Utilities holds the
-// pages that look at the app rather than make something.
+// usable when thin. Create is everything that makes a picture or video (Styles shapes the wording Generate
+// sends); Utilities holds the pages that look at the app rather than make something. Models lives in Settings.
 const SECTIONS: NavSection[] = [
+  {
+    id: 'create',
+    label: 'Create',
+    icon: '🪄',
+    items: [
+      { to: '/', icon: '✨', label: 'Image / Video', end: true },
+      { to: '/tools/upscale', icon: '🔍', label: 'Upscale' },
+      { to: '/styles', icon: '🎨', label: 'Styles' },
+    ],
+  },
   {
     id: 'library',
     label: 'Library',
@@ -18,16 +29,6 @@ const SECTIONS: NavSection[] = [
       { to: '/library/prompts', icon: '📌', label: 'Prompts' },
       { to: '/library/sources', icon: '📥', label: 'Sources' },
       { to: '/library/trash', icon: '🗑️', label: 'Trash' },
-    ],
-  },
-  { id: 'tools', label: 'Tools', icon: '🛠️', items: [{ to: '/tools/upscale', icon: '🔍', label: 'Upscale' }] },
-  {
-    id: 'presets',
-    label: 'Presets',
-    icon: '🎛️',
-    items: [
-      { to: '/styles', icon: '🎨', label: 'Styles' },
-      { to: '/models', icon: '🧩', label: 'Models' },
     ],
   },
   {
@@ -74,6 +75,8 @@ type ConnectionStatus = 'checking' | 'connected' | 'unreachable' | 'starting';
 
 type Props = {
   connection: ConnectionStatus;
+  /** The device(s) ComfyUI runs on; empty while it is unreachable. */
+  gpus: GpuInfo[];
   launchError: string | null;
   onLaunchComfyUI: () => void;
   showHidden: boolean;
@@ -90,7 +93,7 @@ const CONNECTION_LABEL: Record<ConnectionStatus, string> = {
 /** The app's navigation: a left rail that is either full (labels, sections that fold) or thin (every page
  * its own icon, sections kept as small captions - nothing hides behind a hover). Which one, and which
  * sections are folded, is remembered. */
-export default function SideNav({ connection, launchError, onLaunchComfyUI, showHidden, onToggleShowHidden }: Props) {
+export default function SideNav({ connection, gpus, launchError, onLaunchComfyUI, showHidden, onToggleShowHidden }: Props) {
   const location = useLocation();
   const [thin, setThin] = useState(loadThin);
   const [folded, setFolded] = useState<string[]>(loadFolded);
@@ -125,14 +128,9 @@ export default function SideNav({ connection, launchError, onLaunchComfyUI, show
       </div>
 
       <div className="side-nav__scroll">
-        <NavLink to="/" end className={linkClass} title="Generate">
-          <span className="side-nav__icon">✨</span>
-          <span className="side-nav__label">Generate</span>
-        </NavLink>
-
         {SECTIONS.map((section) => {
           const isFolded = !thin && folded.includes(section.id);
-          const holdsCurrentPage = section.items.some((item) => location.pathname.startsWith(item.to));
+          const holdsCurrentPage = section.items.some((item) => (item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)));
           return (
             <div key={section.id} className="side-nav__section">
               <button
@@ -214,6 +212,15 @@ export default function SideNav({ connection, launchError, onLaunchComfyUI, show
             <span className="side-nav__dot" />
             <span className="side-nav__label">{CONNECTION_LABEL[connection]}</span>
           </Link>
+        )}
+        {gpus.length > 0 && (
+          <div
+            className="side-nav__gpu"
+            title={gpus.map((g) => `${g.name}${g.vramTotal > 0 ? ` - ${formatVram(g.vramFree)} free of ${formatVram(g.vramTotal)}` : ''}`).join('\n')}
+          >
+            <span className="side-nav__icon">🖥️</span>
+            <span className="side-nav__label">{gpuLabel(gpus[0])}</span>
+          </div>
         )}
       </div>
     </nav>
