@@ -123,6 +123,8 @@ const api: KVGeniusAPI = {
     return () => ipcRenderer.removeListener('modelImportProgress', listener);
   },
   readImageSettings: () => ipcRenderer.invoke('readImageSettings'),
+  planModelDownloads: (featureIds: string[]) => ipcRenderer.invoke('planModelDownloads', featureIds),
+  startModelDownloads: (featureIds: string[]) => ipcRenderer.invoke('startModelDownloads', featureIds),
   testModelProfile: (input: ModelProfileInput) => ipcRenderer.invoke('testModelProfile', input),
 
   getComfyUIHost: () => ipcRenderer.invoke('getComfyUIHost'),

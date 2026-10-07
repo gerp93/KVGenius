@@ -1,4 +1,5 @@
 import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
+import type { DownloadPlanInfo, DownloadStartResult } from './modelDownloads';
 import type { ImageSettingsResult, ModelFileCheck, ModelImportOutcome, ModelImportProgress, ModelTestResult, PickedModelFile } from './modelCheck';
 import type { ModelProfile, ModelProfileInput, ModelSettings } from './modelProfiles';
 import type { ModelStatusReport } from './modelStatus';
@@ -431,6 +432,10 @@ export interface KVGeniusAPI {
   onModelImportProgress: (callback: (progress: ModelImportProgress) => void) => () => void;
   /** A file dialog for a picture, and the generation settings found in it. Null if cancelled. */
   readImageSettings: () => Promise<ImageSettingsResult | null>;
+  /** What "Download missing files" would fetch for these manifest features (ids), for the user to confirm. */
+  planModelDownloads: (featureIds: string[]) => Promise<DownloadPlanInfo>;
+  /** Opens a terminal window running the download script for what is missing. Resolves, never rejects. */
+  startModelDownloads: (featureIds: string[]) => Promise<DownloadStartResult>;
   /** One small render with the model as set up, to see that its files load and run. Resolves, never rejects. */
   testModelProfile: (input: ModelProfileInput) => Promise<ModelTestResult>;
 
