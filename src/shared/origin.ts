@@ -1,5 +1,5 @@
 import { GIF_FAMILY } from './gif';
-import { isUpscaleFamily } from './upscale';
+import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from './upscale';
 
 /** How a Library item came to be - shown as a small tag on its card so it can be told at a glance. */
 export type OriginKind = 'text-to-image' | 'image-to-video' | 'upscale' | 'gif';
@@ -28,4 +28,33 @@ export function generationOrigin(modelFamily: string): GenerationOrigin | null {
   else if (modelFamily === 'z-image-turbo') kind = 'text-to-image';
   else if (modelFamily === 'wan22-i2v') kind = 'image-to-video';
   return kind ? { kind, ...ORIGINS[kind] } : null;
+}
+
+/** Every origin, in the order the Library's filter lists them. */
+export const ORIGIN_KINDS: OriginKind[] = ['text-to-image', 'image-to-video', 'upscale', 'gif'];
+
+/** The model families that make an item of this origin - what a "show only these" filter selects. */
+export const FAMILIES_BY_ORIGIN: Record<OriginKind, string[]> = {
+  'text-to-image': ['z-image-turbo'],
+  'image-to-video': ['wan22-i2v'],
+  upscale: [UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY],
+  gif: [GIF_FAMILY],
+};
+
+/** The label of an origin, for the filter's buttons. */
+export function originLabel(kind: OriginKind): string {
+  return ORIGINS[kind].label;
+}
+
+/** Keeps only real origins (a list from outside, such as the renderer, may hold anything), without repeats. */
+export function cleanOrigins(value: unknown): OriginKind[] {
+  if (!Array.isArray(value)) return [];
+  return ORIGIN_KINDS.filter((kind) => value.includes(kind));
+}
+
+/** Whether an item made by this family passes an origin filter (no origins selected: everything does). */
+export function passesOriginFilter(modelFamily: string, origins: readonly OriginKind[]): boolean {
+  if (origins.length === 0) return true;
+  const origin = generationOrigin(modelFamily);
+  return origin !== null && origins.includes(origin.kind);
 }

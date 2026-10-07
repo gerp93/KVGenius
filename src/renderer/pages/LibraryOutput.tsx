@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ORIGIN_KINDS, OriginKind, originLabel, passesOriginFilter } from '../../shared/origin';
 import { isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, GenerationRef, LibraryListOptions, VideoSourceRequest } from '../../shared/types';
 import CompareOverlay from '../components/CompareOverlay';
@@ -65,6 +66,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const [counts, setCounts] = useState<Record<GenerationKind, number>>({ image: 0, video: 0 });
   // Image tab only: show just one file type (e.g. 'gif'); null = all. `extensions` are the types present.
   const [extension, setExtension] = useState<string | null>(null);
+  // Show only items made these ways (text to image, upscale, ...); none chosen = every kind.
+  const [origins, setOrigins] = useState<OriginKind[]>([]);
   const [extensions, setExtensions] = useState<string[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -100,7 +103,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
 
   // Showing stacks right now (grouping is on and none is open): items are stack covers, and the counts are stacks.
   const stacking = grouped && openPrompt === null;
-  const listOptions = useMemo<LibraryListOptions>(() => ({ grouped: stacking, prompt: openPrompt }), [stacking, openPrompt]);
+  const listOptions = useMemo<LibraryListOptions>(
+    () => ({ grouped: stacking, prompt: openPrompt, origins }),
+    [stacking, openPrompt, origins]
+  );
 
   const loadPage = useCallback(
     async (kind: GenerationKind, beforeId: number | null, favorites: boolean, hidden: boolean, ext: string | null, token: number, options: LibraryListOptions) => {
@@ -151,7 +157,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     }
     let cancelled = false;
     window.kvgenius
-      .countGenerations(favoritesOnly, showHidden, extension, {})
+      .countGenerations(favoritesOnly, showHidden, extension, { origins })
       .then((c) => {
         if (!cancelled) setItemCounts(c);
       })
@@ -159,7 +165,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     return () => {
       cancelled = true;
     };
-  }, [stacking, selecting, favoritesOnly, showHidden, extension, reloadKey]);
+  }, [stacking, selecting, favoritesOnly, showHidden, extension, origins, reloadKey]);
 
   // The file types offered in the filter. A type whose last image was deleted drops out of the list,
   // and the filter goes back to "all" if it was set to that type.
@@ -179,7 +185,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
 
   /** Whether a new image belongs in the list as filtered: its type has to be the chosen one. */
   const matchesExtension = (record: GenerationRecord) =>
-    !extension || record.imagePath.toLowerCase().endsWith(`.${extension}`);
+    (!extension || record.imagePath.toLowerCase().endsWith(`.${extension}`)) && passesOriginFilter(record.modelFamily, origins);
 
   const loadMore = useCallback(() => {
     // The very first page belongs to the tab-change effect above.
@@ -251,7 +257,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
           favoritesOnly,
           showHidden,
           tab === 'image' ? extension : null,
-          { prompt }
+          { prompt, origins }
         );
         items.push(...page);
         if (page.length < 200) break;
@@ -274,7 +280,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
    * just the ones cycling on its card); anything else is just itself. */
   async function refsFor(record: GenerationRecord): Promise<GenerationRef[]> {
     if (!isStack(record)) return [refOf(record)];
-    return window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, { prompt: record.prompt });
+    return window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, { prompt: record.prompt, origins });
   }
 
   /** Selects what a card stands for, or - when all of it is already selected - deselects it. */
@@ -336,6 +342,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       // Every item (while stacks are shown, that is every item in every stack); inside an opened stack, just that prompt's.
       const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, {
         prompt: openPrompt,
+        origins,
       });
       setSelection(new Map(refs.map((ref) => [ref.id, ref])));
     } catch (err) {
@@ -495,7 +502,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       const made = job.record;
       if (made.hidden && !showHidden) continue;
       if (favoritesOnly) setNotice('An upscale finished - it is not a favorite, so turn off the Favorites filter to see it.');
-      const fits = job.kind !== 'image' || matchesExtension(made);
+      // A video has no file-type filter, but the origin filter applies to it too.
+      const fits = job.kind !== 'image' ? passesOriginFilter(made.modelFamily, origins) : matchesExtension(made);
       if (stacking) {
         // It has its source's prompt, so it joins a stack: load the stacks again to show that.
         if (fits) setReloadKey((k) => k + 1);
@@ -509,7 +517,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       if (fits) setCounts((prev) => ({ ...prev, [job.kind]: prev[job.kind] + 1 }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue.jobs, tab, favoritesOnly, showHidden, extension, stacking, openPrompt]);
+  }, [queue.jobs, tab, favoritesOnly, showHidden, extension, origins, stacking, openPrompt]);
 
   /** A GIF was made from a video: it is a new image, so fold it into the list as it is filtered. */
   function handleGifMade(made: GenerationRecord) {
@@ -754,6 +762,28 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             </>
           ) : (
             <>
+              <div className="origin-filter" role="group" aria-label="Show only items made this way">
+                {ORIGIN_KINDS.map((kind) => {
+                  const on = origins.includes(kind);
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      className={`origin-filter__chip origin-filter__chip--${kind}${on ? ' origin-filter__chip--on' : ''}`}
+                      aria-pressed={on}
+                      onClick={() => setOrigins((prev) => (on ? prev.filter((k) => k !== kind) : [...prev, kind]))}
+                      title={on ? 'Click to stop filtering by this' : 'Show only items made this way (pick several to see any of them)'}
+                    >
+                      {originLabel(kind)}
+                    </button>
+                  );
+                })}
+                {origins.length > 0 && (
+                  <button type="button" className="origin-filter__clear" onClick={() => setOrigins([])} title="Show every kind again">
+                    ✕
+                  </button>
+                )}
+              </div>
               <button
                 type="button"
                 className={favoritesOnly ? 'primary' : undefined}

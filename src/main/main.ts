@@ -77,6 +77,7 @@ import { ApiService } from './apiService';
 import { LocalApi, removeDiscoveryFile, startLocalApi, writeDiscoveryFile } from './localApi';
 import { FfmpegPaths, findFfmpeg, planGif, probeMedia, runFfmpeg } from './mediaTools';
 import { GIF_FAMILY } from '../shared/gif';
+import { cleanOrigins } from '../shared/origin';
 import { detectComfyUIProgram, launchComfyUIProgram } from './comfyLauncher';
 import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, LibraryListOptions, McpInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
@@ -218,7 +219,11 @@ const recycleFile: Recycle = (file) => shell.trashItem(path.resolve(file));
 
 /** Library list options from the renderer, with anything unexpected dropped. */
 function cleanListOptions(options: LibraryListOptions | undefined): LibraryListOptions {
-  return { grouped: options?.grouped === true, prompt: typeof options?.prompt === 'string' ? options.prompt : null };
+  return {
+    grouped: options?.grouped === true,
+    prompt: typeof options?.prompt === 'string' ? options.prompt : null,
+    origins: cleanOrigins(options?.origins),
+  };
 }
 
 /** Ids from the renderer, keeping only whole numbers. */
