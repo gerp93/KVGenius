@@ -238,3 +238,29 @@
   font-size: 12px;
   white-space: pre;
 }
+
+/* The unified Models list: kinds as small captions, each entry with a readiness word on its right. */
+.models-list__group {
+  margin: 12px 4px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent-blue);
+}
+
+/* Beats the list item's own one-line clamp so the status can sit at the right. */
+.styles-page__item-text.models-list__sub {
+  display: flex;
+  -webkit-line-clamp: unset;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.models-list__ok {
+  color: var(--color-accent-green);
+}
+
+.models-list__bad {
+  color: var(--color-accent-red);
+}

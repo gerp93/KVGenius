@@ -1,12 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MODEL_MANIFEST } from '../../shared/modelManifest';
 import { ModelsDirInfo } from '../../shared/types';
-import ModelFilesTable, { ChosenModelsTable, summaryText } from '../components/ModelFilesTable';
-import ModelDownload from '../components/ModelDownload';
 import ModelProfiles from '../components/ModelProfiles';
 import { useModelStatus } from '../hooks/useModelStatus';
-import SettingsSection from './settings/SettingsSection';
 import '../components/Models.css';
 
 const SOURCE_TEXT = {
@@ -44,28 +40,7 @@ export default function Models({ onModelsChanged }: Props) {
           </p>
         )}
 
-        <ModelProfiles report={report} onChanged={onModelsChanged} canImport={modelsDir !== null} onFilesChanged={refresh} />
-
-        {MODEL_MANIFEST.map((feature) => {
-          const summary = summaryText(feature, report);
-          const upscaleModels = feature.id === 'upscale' && report && report.source !== 'none' ? report.installed.upscale_models : null;
-          return (
-            <SettingsSection key={feature.id} title={feature.title} description={feature.summary}>
-              {summary && <div className="models-feature__summary">{summary}</div>}
-              <ModelFilesTable feature={feature} report={report} modelsDir={modelsDir} />
-              <ModelDownload feature={feature} report={report} modelsDir={modelsDir} />
-              {upscaleModels && (
-                <ChosenModelsTable
-                  folder="upscale_models"
-                  role="Upscale model"
-                  names={upscaleModels}
-                  emptyText="No upscale models installed yet. Put one in upscale_models."
-                />
-              )}
-              {feature.note && <p className="settings-hint">{feature.note}</p>}
-            </SettingsSection>
-          );
-        })}
+        <ModelProfiles report={report} onChanged={onModelsChanged} canImport={modelsDir !== null} onFilesChanged={refresh} modelsDir={modelsDir} />
     </div>
   );
 }

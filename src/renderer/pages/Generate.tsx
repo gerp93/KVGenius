@@ -770,11 +770,11 @@ export default function Generate({
             </ImageDropZone>
           )}
 
-          <div className="field-label-row">
+          <div className="field-label-row field-label-row--inline">
             <label className="field-label" htmlFor="prompt">
               Prompt
             </label>
-            <CopyButton text={prompt} title="Copy the prompt" />
+            <CopyButton compact className="copy-button--icon" text={prompt} title="Copy the prompt" />
           </div>
           <textarea
             id="prompt"
