@@ -6,21 +6,25 @@ import { DEFAULT_DENOISE } from './imageToImage';
 test('a new tab has no start picture and the default strength', () => {
   const data = defaultSlotData('image');
   assert.equal(data.imageSourcePath, null);
+  assert.equal(data.imageFromPicture, false);
   assert.equal(data.denoise, DEFAULT_DENOISE);
 });
 
 test('tabs saved with a start picture and strength are kept', () => {
   const slot = newPromptSlot('image');
   slot.data.imageSourcePath = '/pics/fox.png';
+  slot.data.imageFromPicture = true;
   slot.data.denoise = 0.35;
   const [kept] = sanitizeSlots([slot]);
   assert.equal(kept.data.imageSourcePath, '/pics/fox.png');
+  assert.equal(kept.data.imageFromPicture, true);
   assert.equal(kept.data.denoise, 0.35);
 });
 
 test('tabs saved before image to image existed still load, and bad values are refused rather than trusted', () => {
   const old = newPromptSlot('image') as unknown as { id: string; name: null; data: Record<string, unknown> };
   delete old.data.imageSourcePath;
+  delete old.data.imageFromPicture;
   delete old.data.denoise;
   assert.equal(sanitizeSlots([old]).length, 1);
   assert.equal(sanitizeSlots([old])[0].id, old.id);

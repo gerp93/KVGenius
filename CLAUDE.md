@@ -205,9 +205,10 @@ implementation here is exactly the kind of drift it exists to prevent.
 - **Image to image is Generate's image mode with a start picture, and its own family** (`z-image-i2i`,
   `shared/imageToImage.ts`, `templates/z-image-i2i.json`, `main/imageToImagePatch.ts`). It is the text-to-image graph
   with the empty latent replaced by load picture -> scale to the output size (centre-cropped) -> VAE encode, and the
-  sampler's `denoise` ("How much to change it", 0.05-1, default 0.6) says how much is re-drawn. Choosing or dropping a
-  picture switches the family (`imageFamilyFor`) and sizes the output to its shape; the picture is held in the tab's
-  `imageSourcePath`, apart from a video's `sourceImagePath`. It follows the supplied-picture pattern above - it is in
+  sampler's `denoise` ("How much to change it", 0.05-1, default 0.6) says how much is re-drawn. Image mode has a Text → Image / Image → Image radio (the tab's `imageFromPicture`; the start
+  block shows only for Image → Image, which cannot run until a picture is set). The picture comes from a file, a drop, or
+  the Library (`LibraryPicker.tsx`, also offered for a video's source image); choosing one sizes the output to its shape
+  and `imageFamilyFor` picks the family. It is held in the tab's `imageSourcePath`, apart from a video's `sourceImagePath`. It follows the supplied-picture pattern above - it is in
   `SOURCE_IMAGE_FAMILIES`, so the result keeps a copy, shows "Original", appears in Library > Sources and cannot be
   re-racked once the copy is gone - and has its own origin tag (Image -> Image). The loader/prompt/sampler/shift node ids
   are the same as text to image's, so **model profiles apply unchanged** (`profileFamilyKey`; `modelPatch.test.ts`

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CopyButton from '../components/CopyButton';
 import ImageDropZone from '../components/ImageDropZone';
+import LibraryPicker from '../components/LibraryPicker';
 import ResultViewer from '../components/ResultViewer';
 import ExpandButton from '../components/Lightbox';
 import GalleryLightbox from '../components/GalleryLightbox';
@@ -147,6 +148,8 @@ export default function Generate({
     setProfileId,
     imageSourcePath,
     setImageSourcePath,
+    imageFromPicture,
+    setImageFromPicture,
     denoise,
     setDenoise,
     lastRunSignature,
@@ -235,7 +238,9 @@ export default function Generate({
     };
   }, [modelsVersion]);
   // Image mode with a start picture is image to image: its own workflow, the same model (so profiles still apply).
-  const startPicture = mode === 'image' ? imageSourcePath : null;
+  const startPicture = mode === 'image' && imageFromPicture ? imageSourcePath : null;
+  // Image -> Image chosen but no picture yet: nothing to run until one is picked.
+  const needsStartPicture = mode === 'image' && imageFromPicture && !imageSourcePath;
   const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null) : FAMILY_FOR_MODE.video;
   const modelFamily = profileFamily(FAMILY_FOR_MODE[mode]);
   const familyModels = models.filter((m) => m.family === FAMILY_FOR_MODE[mode]);
@@ -279,7 +284,7 @@ export default function Generate({
   // Bumped when something leaves the Library, which can turn a match into no match.
   const [libraryChanges, setLibraryChanges] = useState(0);
   useEffect(() => {
-    if (!seedLocked || !prompt.trim() || (mode === 'video' && !sourceImagePath)) {
+    if (!seedLocked || !prompt.trim() || (mode === 'video' && !sourceImagePath) || needsStartPicture) {
       setDuplicate(null);
       return;
     }
@@ -308,7 +313,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, startPicture, denoise, finishedRuns, libraryChanges, modelSettings && serializeModelSettings(modelSettings)]);
+  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, startPicture, denoise, finishedRuns, libraryChanges, needsStartPicture, modelSettings && serializeModelSettings(modelSettings)]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -341,6 +346,7 @@ export default function Generate({
   function setUpImageToImage(request: VideoSourceRequest) {
     setMode('image');
     setImageSourcePath(request.imagePath);
+    setImageFromPicture(true);
     setSizeToPicture(request.width, request.height);
     setError(null);
   }
@@ -360,6 +366,7 @@ export default function Generate({
     setImageSourcePath(path);
     setError(null);
     if (!path) return;
+    setImageFromPicture(true);
     try {
       const size = await window.kvgenius.getImageSize(path);
       if (size) setSizeToPicture(size.width, size.height);
@@ -378,6 +385,16 @@ export default function Generate({
   async function handleChooseSourceImage() {
     const path = await window.kvgenius.chooseSourceImage();
     if (path) setSourceImagePath(path);
+  }
+
+  // The Library picture chooser, open for a start picture (image) or a video's source image.
+  const [picker, setPicker] = useState<'start' | 'video' | null>(null);
+
+  function handlePickFromLibrary(record: GenerationRecord) {
+    const target = picker;
+    setPicker(null);
+    if (target === 'video') setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
+    else if (target === 'start') setUpImageToImage({ imagePath: record.imagePath, width: record.width, height: record.height });
   }
 
   async function handleChooseStartPicture() {
@@ -420,6 +437,7 @@ export default function Generate({
       // An image to image result is re-run from the copy of its start picture the Library kept, at its strength.
       const fromPicture = record.modelFamily === I2I_FAMILY;
       setImageSourcePath(fromPicture ? record.sourceImagePath : null);
+      setImageFromPicture(fromPicture);
       if (fromPicture) setDenoise(clampDenoise(record.denoise));
       showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath), slotId);
     },
@@ -521,6 +539,10 @@ export default function Generate({
     }
     if (mode === 'video' && !sourceImagePath) {
       setError('Choose a source image first.');
+      return;
+    }
+    if (needsStartPicture) {
+      setError('Choose a start picture first, or switch to Text → Image.');
       return;
     }
     if (blocked) return;
@@ -709,6 +731,14 @@ export default function Generate({
             </button>
           </div>
 
+          {picker && (
+            <LibraryPicker
+              title={picker === 'video' ? 'Choose the video\'s source image' : 'Choose the start picture'}
+              onPick={handlePickFromLibrary}
+              onClose={() => setPicker(null)}
+            />
+          )}
+
           {mode === 'video' && (
             <ImageDropZone
               style={{ marginBottom: 12 }}
@@ -729,6 +759,9 @@ export default function Generate({
                   {sourceImagePath ? sourceImagePath.split(/[\\/]/).pop() : 'Choose Source Image... (or drop one here)'}
                 </span>
               </button>
+              <button type="button" className="source-image-button" style={{ marginTop: 6 }} onClick={() => setPicker('video')}>
+                Choose from the Library...
+              </button>
               {sourceImagePath && (
                 <div className="source-image-preview-wrap">
                   <ExpandButton src={window.kvgenius.imageUrlFor(sourceImagePath)} kind="image" filePath={sourceImagePath} alt="Source image" />
@@ -743,26 +776,44 @@ export default function Generate({
           )}
 
           {mode === 'image' && (
+            <div role="radiogroup" aria-label="Image type" className="radio-row" style={{ marginBottom: 12 }}>
+              <label>
+                <input type="radio" name="image-type" checked={!imageFromPicture} onChange={() => setImageFromPicture(false)} /> Text → Image
+              </label>
+              <label>
+                <input type="radio" name="image-type" checked={imageFromPicture} onChange={() => setImageFromPicture(true)} /> Image → Image
+              </label>
+            </div>
+          )}
+
+          {mode === 'image' && imageFromPicture && (
             <ImageDropZone
               style={{ marginBottom: 12 }}
               onPaths={(paths) => void useStartPicture(paths[0] ?? null)}
               onReject={setError}
             >
-              <label className="field-label">Start from a picture (optional)</label>
-              {startPicture ? (
+              <label className="field-label">Start picture</label>
+              {imageSourcePath && (
+                <div className="source-image-preview-wrap">
+                  <ExpandButton src={window.kvgenius.imageUrlFor(imageSourcePath)} kind="image" filePath={imageSourcePath} alt="Start picture" />
+                  <img className="source-image-preview" src={window.kvgenius.imageUrlFor(imageSourcePath)} alt="Start picture" />
+                </div>
+              )}
+              <div className="button-row" style={{ marginTop: 6 }}>
+                <button type="button" onClick={() => void handleChooseStartPicture()} title="Pick a picture file from this computer (or drop one here)">
+                  {imageSourcePath ? 'Change file...' : 'Choose a file...'}
+                </button>
+                <button type="button" onClick={() => setPicker('start')} title="Pick one of the pictures in your Library">
+                  From the Library...
+                </button>
+                {imageSourcePath && (
+                  <button type="button" onClick={() => void useStartPicture(null)}>
+                    Remove
+                  </button>
+                )}
+              </div>
+              {imageSourcePath && (
                 <>
-                  <div className="source-image-preview-wrap">
-                    <ExpandButton src={window.kvgenius.imageUrlFor(startPicture)} kind="image" filePath={startPicture} alt="Start picture" />
-                    <img className="source-image-preview" src={window.kvgenius.imageUrlFor(startPicture)} alt="Start picture" />
-                  </div>
-                  <div className="button-row" style={{ marginTop: 6 }}>
-                    <button type="button" onClick={() => void handleChooseStartPicture()}>
-                      Change...
-                    </button>
-                    <button type="button" onClick={() => void useStartPicture(null)}>
-                      Remove
-                    </button>
-                  </div>
                   <label className="field-label" htmlFor="denoise" style={{ marginTop: 10 }}>
                     How much to change it: {denoise.toFixed(2)}
                   </label>
@@ -781,10 +832,6 @@ export default function Generate({
                     from the centre.
                   </p>
                 </>
-              ) : (
-                <button type="button" className="source-image-button" onClick={() => void handleChooseStartPicture()} title="Image to image: the new picture is drawn from this one and your prompt">
-                  <span className="source-image-button__name">Choose a picture... (or drop one here)</span>
-                </button>
               )}
             </ImageDropZone>
           )}
@@ -1042,7 +1089,7 @@ export default function Generate({
               type="button"
               className="primary generate-actions__go"
               onClick={handleGenerate}
-              disabled={(mode === 'video' && !sourceImagePath) || blocked}
+              disabled={(mode === 'video' && !sourceImagePath) || needsStartPicture || blocked}
               title={
                 duplicate
                   ? 'This exact result is already in your Library'
