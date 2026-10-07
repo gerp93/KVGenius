@@ -1280,6 +1280,8 @@ span.cycle-fade {
    them side by side, so they stack instead of spilling out over the picture's edge. */
 .library-card__actions--labeled {
   flex-wrap: wrap;
+  /* Room above them too (the base row only pads the sides and bottom), so they never touch the picture. */
+  padding-top: 8px;
 }
 
 .library-card__actions--labeled button {
