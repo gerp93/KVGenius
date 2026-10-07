@@ -20,6 +20,10 @@ export interface PromptSlotData {
   advancedOpen: boolean;
   customSize: boolean;
   batchSize: number;
+  /** Image mode only: the id of the style (Styles tab) added to the prompt when generating, or null for
+   * none. Absent in configs saved before styles existed - read as null. A style that has since been
+   * deleted is treated as none by the Generate page. */
+  styleId?: number | null;
   /** The "would repeat the last run" guard - kept per slot so switching away and back doesn't
    * forget it, and it doesn't wrongly carry over between unrelated tabs. */
   lastRunSignature: string | null;
@@ -53,6 +57,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     advancedOpen: false,
     customSize: false,
     batchSize: 1,
+    styleId: null,
     lastRunSignature: null,
   };
 }
@@ -95,6 +100,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     typeof d.advancedOpen === 'boolean' &&
     typeof d.customSize === 'boolean' &&
     typeof d.batchSize === 'number' &&
+    (d.styleId === undefined || d.styleId === null || typeof d.styleId === 'number') &&
     (d.lastRunSignature === undefined || d.lastRunSignature === null || typeof d.lastRunSignature === 'string')
   );
 }

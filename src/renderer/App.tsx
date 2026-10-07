@@ -13,6 +13,7 @@ import LibraryTrash from './pages/LibraryTrash';
 import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
+import Styles from './pages/Styles';
 import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../shared/types';
 import { announceGenerationChange, useGenerationChanges } from './utils/generationChanges';
 import { pinNotice } from './utils/library';
@@ -39,6 +40,8 @@ export default function App() {
   const [recallRecord, setRecallRecord] = useState<GenerationRecord | null>(null);
   const [videoSource, setVideoSource] = useState<VideoSourceRequest | null>(null);
   const [recallPrompt, setRecallPrompt] = useState<string | null>(null);
+  // Bumped when a style is added, edited or deleted, so Generate's Style dropdown reloads.
+  const [stylesVersion, setStylesVersion] = useState(0);
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<string | null>(null);
@@ -224,6 +227,9 @@ export default function App() {
         <NavLink to="/" end className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Generate
         </NavLink>
+        <NavLink to="/styles" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
+          Styles
+        </NavLink>
         <span className="top-bar__separator" />
         <span className="top-bar__group-label">Library</span>
         <NavLink to="/library/output" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
@@ -301,6 +307,7 @@ export default function App() {
                 onPromptRecalled={() => setRecallPrompt(null)}
                 videoSource={videoSource}
                 onVideoSourceHandled={() => setVideoSource(null)}
+                stylesVersion={stylesVersion}
               />
             </div>
             <Routes>
@@ -333,6 +340,7 @@ export default function App() {
                 />
                 <Route path="trash" element={<LibraryTrash />} />
               </Route>
+              <Route path="/styles" element={<Styles onChanged={() => setStylesVersion((v) => v + 1)} />} />
               <Route path="/timing" element={<Timing />} />
               <Route path="/hardpoint" element={<Hardpoint />} />
               <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />

@@ -5,7 +5,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { DatabaseSync } from 'node:sqlite';
-import { initDatabase, insertGeneration } from './db';
+import { initDatabase, insertGeneration, getGenerationById } from './db';
+import { saveStyle } from './styles';
 import { JobQueue, JobRunner } from './jobQueue';
 import { AssemblyManager } from './assembly';
 import { ApiError, ApiService } from './apiService';
@@ -105,6 +106,36 @@ test('generate_image snaps sizes, applies defaults, and queues a job', async () 
   assert.equal(done.item.kind, 'image');
   assert.equal(done.item.batch, 'b1');
   assert.match(done.item.id, /^gen-\d+$/);
+});
+
+test('generate_image without a style sends the prompt untouched, with one it appends the style', async () => {
+  const plain = await call('generate_image', { prompt: 'a red fox' });
+  assert.equal(plain.prompt, 'a red fox');
+  assert.equal(plain.style, null);
+  released.shift()?.();
+  await call('get_job', { job_id: plain.job_id, wait_seconds: 5 });
+
+  saveStyle(db, { name: '1930s movie poster', text: 'bold lithograph, limited palette' });
+  const styled = await call('generate_image', { prompt: 'a red fox', style: '1930S MOVIE POSTER' });
+  assert.equal(styled.prompt, 'a red fox, bold lithograph, limited palette');
+  assert.equal(styled.style, '1930s movie poster');
+  released.shift()?.();
+  const done = await call('get_job', { job_id: styled.job_id, wait_seconds: 5 });
+  const record = getGenerationById(db, Number(done.item.id.replace('gen-', '')));
+  assert.equal(record?.prompt, 'a red fox, bold lithograph, limited palette');
+  assert.equal(record?.styleName, '1930s movie poster');
+});
+
+test('generate_image names the saved styles when the one asked for does not exist', async () => {
+  await assert.rejects(
+    service.callTool('generate_image', { prompt: 'x', style: 'nope' }),
+    (e: unknown) => e instanceof ApiError && e.code === 'not_found' && /"1930s movie poster"/.test(e.message)
+  );
+});
+
+test('list_styles returns the saved styles', async () => {
+  const result = await call('list_styles');
+  assert.deepEqual(result.styles, [{ name: '1930s movie poster', text: 'bold lithograph, limited palette' }]);
 });
 
 test('generate_image rejects bad input', async () => {

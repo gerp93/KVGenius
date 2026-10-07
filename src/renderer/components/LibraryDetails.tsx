@@ -346,6 +346,12 @@ export default function LibraryDetails({
         <dd>{kindOf(record) === 'video' ? 'Video' : 'Image'}</dd>
         <dt>Model</dt>
         <dd>{isUpscale(record) ? `Upscale (${record.modelFamily}) - enlarged from another picture` : record.modelFamily}</dd>
+        {record.styleName && (
+          <>
+            <dt>Style</dt>
+            <dd title="The style's words are already part of the prompt above">{record.styleName}</dd>
+          </>
+        )}
         <dt>Dimensions</dt>
         <dd>
           {record.width} × {record.height}

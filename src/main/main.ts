@@ -44,6 +44,8 @@ import {
 import { compileHiddenMatcher } from '../shared/hiddenWords';
 import { normalizeDays, updateCleanupSettings } from '../shared/cleanup';
 import { PromptSlot } from '../shared/promptSlots';
+import { PromptStyleInput } from '../shared/styles';
+import { deleteStyle, listStyles, saveStyle } from './styles';
 import {
   initDatabase,
   insertGeneration,
@@ -489,7 +491,15 @@ function registerIpcHandlers(): void {
     const hidden = compileHiddenMatcher(getHiddenWords())(source.prompt);
     const record = insertGeneration(
       db,
-      { prompt: source.prompt, width: gifWidth, height: gifHeight, seed: source.seed, steps: source.steps, cfg: source.cfg },
+      {
+        prompt: source.prompt,
+        width: gifWidth,
+        height: gifHeight,
+        seed: source.seed,
+        steps: source.steps,
+        cfg: source.cfg,
+        styleName: source.styleName ?? undefined,
+      },
       GIF_FAMILY,
       finalPath,
       null,
@@ -670,6 +680,19 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('savePromptSlots', (_event, slots: PromptSlot[], activeId: string) => {
     savePromptSlots(slots, activeId);
+  });
+
+  ipcMain.handle('listStyles', () => {
+    if (!db) throw new Error('Database not initialized');
+    return listStyles(db);
+  });
+  ipcMain.handle('saveStyle', (_event, input: PromptStyleInput, id: number | null) => {
+    if (!db) throw new Error('Database not initialized');
+    return saveStyle(db, input, typeof id === 'number' ? id : null);
+  });
+  ipcMain.handle('deleteStyle', (_event, id: number) => {
+    if (!db) throw new Error('Database not initialized');
+    deleteStyle(db, id);
   });
 
   ipcMain.handle('getComfyUIHost', () => ({

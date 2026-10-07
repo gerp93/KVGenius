@@ -86,6 +86,18 @@ implementation here is exactly the kind of drift it exists to prevent.
   automatic steps - move to Trash, empty Trash - are separate options, **both off by
   default** (Settings > Library Cleanup); turning one on starts its clock, so its first run
   is a day later.
+- **Styles are optional, one per generation, image mode only, and just text** (`shared/styles.ts`,
+  `main/styles.ts`, `pages/Styles.tsx`). A style is a named snippet of wording ("1930s movie poster,
+  bold lithograph...") stored in the `styles` table (names unique ignoring case). Generate's Style
+  dropdown (per prompt tab, `PromptSlotData.styleId`, default none) shows the style read-only under the
+  prompt and `combinePrompt` appends it at submit time - the UI's `generate` and the MCP/API
+  `generate_image` `style` argument (by name; `list_styles` lists them) both do this *before* the job is
+  queued. So the job, the Library record, Re-rack, pins, hidden words and group-by-prompt all see the one
+  full prompt that was sent, and with no style `combinePrompt` returns the prompt untouched - nothing
+  changes from before styles existed. `generations.style_name` is only a label for the details panel; the
+  text is never re-derived from it. Re-rack / a prompt from Library > Prompts load that full prompt with no
+  style picked (else the style would be added twice). Editing or deleting a style never touches past
+  generations.
 - **Group by prompt is an opt-in filter, not the default view** (`listPromptStacks` in
   `db.ts`). Only *exactly* equal prompts stack. The cover is pinned > favorite > newest;
   stacks are ordered and cursor-paged by their newest item (`groupNewestId`), and the

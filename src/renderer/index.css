@@ -2194,3 +2194,90 @@ textarea:disabled {
 .timing-negative {
   color: var(--color-accent-red);
 }
+
+/* Styles tab: a list of styles at the left, the selected one's editor at the right. */
+.styles-page__intro {
+  max-width: 720px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin-top: 0;
+}
+
+.styles-page__body {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.styles-page__list {
+  flex: none;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.styles-page__list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.styles-page__item {
+  width: 100%;
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-color: transparent;
+  background: transparent;
+}
+
+.styles-page__item--active {
+  border-color: var(--color-primary-action);
+  background: var(--color-bg-hover);
+}
+
+.styles-page__editor {
+  flex: 1;
+  min-width: 0;
+  max-width: 720px;
+}
+
+.styles-page__empty,
+.styles-page__hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.styles-page__hint code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.styles-page__error {
+  color: var(--color-accent-red);
+  font-size: 13px;
+}
+
+.styles-page__notice {
+  color: var(--color-accent-green);
+  font-size: 13px;
+}
+
+/* Generate's Style dropdown, and the read-only line showing what the style adds to the prompt. */
+.style-picker__preview {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  max-height: 5.6em;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}

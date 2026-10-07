@@ -1,5 +1,6 @@
 import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
 import type { PromptSlot } from './promptSlots';
+import type { PromptStyle, PromptStyleInput } from './styles';
 
 export interface GenerationParams {
   prompt: string;
@@ -17,6 +18,10 @@ export interface GenerationParams {
   sourceVideoPath?: string;
   /** Upscale family only: file name of the ComfyUI upscale model to use (see listUpscaleModels). */
   upscaleModel?: string;
+  /** Image families only: the name of the style whose words were already appended to `prompt`
+   * (see shared/styles.ts). `prompt` is always the full text sent to the model; this is only a label
+   * for the Library to show. */
+  styleName?: string;
 }
 
 export interface GenerationRecord {
@@ -41,6 +46,8 @@ export interface GenerationRecord {
   sourceImagePath: string | null;
   /** When it was moved to the Trash (ISO), or null for everything in the Library. */
   trashedAt: string | null;
+  /** The style that was combined into `prompt` when this was made (display only), or null for none. */
+  styleName: string | null;
   createdAt: string;
   /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
    * null for generations made before timing was tracked. */
@@ -344,6 +351,13 @@ export interface KVGeniusAPI {
   /** The Generate page's prompt "tabs" (whole form per tab), persisted across restarts. */
   getPromptSlots: () => Promise<{ slots: PromptSlot[]; activeId: string | null }>;
   savePromptSlots: (slots: PromptSlot[], activeId: string) => Promise<void>;
+
+  /** User-defined prompt styles for the Generate page's Style dropdown (see shared/styles.ts). */
+  listStyles: () => Promise<PromptStyle[]>;
+  /** Creates a style, or edits the one with `id`. Rejects with a message to show (e.g. a duplicate name). */
+  saveStyle: (input: PromptStyleInput, id?: number | null) => Promise<PromptStyle>;
+  /** Past generations are not affected: they keep the text they were made with. */
+  deleteStyle: (id: number) => Promise<void>;
 
   getComfyUIHost: () => Promise<ComfyUIHostInfo>;
   setComfyUIHost: (host: string) => Promise<void>;

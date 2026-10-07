@@ -9,6 +9,8 @@ import { TOOLS, ToolResult } from '../shared/tools';
 import { JobQueue } from './jobQueue';
 import { AssemblyManager, AssemblySpec } from './assembly';
 import { FfmpegPaths, MediaInfo, EndBehavior, Transition, makePoster, probeMedia } from './mediaTools';
+import { combinePrompt } from '../shared/styles';
+import { findStyleByName, listStyles } from './styles';
 import { ItemKind, ItemOrigin, ItemView, getItem, kindForExtension, listItems, upsertImport } from './library';
 
 /** A problem with the request itself (or the machine's state), reported to the client as-is. */
@@ -140,6 +142,8 @@ export class ApiService {
         return { data: await this.listCapabilities() };
       case 'import_folder':
         return { data: await this.importFolder(args) };
+      case 'list_styles':
+        return { data: this.listStylesTool() };
       case 'generate_image':
         return { data: this.generateImage(args) };
       case 'generate_video':
@@ -181,6 +185,7 @@ export class ApiService {
           tool: 'generate_image',
           fields: {
             prompt: 'text',
+            style: 'optional name of a saved style (see list_styles), added after the prompt',
             width: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
             height: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
             seed: 'integer, random by default',
@@ -272,8 +277,20 @@ export class ApiService {
     const prompt = reqString(args, 'prompt');
     const family = optString(args, 'family', 64) ?? 'z-image-turbo';
     if (FAMILY_KIND[family] !== 'image') fail(`"${family}" is not an image family. Image families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'image').join(', ')}.`);
+    // A style's words are added here, so the job (and the Library record) holds the full prompt that is
+    // sent. With no style the prompt is passed through untouched.
+    const styleName = optString(args, 'style', 200);
+    const style = styleName === undefined ? null : findStyleByName(this.deps.db, styleName);
+    if (styleName !== undefined && !style) {
+      const names = listStyles(this.deps.db).map((s) => `"${s.name}"`);
+      throw new ApiError(
+        'not_found',
+        `No style named "${styleName.trim()}". ${names.length ? `Saved styles: ${names.join(', ')}.` : 'There are no saved styles yet - they are created in the KVGenius Styles tab.'}`
+      );
+    }
     const params: GenerationParams = {
-      prompt,
+      prompt: combinePrompt(prompt, style?.text),
+      ...(style ? { styleName: style.name } : {}),
       width: snap(optNumber(args, 'width', 64, 8192, true) ?? 1024, 64, 256, 2048),
       height: snap(optNumber(args, 'height', 64, 8192, true) ?? 1024, 64, 256, 2048),
       seed: optNumber(args, 'seed', 0, 2 ** 32 - 1, true) ?? Math.floor(Math.random() * 2 ** 32),
@@ -281,6 +298,16 @@ export class ApiService {
       cfg: optNumber(args, 'cfg', 0.5, 3) ?? 1,
     };
     return this.jobView(this.deps.queue.submit({ family, params, source: 'mcp', batch: optBatch(args) }));
+  }
+
+  private listStylesTool() {
+    const styles = listStyles(this.deps.db).map((s) => ({ name: s.name, text: s.text }));
+    return {
+      styles,
+      note: styles.length
+        ? 'Pass a name as `style` to generate_image. Its text is appended to your prompt after a comma.'
+        : 'No styles saved yet - the user creates them in the KVGenius Styles tab.',
+    };
   }
 
   private generateVideo(args: Args) {
@@ -325,6 +352,7 @@ export class ApiService {
       family: job.family,
       batch: job.batch,
       prompt: job.params.prompt,
+      style: job.params.styleName ?? null,
       seed: job.params.seed,
       width: job.params.width,
       height: job.params.height,
