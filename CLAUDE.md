@@ -194,6 +194,19 @@ implementation here is exactly the kind of drift it exists to prevent.
   `powershellQuote`; the POSIX script is run against a hostile path in a test). Files go to `<name>.part` and are
   renamed when whole, so running the script again resumes. Only missing files are fetched; a file in a subfolder is
   reported, not fetched again. A link that has moved shows as a 404 in the terminal and the rest carry on.
+- **Image to image is Generate's image mode with a start picture, and its own family** (`z-image-i2i`,
+  `shared/imageToImage.ts`, `templates/z-image-i2i.json`, `main/imageToImagePatch.ts`). It is the text-to-image graph
+  with the empty latent replaced by load picture -> scale to the output size (centre-cropped) -> VAE encode, and the
+  sampler's `denoise` ("How much to change it", 0.05-1, default 0.6) says how much is re-drawn. Choosing or dropping a
+  picture switches the family (`imageFamilyFor`) and sizes the output to its shape; the picture is held in the tab's
+  `imageSourcePath`, apart from a video's `sourceImagePath`. It follows the supplied-picture pattern above - it is in
+  `SOURCE_IMAGE_FAMILIES`, so the result keeps a copy, shows "Original", appears in Library > Sources and cannot be
+  re-racked once the copy is gone - and has its own origin tag (Image -> Image). The loader/prompt/sampler/shift node ids
+  are the same as text to image's, so **model profiles apply unchanged** (`profileFamilyKey`; `modelPatch.test.ts`
+  holds both templates to Z-Image's slots). `generations.denoise` stores the strength; the duplicate guard compares it
+  and the start picture. MCP: `generate_image` with `source` (a library picture) and `strength`; naming the family
+  `z-image-i2i` directly is refused. The details panel's "🎨 Image" and Sources' "Image to image" send a picture to
+  Generate through the same request as "🎬 Video" (`VideoSourceRequest.target`).
 - **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and
   `main/modelManifest.test.ts` pins it to the template JSON - change a template's loader file and that test fails
   until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,

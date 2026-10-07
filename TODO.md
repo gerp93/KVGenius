@@ -6,7 +6,7 @@ and this repo's `REPO_SCOPE.md` entry for that). Just what's not built yet.
 
 ## Features
 
-- Image-to-image and inpainting modes (Generate/txt2img is the only mode so far)
+- Inpainting (needs a mask and its own template). Image to image is in.
 - Real negative prompt for the Z Image Turbo template, gated behind raising
   CFG above 1 (currently zeroed out — see `src/main/comfyui.ts`'s node map
   and the template's `ConditioningZeroOut` node). Needs an actual

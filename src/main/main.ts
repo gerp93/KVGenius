@@ -631,6 +631,15 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('imageUrlFor', (_event, imagePath: string) => imageUrlFor(imagePath));
 
+  // A picture's own width and height, so Generate can size the output to its shape. Only for files the app may show.
+  ipcMain.handle('getImageSize', (_event, filePath: unknown) => {
+    if (typeof filePath !== 'string') return null;
+    const resolved = path.resolve(filePath);
+    if (!isAllowedMediaPath(resolved, mediaDirs(), pickedSourceImages)) return null;
+    const size = nativeImage.createFromPath(resolved).getSize();
+    return size.width > 0 && size.height > 0 ? size : null;
+  });
+
   ipcMain.handle('chooseSourceImage', async () => {
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -750,6 +759,7 @@ function registerIpcHandlers(): void {
       length: params.length ?? null,
       sourceImagePath: params.sourceImagePath ?? null,
       modelSettings: params.modelSettings ?? null,
+      denoise: params.denoise ?? null,
     });
   });
 

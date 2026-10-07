@@ -58,6 +58,7 @@ function describe(job: Job): string {
   if (job.kind === 'video') parts.push(`${framesToSeconds(length ?? 81)}s`, `${videoQualityFromCfg(cfg)} quality`);
   parts.push(`seed ${seed}`);
   if (job.kind === 'image') parts.push(`${steps} steps`, `CFG ${cfg}`);
+  if (job.params.denoise !== undefined) parts.push(`image to image ${job.params.denoise.toFixed(2)}`);
   return parts.join(' · ');
 }
 

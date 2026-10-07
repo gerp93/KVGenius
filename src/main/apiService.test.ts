@@ -170,6 +170,33 @@ test('an unknown model is refused with the saved names, and list_models shows wh
   assert.equal(listed.models[1].tool, 'generate_video');
 });
 
+test('generate_image with a library picture as source is image to image: its shape, the strength and the picture are sent', async () => {
+  const src = (await call('list_library', { origin: 'imported', kind: 'image' })).items.find((i: any) => i.name === 'img1.jpg');
+  const job = await call('generate_image', { prompt: 'a fox', source: src.id, strength: 0.4, model: 'Photoreal' });
+  assert.equal(job.family, 'z-image-i2i');
+  assert.equal(job.width, 1024);
+  assert.equal(job.height, 576); // img1 is 1600x900 -> long side 1024, shape kept, snapped to 64
+  const params = lastJobParams();
+  assert.equal(params.denoise, 0.4);
+  assert.equal(params.sourceImagePath, src.path);
+  assert.equal(params.modelName, 'Photoreal', 'a Z-Image model applies to image to image too');
+  released.shift()?.();
+  await call('get_job', { job_id: job.job_id, wait_seconds: 5 });
+  // no strength: the default; an explicit size wins over the picture's shape
+  const second = await call('generate_image', { prompt: 'a fox', source: src.id, width: 512, height: 512 });
+  assert.equal(lastJobParams().denoise, 0.6);
+  assert.equal(second.width, 512);
+  released.shift()?.();
+  await call('get_job', { job_id: second.job_id, wait_seconds: 5 });
+});
+
+test('image to image is asked for with a source, not by naming its family; the source must be a picture', async () => {
+  await assert.rejects(() => call('generate_image', { prompt: 'x', family: 'z-image-i2i' }), /pass `source`/);
+  await assert.rejects(() => call('generate_image', { prompt: 'x', source: 'imp-9999' }), /no library item/);
+  const song = (await call('list_library', { kind: 'audio' })).items[0];
+  await assert.rejects(() => call('generate_image', { prompt: 'x', source: song.id }), /image/i);
+});
+
 test('generate_image without a style sends the prompt untouched, with one it appends the style', async () => {
   const plain = await call('generate_image', { prompt: 'a red fox' });
   assert.equal(plain.prompt, 'a red fox');

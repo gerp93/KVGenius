@@ -61,7 +61,7 @@ export const MODEL_MANIFEST: ManifestFeature[] = [
   {
     id: 'z-image',
     title: 'Pictures (Z Image Turbo)',
-    summary: 'Text to image.',
+    summary: 'Text to image, and image to image (starting from a picture of your own).',
     family: 'z-image',
     files: [
       { file: 'z_image_turbo_bf16.safetensors', folder: 'diffusion_models', role: 'Image model', url: hf(Z_IMAGE_REPO, 'diffusion_models', 'z_image_turbo_bf16.safetensors') },

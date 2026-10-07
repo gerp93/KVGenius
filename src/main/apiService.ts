@@ -4,7 +4,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/types';
 import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
-import { PROFILE_FAMILIES, profileFamily, SAMPLER_LIMITS } from '../shared/modelFamilies';
+import { PROFILE_FAMILIES, profileFamily, profileFamilyKey, SAMPLER_LIMITS } from '../shared/modelFamilies';
+import { clampDenoise, DEFAULT_DENOISE, DENOISE_LIMITS, I2I_FAMILY } from '../shared/imageToImage';
 import { ModelProfile, profileSettings } from '../shared/modelProfiles';
 import { findModelProfileByName, listModelProfiles } from './modelProfiles';
 import { isUpscaleFamily } from '../shared/upscale';
@@ -196,6 +197,8 @@ export class ApiService {
             height: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
             seed: 'integer, random by default',
             model: 'optional name of a saved model variant (see list_models); its steps and cfg become the defaults',
+            source: 'optional library picture id: image to image - start from it instead of from nothing; width and height then default to its shape',
+            strength: { min: DENOISE_LIMITS.min, max: DENOISE_LIMITS.max, default: DEFAULT_DENOISE, note: 'with source: 1 ignores the picture, small keeps most of it' },
             steps: { min: 1, max: 20, default: 8, note: 'up to 100 with a model' },
             cfg: { min: 0.5, max: 3, default: 1, note: 'up to 30 with a model' },
           },
@@ -283,6 +286,7 @@ export class ApiService {
   private generateImage(args: Args) {
     const prompt = reqString(args, 'prompt');
     const family = canonicalFamily(optString(args, 'family', 64) ?? Z_IMAGE_FAMILY);
+    if (family === I2I_FAMILY) fail('Image to image is not a family of its own here: use family "z-image" and pass `source` (a library picture to start from).');
     if (FAMILY_KIND[family] !== 'image') fail(`"${family}" is not an image family. Image families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'image').join(', ')}.`);
     // A style's words are added here, so the job (and the Library record) holds the full prompt that is
     // sent. With no style the prompt is passed through untouched.
@@ -295,26 +299,35 @@ export class ApiService {
         `No style named "${styleName.trim()}". ${names.length ? `Saved styles: ${names.join(', ')}.` : 'There are no saved styles yet - they are created in the KVGenius Styles tab.'}`
       );
     }
+    // With a `source` picture this is image to image: same model, but the sampler starts from that picture.
+    const sourceId = optString(args, 'source', 64);
+    const source = sourceId === undefined ? null : this.requireItem(sourceId, ['image'], 'source');
     // A saved model swaps the files and sampler inside the family's graph; it is resolved here, so the job and
     // the Library record carry exactly what runs (the profile may change or go away later).
     const model = this.resolveModel(optString(args, 'model', 200), family);
+    // Without a width or height of its own, the picture's shape decides the size (long side 1024), like Generate does.
+    const sourceSize = source ? (source.width && source.height ? { width: source.width, height: source.height } : this.deps.imageSize(source.path)) : null;
+    const fit = sourceSize ? 1024 / Math.max(sourceSize.width, sourceSize.height) : 1;
+    const defaultWidth = sourceSize ? Math.round(sourceSize.width * fit) : 1024;
+    const defaultHeight = sourceSize ? Math.round(sourceSize.height * fit) : 1024;
     const params: GenerationParams = {
       prompt: combinePrompt(prompt, style?.text),
       ...(style ? { styleName: style.name } : {}),
-      width: snap(optNumber(args, 'width', 64, 8192, true) ?? 1024, 64, 256, 2048),
-      height: snap(optNumber(args, 'height', 64, 8192, true) ?? 1024, 64, 256, 2048),
+      width: snap(optNumber(args, 'width', 64, 8192, true) ?? defaultWidth, 64, 256, 2048),
+      height: snap(optNumber(args, 'height', 64, 8192, true) ?? defaultHeight, 64, 256, 2048),
       seed: optNumber(args, 'seed', 0, 2 ** 32 - 1, true) ?? Math.floor(Math.random() * 2 ** 32),
       steps: model ? (optNumber(args, 'steps', SAMPLER_LIMITS.steps.min, SAMPLER_LIMITS.steps.max, true) ?? model.sampler.steps) : (optNumber(args, 'steps', 1, 20, true) ?? 8),
       cfg: model ? (optNumber(args, 'cfg', SAMPLER_LIMITS.cfg.min, SAMPLER_LIMITS.cfg.max) ?? model.sampler.cfg) : (optNumber(args, 'cfg', 0.5, 3) ?? 1),
       ...(model ? { modelName: model.name, modelSettings: profileSettings(model) } : {}),
+      ...(source ? { sourceImagePath: source.path, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max)) } : {}),
     };
-    return this.jobView(this.deps.queue.submit({ family, params, source: 'mcp', batch: optBatch(args) }));
+    return this.jobView(this.deps.queue.submit({ family: source ? I2I_FAMILY : family, params, source: 'mcp', batch: optBatch(args) }));
   }
 
   /** The saved model named `name`, or null for the built-in one (no name, "default", or its own name). */
   private resolveModel(name: string | undefined, family: string): ModelProfile | null {
     const wanted = name?.trim();
-    const def = profileFamily(family);
+    const def = profileFamily(profileFamilyKey(family));
     if (!wanted || wanted.toLowerCase() === 'default' || wanted.toLowerCase() === def?.builtInName.toLowerCase()) return null;
     const profile = findModelProfileByName(this.deps.db, wanted);
     if (!profile) {
@@ -324,7 +337,7 @@ export class ApiService {
         `No model named "${wanted}". ${names.length ? `Saved models: ${names.join(', ')}.` : 'There are no saved models yet - they are added in the KVGenius Models page.'} Omit \`model\` for the built-in one.`
       );
     }
-    if (profile.family !== family) fail(`The model "${profile.name}" is for the "${profile.family}" family, not "${family}".`);
+    if (profile.family !== profileFamilyKey(family)) fail(`The model "${profile.name}" is for the "${profile.family}" family, not "${family}".`);
     return profile;
   }
 

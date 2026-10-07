@@ -80,3 +80,26 @@ test('the generations table has the model columns', () => {
   const cols = (db.prepare('PRAGMA table_info(generations)').all() as unknown as { name: string }[]).map((c) => c.name);
   assert.ok(cols.includes('model_name') && cols.includes('model_settings'));
 });
+
+test('the duplicate guard tells apart strengths and start pictures of image to image', () => {
+  const db = initDatabase(':memory:');
+  const base = { ...params, denoise: 0.6, sourceImagePath: '/kept/a.png' };
+  // the Library keeps its own copy of the start picture; that copy's path is what a re-run is compared by
+  insertGeneration(db, base, 'z-image-i2i', '/out/i1.png', null, false, '/kept/a.png');
+  const query = { prompt: 'a fox', width: 64, height: 64, seed: 1, steps: 30, cfg: 4, denoise: 0.6, sourceImagePath: '/kept/a.png' };
+  assert.ok(findDuplicateGeneration(db, 'z-image-i2i', query));
+  assert.equal(findDuplicateGeneration(db, 'z-image-i2i', { ...query, denoise: 0.5 }), null, 'another strength is another picture');
+  assert.equal(findDuplicateGeneration(db, 'z-image-i2i', { ...query, sourceImagePath: '/kept/b.png' }), null, 'another start picture too');
+  assert.equal(findDuplicateGeneration(db, 'z-image-i2i', { ...query, sourceImagePath: null }), null, 'no start picture is nothing to compare');
+  assert.equal(findDuplicateGeneration(db, 'z-image', { ...query, denoise: null, sourceImagePath: null }), null, 'text to image never matches it');
+});
+
+test('a generation records its strength, and text to image records none', () => {
+  const db = initDatabase(':memory:');
+  const i2i = insertGeneration(db, { ...params, denoise: 0.35 }, 'z-image-i2i', '/out/i.png', null, false, '/kept/a.png');
+  assert.equal(getGenerationById(db, i2i.id)?.denoise, 0.35);
+  const plain = insertGeneration(db, params, 'z-image', '/out/t.png');
+  assert.equal(getGenerationById(db, plain.id)?.denoise, null);
+  const cols = (db.prepare('PRAGMA table_info(generations)').all() as unknown as { name: string }[]).map((c) => c.name);
+  assert.ok(cols.includes('denoise'));
+});

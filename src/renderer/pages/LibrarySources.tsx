@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import ExpandButton from '../components/Lightbox';
 import type { GenerationQueue } from '../hooks/useGenerationQueue';
 import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
+import { I2I_FAMILY } from '../../shared/imageToImage';
 import { UPSCALE_FAMILY } from '../../shared/upscale';
 import type { SourceImageEntry, VideoSourceRequest } from '../../shared/types';
 
 const FAMILY_LABEL: Record<string, string> = {
   'wan22-i2v': 'video',
+  [I2I_FAMILY]: 'image to image',
   [UPSCALE_FAMILY]: 'upscale',
 };
 
@@ -20,12 +22,12 @@ interface Props {
   queue: GenerationQueue;
   /** Send a kept picture to Tools > Upscale. */
   onUpscale: (path: string) => void;
-  /** Start a video from a kept picture (opens Generate in video mode with it as the source). */
+  /** Start a video - or, with `target: 'image'`, an image to image run - from a kept picture (opens Generate with it as the source). */
   onMakeVideo: (request: VideoSourceRequest) => void;
 }
 
 /**
- * Library > Sources: every picture that videos and upscales were made from, as the copies the app
+ * Library > Sources: every picture that videos, image to image results and upscales were made from, as the copies the app
  * keeps. They are what Re-rack runs again, and what a result's details panel shows as "Original".
  * Anything uploaded or dropped for a video or an upscale ends up here, so it can be seen and used again.
  */
@@ -55,7 +57,7 @@ export default function LibrarySources({ queue, onUpscale, onMakeVideo }: Props)
     <div className="sources-page">
       <h2 className="sources-page__title">Sources</h2>
       <p className="sources-page__hint">
-        The pictures your videos and upscales were made from. The app keeps a copy of each, so Re-rack can run them again and a result&apos;s
+        The pictures your videos, image to image results and upscales were made from. The app keeps a copy of each, so Re-rack can run them again and a result&apos;s
         details panel can show its original. A copy is removed along with the last result that uses it.
       </p>
       {error && <p className="tools-upscale__error">{error}</p>}
@@ -102,6 +104,14 @@ export default function LibrarySources({ queue, onUpscale, onMakeVideo }: Props)
                   title="Make a video from this picture"
                 >
                   Make video
+                </button>
+                <button
+                  type="button"
+                  disabled={entry.missing || !size}
+                  onClick={() => size && onMakeVideo({ target: 'image', imagePath: entry.path, width: size.width, height: size.height })}
+                  title="Start a new picture from this one (image to image)"
+                >
+                  Image to image
                 </button>
               </div>
             </div>

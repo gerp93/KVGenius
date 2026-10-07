@@ -1,5 +1,5 @@
 import { ModelSettings } from '../shared/modelProfiles';
-import { profileFamily } from '../shared/modelFamilies';
+import { profileFamily, profileFamilyKey } from '../shared/modelFamilies';
 
 type Workflow = Record<string, { inputs: Record<string, unknown> } | undefined>;
 
@@ -37,6 +37,8 @@ function nodeInputs(workflow: Workflow, node: string): Record<string, unknown> {
  * fails loudly instead of silently running the wrong model.
  */
 export function applyModelSettings(workflow: Workflow, family: string, settings: ModelSettings): void {
+  // A family that runs another's model files (image to image) uses that family's slots and nodes.
+  family = profileFamilyKey(family);
   const def = profileFamily(family);
   const slots = SLOT_NODES[family];
   if (!def || !slots) throw new Error(`Model profiles are not supported for '${family}'.`);
