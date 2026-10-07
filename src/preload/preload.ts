@@ -49,6 +49,7 @@ const api: KVGeniusAPI = {
   setGenerationFavorite: (id: number, favorite: boolean) => ipcRenderer.invoke('setGenerationFavorite', id, favorite),
   imageUrlFor: (imagePath: string) => mediaUrlFor(imagePath),
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),
+  chooseSourceImages: () => ipcRenderer.invoke('chooseSourceImages'),
   copyImageToClipboard: (imagePath: string) => ipcRenderer.invoke('copyImageToClipboard', imagePath),
   revealGenerationInFileManager: (imagePath: string) => ipcRenderer.invoke('revealGenerationInFileManager', imagePath),
   diagnoseVideo: (imagePath: string) => ipcRenderer.invoke('diagnoseVideo', imagePath),

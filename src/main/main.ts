@@ -561,6 +561,19 @@ function registerIpcHandlers(): void {
     return result.filePaths[0];
   });
 
+  // The Tools > Upscale picker: any number of images at once. Each is allowed to be shown and sent to ComfyUI.
+  ipcMain.handle('chooseSourceImages', async () => {
+    if (!mainWindow) return [];
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose images to upscale',
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+      properties: ['openFile', 'multiSelections'],
+    });
+    if (result.canceled) return [];
+    for (const file of result.filePaths) pickedSourceImages.add(path.resolve(file));
+    return result.filePaths;
+  });
+
   // Copies a picture to the clipboard so it can be pasted into other apps. Done here, from the file, so
   // it works for whatever the app can show - but only for files the app itself serves, never any path.
   ipcMain.handle('copyImageToClipboard', async (_event, imagePath: string) => {

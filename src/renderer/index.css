@@ -2281,3 +2281,138 @@ textarea:disabled {
   word-break: break-word;
   user-select: text;
 }
+
+/* The small IMG / VID tag on each Generate prompt tab: the tabs are shared, each remembers its own mode. */
+.prompt-slot-row__label {
+  gap: 8px;
+}
+
+.prompt-slot-row__mode {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  color: var(--color-text-muted, #888);
+  border: 1px solid currentColor;
+  opacity: 0.8;
+}
+
+.prompt-slot-row__mode--video {
+  color: var(--color-accent-blue);
+}
+
+/* Tools > Upscale */
+.tools-upscale {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.tools-upscale__title {
+  margin: 0 0 4px;
+}
+
+.tools-upscale__subtitle {
+  margin: 28px 0 10px;
+}
+
+.tools-upscale__hint {
+  margin: 0 0 16px;
+  opacity: 0.75;
+}
+
+.tools-upscale__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tools-upscale__controls select {
+  min-width: 0;
+  max-width: 320px;
+}
+
+.tools-upscale__error {
+  margin: 12px 0 0;
+  color: var(--color-accent-red, #d9534f);
+}
+
+.tools-upscale__notice {
+  margin: 12px 0 0;
+  opacity: 0.85;
+}
+
+.tools-upscale__picked,
+.tools-upscale__results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.tools-upscale__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));
+  border-radius: 8px;
+}
+
+.tools-upscale__card img,
+.tools-upscale__placeholder {
+  width: 100%;
+  height: 160px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.tools-upscale__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+}
+
+.tools-upscale__card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.tools-upscale__card-text strong,
+.tools-upscale__card-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tools-upscale__card-text span {
+  opacity: 0.75;
+}
+
+.tools-upscale__card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.tools-upscale__card-actions button {
+  flex: 1;
+  min-height: 32px;
+  font-size: 13px;
+}
+
+.tools-upscale__remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-height: 28px;
+  padding: 0 8px;
+}

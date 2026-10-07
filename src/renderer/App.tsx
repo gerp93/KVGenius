@@ -14,6 +14,8 @@ import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
 import Styles from './pages/Styles';
+import ToolsLayout from './pages/ToolsLayout';
+import ToolsUpscale from './pages/ToolsUpscale';
 import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../shared/types';
 import { announceGenerationChange, useGenerationChanges } from './utils/generationChanges';
 import { pinNotice } from './utils/library';
@@ -231,6 +233,11 @@ export default function App() {
           Styles
         </NavLink>
         <span className="top-bar__separator" />
+        <span className="top-bar__group-label">Tools</span>
+        <NavLink to="/tools/upscale" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
+          Upscale
+        </NavLink>
+        <span className="top-bar__separator" />
         <span className="top-bar__group-label">Library</span>
         <NavLink to="/library/output" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Output
@@ -311,6 +318,10 @@ export default function App() {
               />
             </div>
             <Routes>
+              <Route path="/tools" element={<ToolsLayout />}>
+                <Route index element={<Navigate to="upscale" replace />} />
+                <Route path="upscale" element={<ToolsUpscale queue={queue} onShowQueue={() => setQueueCollapsed(false)} />} />
+              </Route>
               <Route path="/library" element={<LibraryLayout />}>
                 <Route index element={<Navigate to="output" replace />} />
                 <Route
