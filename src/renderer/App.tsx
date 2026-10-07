@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, NavLink, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Generate from './pages/Generate';
 import QueuePanel from './components/QueuePanel';
+import SideNav from './components/SideNav';
 import LibraryDetails from './components/LibraryDetails';
 import DetailsDock, { DetailsSlotContext } from './components/DetailsDock';
 import GalleryLightbox from './components/GalleryLightbox';
@@ -205,13 +206,6 @@ export default function App() {
     navigate('/');
   }
 
-  const connectionLabel: Record<ConnectionStatus, string> = {
-    checking: '⏳ Checking ComfyUI...',
-    connected: '🟢 ComfyUI connected',
-    unreachable: '🔴 ComfyUI not reachable - click to launch',
-    starting: '🟡 Starting ComfyUI...',
-  };
-
   async function handleLaunchComfyUI() {
     setLaunchError(null);
     setConnection('starting');
@@ -245,90 +239,13 @@ export default function App() {
   return (
     <DetailsSlotContext.Provider value={detailsSlot}>
     <div className="app-shell">
-      <div className="top-bar">
-        <span className="top-bar__title">KVGenius</span>
-        <NavLink to="/" end className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Generate
-        </NavLink>
-        <NavLink to="/styles" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Styles
-        </NavLink>
-        <span className="top-bar__separator" />
-        <span className="top-bar__group-label">Tools</span>
-        <NavLink to="/tools/upscale" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Upscale
-        </NavLink>
-        <span className="top-bar__separator" />
-        <span className="top-bar__group-label">Library</span>
-        <NavLink to="/library/output" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Output
-        </NavLink>
-        <NavLink to="/library/prompts" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Prompts
-        </NavLink>
-        <NavLink to="/library/sources" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Sources
-        </NavLink>
-        <NavLink to="/library/trash" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Trash
-        </NavLink>
-        <span className="top-bar__separator" />
-        <span className="top-bar__group-label">Stats</span>
-        <NavLink to="/timing" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Timing
-        </NavLink>
-        <span className="top-bar__separator" />
-        <NavLink to="/hardpoint" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Hardpoint
-        </NavLink>
-        <NavLink to="/settings" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
-          Settings
-        </NavLink>
-        {/* Always one click from the setup guide; a red dot while ComfyUI cannot be reached, when it is most needed. It sits
-            next to Settings rather than at the far right because the bar is wider than the window and clips its right end. */}
-        <Link
-          to="/setup"
-          className={`top-bar__help${location.pathname === '/setup' ? ' active' : ''}${connection === 'unreachable' ? ' top-bar__help--attention' : ''}`}
-          aria-label="Setup guide"
-          title="Setup guide: install ComfyUI, add the models, connect"
-        >
-          ?
-        </Link>
-        <span className="top-bar__separator" />
-        <button
-          type="button"
-          className={`top-bar__toggle${showHidden ? ' top-bar__toggle--on' : ''}`}
-          aria-pressed={showHidden}
-          onClick={() => setShowHidden((v) => !v)}
-          title="Include items hidden by the hidden-words rule or by hand, in the Library and Prompts. Applies everywhere; resets when the app restarts."
-        >
-          {showHidden ? '🙈 Showing hidden' : '🙈 Show hidden'}
-        </button>
-        {launchError && (
-          <span className="top-bar__connection-error" title={launchError}>
-            {launchError}
-          </span>
-        )}
-        {connection === 'unreachable' || connection === 'starting' ? (
-          <button
-            type="button"
-            className="top-bar__connection"
-            disabled={connection === 'starting'}
-            onClick={handleLaunchComfyUI}
-            title={
-              connection === 'starting'
-                ? 'Waiting for ComfyUI to come up...'
-                : 'Start ComfyUI. The first time you may be asked which program to run (you can change it, or the server address, in Settings).'
-            }
-          >
-            {connectionLabel[connection]}
-          </button>
-        ) : (
-          <Link to="/settings?tab=comfyui" className="top-bar__connection">
-            {connectionLabel[connection]}
-          </Link>
-        )}
-      </div>
+      <SideNav
+        connection={connection}
+        launchError={launchError}
+        onLaunchComfyUI={handleLaunchComfyUI}
+        showHidden={showHidden}
+        onToggleShowHidden={() => setShowHidden((v) => !v)}
+      />
       <div className="app-body">
         <div className="app-main">
           <div className="app-content">

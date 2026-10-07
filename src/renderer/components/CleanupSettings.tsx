@@ -187,7 +187,7 @@ export default function CleanupSettings() {
           In the Trash: {plural(trash.count)}
           {trash.count > 0 ? ` (${formatBytes(trash.bytes)})` : ''}
         </span>
-        <Link to="/library/trash" className="top-bar__link" style={{ padding: '4px 10px' }}>
+        <Link to="/library/trash" className="inline-link-button">
           Open Trash
         </Link>
         <button type="button" onClick={handleEmptyTrash} disabled={busy || trash.count === 0}>

@@ -112,6 +112,14 @@ implementation here is exactly the kind of drift it exists to prevent.
   stacks are ordered and cursor-paged by their newest item (`groupNewestId`), and the
   Library's filters apply to items before they are grouped. Images and videos stack
   separately; trashed items are never in a stack.
+- **Navigation is a left sidebar, not a top bar** (`components/SideNav.tsx`/`.css`, rendered by `App.tsx`). Pages are
+  grouped in sections (Library: Output/Prompts/Sources; Tools: Upscale; Presets: Styles/Models; Utilities:
+  Timing/Hardpoint/Trash) in the `SECTIONS` data at the top of `SideNav.tsx` - add a page there. The footer holds
+  Settings, Setup guide, the app-wide Show hidden switch and the ComfyUI status (click to launch when unreachable).
+  The rail is full (labels; a section's head folds it) or thin (**icons only, no hover flyouts**: each page keeps its own
+  icon, each section shrinks to a caption, so every page is one click away). Thin/full and folded sections are remembered
+  in `localStorage`. Every page needs an icon and a `title` for that reason. The shell is a row: sidebar, then
+  `.app-body` (page + queue bar, then the details slot).
 - **The queue is a bar along the bottom of the app shell, on every page** (`App.tsx`,
   `QueuePanel.tsx`, `.queue-bar`). Panels are docked flush - no margin or padding around them, only
   a divider line on the inner side. Folded (the default) it is a slim status strip: count, a tile
@@ -148,9 +156,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   Steps are plain `Step[]` data; the file names/folders in its tables must match the templates in
   `src/main/templates/` (change one, change the other). It polls `checkComfyUIConnection` so the connect step
   turns green by itself. Entry points are two buttons at the top of Settings > ComfyUI (the guide, and the
-  Models page) and a "?" icon at the right end of the top bar (a red dot while ComfyUI cannot be reached) - an
-  icon rather than a labelled link because the bar is already full, and not an app-menu item, which KVG_Standards
-  keeps to View/Help basics. External links go through the `openExternal` IPC (http/https only,
+  Models page) and a "Setup guide" item in the sidebar's footer (a red dot while ComfyUI cannot be reached) - not
+  an app-menu item, which KVG_Standards keeps to View/Help basics. External links go through the `openExternal` IPC (http/https only,
   `shared/externalUrl.ts`), never a plain `<a href>`.
 - **The image family key is `z-image`** (the family), not `z-image-turbo` (one variant of it). The old key is
   retired but still accepted everywhere a family comes in (`shared/families.ts`: `canonicalFamily`, used by
