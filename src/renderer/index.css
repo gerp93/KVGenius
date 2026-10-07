@@ -1375,6 +1375,40 @@ button.link-button:hover:not(:disabled) {
 
 /* The media takes whatever height the panel has left after the text below it, so a long prompt
    shrinks the picture (down to a minimum) before anything needs to scroll. */
+/* Two-column mode (see shared/detailsLayout.ts): once the panel is big enough for it to pay off, the
+   picture fills a column of its own at the panel's full height and the details scroll in a column
+   beside it. The panel's width is the same as when stacked. */
+.library-panel--split {
+  flex-direction: row;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.library-panel__image {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  padding: 12px;
+}
+
+.library-panel__image .library-panel__media {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.library-panel__info {
+  flex: 0 0 360px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  overflow-y: auto;
+  border-left: 1px solid var(--color-border);
+}
+
 .library-panel__media {
   position: relative;
   flex: 1 1 auto;

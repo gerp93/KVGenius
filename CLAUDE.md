@@ -121,6 +121,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   page's own panel close each other so only one shows. Both render through `DetailsDock` (a portal into
   `.details-slot`), a full-height column at the right of the window, so the queue bar only spans the
   page to its left.
+  The panel's width scales with the screen (`.library-panel`); once it is big enough that the picture
+  would come out clearly larger, it snaps to a two-column layout - the picture in a full-height column,
+  the details beside it - decided by `shared/detailsLayout.ts` from the panel's measured size and the
+  picture's aspect ratio (tall pictures gain a lot, wide ones usually stay stacked).
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned
