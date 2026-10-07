@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ComfyUILauncherInfo } from '../../../shared/types';
+import { ComfyUILauncherInfo, ModelsDirInfo } from '../../../shared/types';
 import SettingsSection from './SettingsSection';
 
 type ConnectionStatus = 'unknown' | 'checking' | 'connected' | 'unreachable';
@@ -26,6 +26,8 @@ export default function ComfyUITab() {
   const [error, setError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>('unknown');
   const [launcher, setLauncher] = useState<ComfyUILauncherInfo | null>(null);
+  const [modelsDir, setModelsDir] = useState<ModelsDirInfo | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
 
   useEffect(() => {
     window.kvgenius
@@ -38,7 +40,20 @@ export default function ComfyUITab() {
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
 
     window.kvgenius.getComfyUILauncher().then(setLauncher);
+    window.kvgenius.getModelsDirInfo().then(setModelsDir);
   }, []);
+
+  async function changeModelsDir(action: () => Promise<ModelsDirInfo | null>) {
+    setFolderError(null);
+    const next = await action();
+    if (next) setModelsDir(next);
+  }
+
+  async function handleOpenModelsDir() {
+    setFolderError(null);
+    const problem = await window.kvgenius.openModelsDir();
+    if (problem) setFolderError(problem);
+  }
 
   async function checkConnection() {
     setConnection('checking');
@@ -139,6 +154,40 @@ export default function ComfyUITab() {
         </p>
         {error && <p className="settings-message settings-message--error">{error}</p>}
         {status && <p className="settings-message settings-message--ok">{status}</p>}
+      </SettingsSection>
+
+      <SettingsSection
+        title="Models folder"
+        description="Where ComfyUI keeps its model files (the folder with diffusion_models, vae, loras and so on). The Models tab downloads and imports into it. Found automatically for a portable install; ComfyUI Desktop keeps it in the base folder you chose when installing, so you may need to pick it."
+      >
+        <p style={{ fontSize: 12, wordBreak: 'break-all', marginTop: 0 }}>
+          {modelsDir === null
+            ? '...'
+            : modelsDir.effective
+              ? `${modelsDir.configured ? 'Chosen' : 'Found automatically'}: ${modelsDir.effective}`
+              : 'Not set.'}
+        </p>
+        {modelsDir && !modelsDir.valid && (
+          <p className="settings-message settings-message--error">
+            {modelsDir.effective
+              ? "This doesn't look like a ComfyUI models folder (it has no diffusion_models, vae or loras folder inside). Choose the right one."
+              : "No models folder is set, so KVGenius can't add model files for you. Choose it below."}
+          </p>
+        )}
+        <div className="button-row">
+          <button type="button" onClick={() => void handleOpenModelsDir()} disabled={!modelsDir?.valid} title="Open the folder in the file manager">
+            📂 Open Folder
+          </button>
+          <button type="button" onClick={() => void changeModelsDir(() => window.kvgenius.chooseModelsDir())}>
+            Choose Folder...
+          </button>
+          {modelsDir?.configured && (
+            <button type="button" onClick={() => void changeModelsDir(() => window.kvgenius.clearModelsDir())}>
+              Clear
+            </button>
+          )}
+        </div>
+        {folderError && <p className="settings-message settings-message--error">{folderError}</p>}
       </SettingsSection>
 
       <SettingsSection

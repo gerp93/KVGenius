@@ -232,7 +232,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,
   `listInstalledModels`), falling back to a scan of the models folder when ComfyUI is down (`modelsFolder.ts`;
   the folder is the user's choice, else guessed from the launcher and only trusted if it looks like a `models`
-  folder). A file inside a subfolder is reported as such, never as installed: the template asks for the plain name.
+  folder; it is set, opened (`openModelsDir`) and warned about in Settings > ComfyUI, and the Models tab only shows a
+  warning when it is not usable). A file inside a subfolder is reported as such, never as installed: the template asks for the plain name.
   The Models tab (Settings) and the setup guide both render from this.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a

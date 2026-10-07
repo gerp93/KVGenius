@@ -1064,6 +1064,13 @@ function registerIpcHandlers(): void {
     setComfyUIModelsDir(result.filePaths[0]);
     return modelsDirInfo();
   });
+  // Opens the models folder in the file manager; returns why it could not, or null.
+  ipcMain.handle('openModelsDir', async () => {
+    const info = modelsDirInfo();
+    if (!info.valid || !info.effective) return "The models folder isn't set yet.";
+    const err = await shell.openPath(info.effective);
+    return err === '' ? null : err;
+  });
   ipcMain.handle('clearModelsDir', () => {
     setComfyUIModelsDir(null);
     return modelsDirInfo();
