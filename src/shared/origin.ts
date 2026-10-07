@@ -1,3 +1,4 @@
+import { canonicalFamily, LEGACY_FAMILY_KEYS, Z_IMAGE_FAMILY } from './families';
 import { GIF_FAMILY } from './gif';
 import { FAMILY_KIND, GenerationKind } from './types';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from './upscale';
@@ -23,10 +24,11 @@ const ORIGINS: Record<OriginKind, Omit<GenerationOrigin, 'kind'>> = {
 /** The origin of an item made by this model family (a `GenerationRecord.modelFamily`), or null for a
  * family this does not know - better no tag than a wrong one. */
 export function generationOrigin(modelFamily: string): GenerationOrigin | null {
+  modelFamily = canonicalFamily(modelFamily);
   let kind: OriginKind | null = null;
   if (isUpscaleFamily(modelFamily)) kind = 'upscale';
   else if (modelFamily === GIF_FAMILY) kind = 'gif';
-  else if (modelFamily === 'z-image-turbo') kind = 'text-to-image';
+  else if (modelFamily === Z_IMAGE_FAMILY) kind = 'text-to-image';
   else if (modelFamily === 'wan22-i2v') kind = 'image-to-video';
   return kind ? { kind, ...ORIGINS[kind] } : null;
 }
@@ -36,7 +38,8 @@ export const ORIGIN_KINDS: OriginKind[] = ['text-to-image', 'image-to-video', 'u
 
 /** The model families that make an item of this origin - what a "show only these" filter selects. */
 export const FAMILIES_BY_ORIGIN: Record<OriginKind, string[]> = {
-  'text-to-image': ['z-image-turbo'],
+  // The retired key is listed too, so a row the startup migration has not reached still matches the filter.
+  'text-to-image': [Z_IMAGE_FAMILY, ...Object.keys(LEGACY_FAMILY_KEYS)],
   'image-to-video': ['wan22-i2v'],
   upscale: [UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY],
   gif: [GIF_FAMILY],

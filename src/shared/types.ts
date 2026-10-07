@@ -195,7 +195,7 @@ export interface VideoSourceRequest {
 /** Which model families produce a video vs a still image - drives whether the
  * renderer shows an <img> or a <video> for a given record's output/result. */
 export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
-  'z-image-turbo': 'image',
+  'z-image': 'image',
   'wan22-i2v': 'video',
   'upscale-video': 'video',
 };
@@ -216,6 +216,8 @@ export interface DbInfo {
   defaultPath: string;
   /** Current database file's size in bytes, or null if the file doesn't exist yet. */
   sizeBytes: number | null;
+  /** Full paths of copies the app made before a one-time migration; it never deletes them. */
+  backups: string[];
 }
 
 export interface UpdateCheckResult {

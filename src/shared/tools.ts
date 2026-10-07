@@ -57,7 +57,7 @@ export const TOOLS: ToolDefinition[] = [
           description:
             'Optional. The name of one of the user\'s saved styles (see list_styles; case-insensitive). Its wording is appended to the prompt, so describe only the subject in `prompt`. Omit to send the prompt exactly as written.',
         },
-        family: { type: 'string', description: 'Model family (see list_capabilities). Default "z-image-turbo".' },
+        family: { type: 'string', description: 'Model family (see list_capabilities). Default "z-image" (the old name "z-image-turbo" still works).' },
         width: { type: 'integer', description: 'Pixels, snapped to a multiple of 64 (256-2048). Default 1024.' },
         height: { type: 'integer', description: 'Pixels, snapped to a multiple of 64 (256-2048). Default 1024.' },
         seed: { type: 'integer', description: 'Random if omitted. Reuse a seed to reproduce a result.' },

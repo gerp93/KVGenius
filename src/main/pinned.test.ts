@@ -31,8 +31,8 @@ const hasLegacyTable = (db: DatabaseSync) =>
 
 test('pinning flags a generation, shows it in the pinned list, and unpinning removes it', () => {
   const db = initDatabase(':memory:');
-  const a = insertGeneration(db, params('a'), 'z-image-turbo', '/out/a.png');
-  const b = insertGeneration(db, params('b'), 'z-image-turbo', '/out/b.png');
+  const a = insertGeneration(db, params('a'), 'z-image', '/out/a.png');
+  const b = insertGeneration(db, params('b'), 'z-image', '/out/b.png');
   assert.equal(a.pinned, false);
 
   setGenerationPinned(db, a.id, true);
@@ -47,8 +47,8 @@ test('pinning flags a generation, shows it in the pinned list, and unpinning rem
 
 test('the most recently pinned item comes first, and re-pinning keeps its place', async () => {
   const db = initDatabase(':memory:');
-  const a = insertGeneration(db, params('a'), 'z-image-turbo', '/out/a.png');
-  const b = insertGeneration(db, params('b'), 'z-image-turbo', '/out/b.png');
+  const a = insertGeneration(db, params('a'), 'z-image', '/out/a.png');
+  const b = insertGeneration(db, params('b'), 'z-image', '/out/b.png');
   setGenerationPinned(db, a.id, true);
   await new Promise((resolve) => setTimeout(resolve, 5));
   setGenerationPinned(db, b.id, true);
@@ -61,8 +61,8 @@ test('the most recently pinned item comes first, and re-pinning keeps its place'
 
 test('hidden pinned items are left out unless asked for', () => {
   const db = initDatabase(':memory:');
-  const a = insertGeneration(db, params('a'), 'z-image-turbo', '/out/a.png');
-  const b = insertGeneration(db, params('b'), 'z-image-turbo', '/out/b.png');
+  const a = insertGeneration(db, params('a'), 'z-image', '/out/a.png');
+  const b = insertGeneration(db, params('b'), 'z-image', '/out/b.png');
   setGenerationPinned(db, a.id, true);
   setGenerationPinned(db, b.id, true);
   setGenerationHidden(db, a.id, true);
@@ -72,8 +72,8 @@ test('hidden pinned items are left out unless asked for', () => {
 
 test('deleting a pinned generation takes its pin with it, and selection refs report the pin', () => {
   const db = initDatabase(':memory:');
-  const a = insertGeneration(db, params('a'), 'z-image-turbo', '/out/a.png');
-  const b = insertGeneration(db, params('b'), 'z-image-turbo', '/out/b.png');
+  const a = insertGeneration(db, params('a'), 'z-image', '/out/a.png');
+  const b = insertGeneration(db, params('b'), 'z-image', '/out/b.png');
   setGenerationPinned(db, a.id, true);
   const refs = listGenerationRefs(db, ['wan22-i2v'], 'image', false, false);
   assert.deepEqual(refs.map((r) => [r.id, r.pinned]).sort(), [[a.id, true], [b.id, false]].sort());
@@ -91,7 +91,7 @@ test('a database from before pinning gets the column added and keeps its rows', 
     model_family TEXT NOT NULL, image_path TEXT NOT NULL, favorite INTEGER NOT NULL DEFAULT 0,
     hidden INTEGER NOT NULL DEFAULT 0, timing_id INTEGER, created_at TEXT NOT NULL)`);
   old.prepare(
-    "INSERT INTO generations (prompt, width, height, seed, steps, cfg, model_family, image_path, created_at) VALUES ('kept', 64, 64, 1, 4, 1, 'z-image-turbo', '/out/k.png', 'x')"
+    "INSERT INTO generations (prompt, width, height, seed, steps, cfg, model_family, image_path, created_at) VALUES ('kept', 64, 64, 1, 4, 1, 'z-image', '/out/k.png', 'x')"
   ).run();
   old.close();
 
@@ -105,9 +105,9 @@ test('a database from before pinning gets the column added and keeps its rows', 
 
 test('saved prompts pin the newest matching generation and the old table is dropped', () => {
   const db = initDatabase(':memory:');
-  const old = insertGeneration(db, params('castle at dusk', 1), 'z-image-turbo', '/out/old.png');
-  const newest = insertGeneration(db, params('castle at dusk', 2), 'z-image-turbo', '/out/new.png');
-  const other = insertGeneration(db, params('a fox', 3), 'z-image-turbo', '/out/fox.png');
+  const old = insertGeneration(db, params('castle at dusk', 1), 'z-image', '/out/old.png');
+  const newest = insertGeneration(db, params('castle at dusk', 2), 'z-image', '/out/new.png');
+  const other = insertGeneration(db, params('a fox', 3), 'z-image', '/out/fox.png');
   legacyTable(db, [
     { name: 'Castle', prompt: 'castle at dusk', at: '2026-01-01T00:00:00.000Z' },
     { name: null, prompt: 'a fox', at: '2026-02-01T00:00:00.000Z' },
@@ -123,8 +123,8 @@ test('saved prompts pin the newest matching generation and the old table is drop
 
 test('a hidden match is only used when nothing visible matches', () => {
   const db = initDatabase(':memory:');
-  const shown = insertGeneration(db, params('same', 1), 'z-image-turbo', '/out/shown.png');
-  const hidden = insertGeneration(db, params('same', 2), 'z-image-turbo', '/out/hidden.png');
+  const shown = insertGeneration(db, params('same', 1), 'z-image', '/out/shown.png');
+  const hidden = insertGeneration(db, params('same', 2), 'z-image', '/out/hidden.png');
   setGenerationHidden(db, hidden.id, true);
   legacyTable(db, [{ name: 'x', prompt: 'same', at: '2026-01-01T00:00:00.000Z' }]);
   migrateSavedPrompts(db, null);
@@ -136,7 +136,7 @@ test('saved prompts without a picture are exported before the table is dropped',
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-pin-'));
   const exportPath = path.join(dir, 'unpinned.txt');
   const db = initDatabase(':memory:');
-  insertGeneration(db, params('has a picture'), 'z-image-turbo', '/out/a.png');
+  insertGeneration(db, params('has a picture'), 'z-image', '/out/a.png');
   legacyTable(db, [
     { name: 'With picture', prompt: 'has a picture', at: '2026-01-01T00:00:00.000Z' },
     { name: 'Lonely', prompt: 'never generated', tags: '["moody","rain"]', at: '2026-01-02T00:00:00.000Z' },

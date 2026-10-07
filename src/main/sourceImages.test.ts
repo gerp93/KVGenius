@@ -61,7 +61,7 @@ test('a file already in the sources folder is its own copy, and a missing one is
 test('a generation remembers its source image, and older ones have none', () => {
   const db = initDatabase(':memory:');
   const video = insertGeneration(db, params(1), 'wan22-i2v', '/out/v.mp4', null, false, '/out/sources/abc.png');
-  const image = insertGeneration(db, params(2), 'z-image-turbo', '/out/i.png');
+  const image = insertGeneration(db, params(2), 'z-image', '/out/i.png');
   assert.equal(video.sourceImagePath, '/out/sources/abc.png');
   assert.equal(getGenerationById(db, video.id)?.sourceImagePath, '/out/sources/abc.png');
   assert.equal(getGenerationById(db, image.id)?.sourceImagePath, null);
@@ -97,7 +97,7 @@ test('listKeptSources counts what each kept source was used for, newest use firs
   insertGeneration(db, params(1), 'wan22-i2v', '/out/1.mp4', null, false, '/s/a.png');
   insertGeneration(db, params(2), 'upscale-image', '/out/2.png', null, false, '/s/a.png');
   insertGeneration(db, params(3), 'wan22-i2v', '/out/3.mp4', null, false, '/s/b.png');
-  insertGeneration(db, params(4), 'z-image-turbo', '/out/4.png', null, false, null);
+  insertGeneration(db, params(4), 'z-image', '/out/4.png', null, false, null);
 
   const sources = listKeptSources(db);
   assert.deepEqual(

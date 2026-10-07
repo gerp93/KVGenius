@@ -5,6 +5,7 @@ import { FAMILIES_BY_ORIGIN, OriginKind, cleanOrigins } from '../shared/origin';
 import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, LibraryListOptions } from '../shared/types';
 import { TIMING_SCHEMA } from './timingStats';
 import { JOBS_SCHEMA } from './jobStore';
+import { migrateFamilyKeys } from './familyMigration';
 import { IMPORTS_SCHEMA } from './library';
 import { ASSEMBLIES_SCHEMA } from './assembly';
 import { STYLES_SCHEMA } from './styles';
@@ -153,6 +154,13 @@ export function initDatabase(dbPath: string): DatabaseSync {
   db.exec(ASSEMBLIES_SCHEMA);
   db.exec(STYLES_SCHEMA);
   migrateSchema(db);
+  try {
+    const family = migrateFamilyKeys(db, dbPath);
+    if (family.renamed > 0) console.log(`Renamed ${family.renamed} model family keys; the database as it was is at ${family.backup ?? '(in memory)'}`);
+  } catch (err) {
+    // Not fatal: the old key keeps working (canonicalFamily), and the next launch tries again.
+    console.error('Could not rename the old model family key', err);
+  }
   // A database in memory has no folder to leave the export in.
   migrateSavedPrompts(db, dbPath === ':memory:' ? null : path.join(path.dirname(dbPath), 'saved-prompts-unpinned.txt'));
   return db;

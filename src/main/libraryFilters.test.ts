@@ -14,9 +14,9 @@ const params = (seed: number) => ({ prompt: `p${seed}`, width: 64, height: 64, s
 
 function seeded(): DatabaseSync {
   const db = initDatabase(':memory:');
-  insertGeneration(db, params(1), 'z-image-turbo', '/out/images/a.png');
-  insertGeneration(db, params(2), 'z-image-turbo', '/out/images/b.PNG');
-  insertGeneration(db, params(3), 'z-image-turbo', '/out/images/c.webp');
+  insertGeneration(db, params(1), 'z-image', '/out/images/a.png');
+  insertGeneration(db, params(2), 'z-image', '/out/images/b.PNG');
+  insertGeneration(db, params(3), 'z-image', '/out/images/c.webp');
   insertGeneration(db, params(4), GIF_FAMILY, '/out/gifs/d.gif');
   insertGeneration(db, params(5), 'wan22-i2v', '/out/videos/e.mp4');
   return db;
@@ -73,7 +73,7 @@ test('a favorited GIF lives under gifs/favorites and returns to gifs/', () => {
 
 test('a listing can be narrowed to the items made one of the chosen ways', () => {
   const db = initDatabase(':memory:');
-  insertGeneration(db, params(1), 'z-image-turbo', '/out/images/a.png');
+  insertGeneration(db, params(1), 'z-image', '/out/images/a.png');
   insertGeneration(db, params(2), 'upscale-image', '/out/images/b.png');
   insertGeneration(db, params(3), GIF_FAMILY, '/out/gifs/c.gif');
   insertGeneration(db, params(4), 'wan22-i2v', '/out/videos/d.mp4');
@@ -92,7 +92,7 @@ test('a listing can be narrowed to the items made one of the chosen ways', () =>
 
 test('the origin filter applies to counts, refs and stacks too, and ignores junk', () => {
   const db = initDatabase(':memory:');
-  insertGeneration(db, params(1), 'z-image-turbo', '/out/images/a.png');
+  insertGeneration(db, params(1), 'z-image', '/out/images/a.png');
   insertGeneration(db, params(2), 'upscale-image', '/out/images/b.png');
   const families = ['wan22-i2v', 'upscale-video'];
   assert.deepEqual(countGenerations(db, families, false, false, null, { origins: ['upscale'] }), { image: 1, video: 0 });
@@ -106,7 +106,7 @@ test('the origin filter applies to counts, refs and stacks too, and ignores junk
 
 test('counts can carry a separate origin filter for each tab', () => {
   const db = initDatabase(':memory:');
-  insertGeneration(db, params(1), 'z-image-turbo', '/out/images/a.png');
+  insertGeneration(db, params(1), 'z-image', '/out/images/a.png');
   insertGeneration(db, params(2), 'upscale-image', '/out/images/b.png');
   insertGeneration(db, params(3), 'wan22-i2v', '/out/videos/c.mp4');
   insertGeneration(db, params(4), 'upscale-video', '/out/videos/d.mp4');

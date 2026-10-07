@@ -17,7 +17,7 @@ import { moveToTrash } from './trash';
 const VIDEO_FAMILIES = ['wan22-i2v'];
 const base = { prompt: 'a red fox', width: 1024, height: 1024, seed: 7, steps: 8, cfg: 1 };
 
-function add(db: DatabaseSync, over: Partial<typeof base> & { length?: number } = {}, family = 'z-image-turbo', source: string | null = null) {
+function add(db: DatabaseSync, over: Partial<typeof base> & { length?: number } = {}, family = 'z-image', source: string | null = null) {
   const params = { ...base, ...over };
   return insertGeneration(db, params, family, `/out/${Math.random()}.png`, null, false, source);
 }
@@ -25,10 +25,10 @@ function add(db: DatabaseSync, over: Partial<typeof base> & { length?: number } 
 test('the same prompt, size, seed, steps and cfg is a duplicate; any difference is not', () => {
   const db = initDatabase(':memory:');
   const made = add(db);
-  assert.equal(findDuplicateGeneration(db, 'z-image-turbo', base)?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image', base)?.id, made.id);
 
   for (const change of [{ seed: 8 }, { width: 1280 }, { height: 896 }, { steps: 9 }, { cfg: 2 }, { prompt: 'a red fox!' }]) {
-    assert.equal(findDuplicateGeneration(db, 'z-image-turbo', { ...base, ...change }), null, JSON.stringify(change));
+    assert.equal(findDuplicateGeneration(db, 'z-image', { ...base, ...change }), null, JSON.stringify(change));
   }
   assert.equal(findDuplicateGeneration(db, 'upscale-image', base), null, 'another model family is not the same output');
 });
@@ -36,17 +36,17 @@ test('the same prompt, size, seed, steps and cfg is a duplicate; any difference 
 test('a prompt that differs only by surrounding whitespace is still a duplicate', () => {
   const db = initDatabase(':memory:');
   const made = add(db, { prompt: 'a red fox ' });
-  assert.equal(findDuplicateGeneration(db, 'z-image-turbo', { ...base, prompt: '  a red fox' })?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image', { ...base, prompt: '  a red fox' })?.id, made.id);
 });
 
 test('what is in the Trash does not count, and the newest match is the one reported', () => {
   const db = initDatabase(':memory:');
   const older = add(db);
   const newer = add(db);
-  assert.equal(findDuplicateGeneration(db, 'z-image-turbo', base)?.id, newer.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image', base)?.id, newer.id);
 
   moveToTrash(db, [newer.id], fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-trash-')), { includeKept: true });
-  assert.equal(findDuplicateGeneration(db, 'z-image-turbo', base)?.id, older.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image', base)?.id, older.id);
 });
 
 test('a video is a duplicate only with the same length and the same source image', () => {

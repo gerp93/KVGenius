@@ -24,7 +24,7 @@ implementation here is exactly the kind of drift it exists to prevent.
 - `src/main/templates/` — ComfyUI workflow templates in API format (not the
   visual "workflow format" you'd drag into ComfyUI's own editor — see the
   session history for why that distinction matters). One template per model
-  family (`z-image-turbo.json` for image mode, `wan22-i2v.json` for video
+  family (`z-image.json` for image mode, `wan22-i2v.json` for video
   mode); `src/main/comfyui.ts` has a separate node-ID map per family (e.g.
   `WAN22_I2V_NODE_MAP`) recording which fields get patched at generation
   time, and these must stay in sync with their template JSON. `wan22-i2v`
@@ -151,6 +151,12 @@ implementation here is exactly the kind of drift it exists to prevent.
   indicator (deliberately not a top-bar item - the bar is already full - and not an app-menu item, which
   KVG_Standards keeps to View/Help basics). External links go through the `openExternal` IPC (http/https only,
   `shared/externalUrl.ts`), never a plain `<a href>`.
+- **The image family key is `z-image`** (the family), not `z-image-turbo` (one variant of it). The old key is
+  retired but still accepted everywhere a family comes in (`shared/families.ts`: `canonicalFamily`, used by
+  the MCP/API, the job store, the template lookup and origin tags), and `familyMigration.ts` rewrites it in
+  `generations`, `jobs` and `timing_stats` at startup, in one transaction, after copying the database to
+  `<db>.pre-family-rename` (`VACUUM INTO`). That copy is never deleted by the app; Settings > Library & Data
+  lists it so the user can. Add a future rename to `LEGACY_FAMILY_KEYS` and the migration picks it up.
 - **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and
   `main/modelManifest.test.ts` pins it to the template JSON - change a template's loader file and that test fails
   until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,

@@ -63,7 +63,7 @@ test('unknown tools and non-object arguments are rejected', async () => {
 test('list_capabilities describes both families', async () => {
   const caps = await call('list_capabilities');
   assert.equal(caps.comfyui_reachable, true);
-  assert.deepEqual(caps.families.map((f: any) => f.family), ['z-image-turbo', 'wan22-i2v']);
+  assert.deepEqual(caps.families.map((f: any) => f.family), ['z-image', 'wan22-i2v']);
 });
 
 test('import_folder imports media in natural filename order, ignores the rest, and labels the batch', async () => {
@@ -106,6 +106,13 @@ test('generate_image snaps sizes, applies defaults, and queues a job', async () 
   assert.equal(done.item.kind, 'image');
   assert.equal(done.item.batch, 'b1');
   assert.match(done.item.id, /^gen-\d+$/);
+});
+
+test('generate_image still accepts the old family key, and queues the job under the current one', async () => {
+  const job = await call('generate_image', { prompt: 'a red fox', family: 'z-image-turbo' });
+  assert.equal(job.family, 'z-image');
+  released.shift()?.();
+  await call('get_job', { job_id: job.job_id, wait_seconds: 5 });
 });
 
 test('generate_image without a style sends the prompt untouched, with one it appends the style', async () => {
@@ -221,7 +228,7 @@ test('work done in the app is invisible and unusable to clients', async () => {
   const uiParams = { prompt: 'SECRET prompt typed in the app', width: 512, height: 512, seed: 1, steps: 4, cfg: 1 };
 
   // A generation made in the app, through the same queue.
-  const uiJob = queue.submit({ family: 'z-image-turbo', params: uiParams, source: 'ui', batch: 'shared' });
+  const uiJob = queue.submit({ family: 'z-image', params: uiParams, source: 'ui', batch: 'shared' });
   released.shift()?.();
   const uiDone = await queue.wait(uiJob.id);
   assert.equal(uiDone.status, 'done');
@@ -230,7 +237,7 @@ test('work done in the app is invisible and unusable to clients', async () => {
   // One from before jobs were recorded at all (no job row).
   const legacyFile = path.join(dir, 'legacy.png');
   fs.writeFileSync(legacyFile, 'x');
-  const legacyGen = `gen-${insertGeneration(db, { ...uiParams, prompt: 'SECRET legacy prompt' }, 'z-image-turbo', legacyFile, null).id}`;
+  const legacyGen = `gen-${insertGeneration(db, { ...uiParams, prompt: 'SECRET legacy prompt' }, 'z-image', legacyFile, null).id}`;
 
   // Not in any listing, by any filter.
   for (const filter of [{}, { kind: 'image' }, { origin: 'generated' }, { batch: 'shared' }]) {
@@ -258,7 +265,7 @@ test('work done in the app is invisible and unusable to clients', async () => {
 
   // A client cancelling a batch label cannot reach a waiting app job that happens to share it.
   const clientJob = await call('generate_image', { prompt: 'client work', batch: 'shared' });
-  const waitingUi = queue.submit({ family: 'z-image-turbo', params: uiParams, source: 'ui', batch: 'shared' });
+  const waitingUi = queue.submit({ family: 'z-image', params: uiParams, source: 'ui', batch: 'shared' });
   await tick();
   assert.equal(queue.get(waitingUi.id)?.status, 'queued');
   assert.equal((await call('cancel_job', { batch: 'shared' })).cancelled_waiting_jobs, 0);

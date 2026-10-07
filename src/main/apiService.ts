@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/types';
+import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
 import { isUpscaleFamily } from '../shared/upscale';
 import { JobFilter, JobInfo, JobStatus, isTerminalJobStatus } from '../shared/jobs';
 import { TOOLS, ToolResult } from '../shared/tools';
@@ -36,7 +37,7 @@ export interface ApiServiceDeps {
 }
 
 const FAMILIES: Record<string, { kind: 'image' | 'video'; description: string }> = {
-  'z-image-turbo': { kind: 'image', description: 'Fast text-to-image (Z Image Turbo).' },
+  'z-image': { kind: 'image', description: 'Fast text-to-image (Z Image Turbo).' },
   'wan22-i2v': { kind: 'video', description: 'Image-to-video (Wan 2.2): animates a source image into a short clip at 16 fps.' },
 };
 
@@ -180,8 +181,8 @@ export class ApiService {
       ffmpeg_note: ff ? null : 'ffmpeg was not found: previews of videos, probe_media and assemble_video are unavailable. Set its location in KVGenius Settings.',
       families: [
         {
-          family: 'z-image-turbo',
-          ...FAMILIES['z-image-turbo'],
+          family: 'z-image',
+          ...FAMILIES['z-image'],
           tool: 'generate_image',
           fields: {
             prompt: 'text',
@@ -275,7 +276,7 @@ export class ApiService {
 
   private generateImage(args: Args) {
     const prompt = reqString(args, 'prompt');
-    const family = optString(args, 'family', 64) ?? 'z-image-turbo';
+    const family = canonicalFamily(optString(args, 'family', 64) ?? Z_IMAGE_FAMILY);
     if (FAMILY_KIND[family] !== 'image') fail(`"${family}" is not an image family. Image families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'image').join(', ')}.`);
     // A style's words are added here, so the job (and the Library record) holds the full prompt that is
     // sent. With no style the prompt is passed through untouched.

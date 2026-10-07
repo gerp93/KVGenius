@@ -70,7 +70,7 @@ function fixture(): Fixture {
     add(name, age, size = 10) {
       const file = path.join(images, name);
       fs.writeFileSync(file, 'x'.repeat(size));
-      const record = insertGeneration(db, { prompt: name, width: 8, height: 8, seed: ++seed, steps: 1, cfg: 1 }, 'z-image-turbo', file);
+      const record = insertGeneration(db, { prompt: name, width: 8, height: 8, seed: ++seed, steps: 1, cfg: 1 }, 'z-image', file);
       db.prepare('UPDATE generations SET created_at = ? WHERE id = ?').run(daysAgo(age), record.id);
       return { id: record.id, file };
     },

@@ -5,11 +5,12 @@ import { GenerationParams, GenerationProgress } from '../shared/types';
 import { videoQualityFromCfg } from '../shared/videoQuality';
 import { ComfyMessage, ProgressTracker, RunTimings } from './progressTracker';
 import { getEffectiveComfyUIHost } from './dbLocation';
-import zImageTurboTemplate from './templates/z-image-turbo.json';
+import zImageTurboTemplate from './templates/z-image.json';
 import wan22I2vTemplate from './templates/wan22-i2v.json';
 import upscaleImageTemplate from './templates/upscale-image.json';
 import upscaleVideoTemplate from './templates/upscale-video.json';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../shared/upscale';
+import { canonicalFamily } from '../shared/families';
 import { FOLDER_LOADERS, MODEL_FOLDERS } from '../shared/modelManifest';
 import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/modelStatus';
 
@@ -20,7 +21,7 @@ import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/mode
 // build with ENOENT once the template stops existing next to the compiled .js. One entry per
 // model family template; add to this map as more templates are added.
 const TEMPLATES: Record<string, Record<string, unknown>> = {
-  'z-image-turbo': zImageTurboTemplate,
+  'z-image': zImageTurboTemplate,
   'wan22-i2v': wan22I2vTemplate,
   [UPSCALE_FAMILY]: upscaleImageTemplate,
   [UPSCALE_VIDEO_FAMILY]: upscaleVideoTemplate,
@@ -31,7 +32,7 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
 export const DEFAULT_COMFYUI_HOST = 'http://localhost:8000';
 
 /**
- * Node IDs in src/main/templates/z-image-turbo.json that patchTemplate() fills in.
+ * Node IDs in src/main/templates/z-image.json that patchTemplate() fills in.
  * If that file changes, keep these in sync - see its README-equivalent comment
  * block at the top of comfyui-templates.md (to be written once a second
  * template exists and this needs a real per-family map).
@@ -164,7 +165,7 @@ export async function isAvailable(): Promise<boolean> {
 }
 
 function loadTemplate(family: string): Record<string, unknown> {
-  const template = TEMPLATES[family];
+  const template = TEMPLATES[canonicalFamily(family)];
   if (!template) {
     throw new Error(`No ComfyUI workflow template registered for family '${family}'`);
   }
