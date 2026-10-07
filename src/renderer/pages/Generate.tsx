@@ -7,6 +7,7 @@ import { isUpscale, pinNotice } from '../utils/library';
 import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { usePromptSlots } from '../hooks/usePromptSlots';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
+import { PromptStyle, combinePrompt } from '../../shared/styles';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { useGenerationChanges } from '../utils/generationChanges';
 import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
@@ -28,6 +29,8 @@ interface Props {
   onPromptRecalled: () => void;
   videoSource: VideoSourceRequest | null;
   onVideoSourceHandled: () => void;
+  /** Bumped by the Styles page when a style is added, edited or deleted, so the dropdown reloads. */
+  stylesVersion: number;
 }
 
 // Long side of a video generated from an existing image (matches the 640px default).
@@ -89,6 +92,7 @@ export default function Generate({
   onPromptRecalled,
   videoSource,
   onVideoSourceHandled,
+  stylesVersion,
 }: Props) {
   // The left-hand form is one of several independent "tabs" (prompt + every setting below it),
   // switchable and persisted across restarts - see usePromptSlots for the field definitions.
@@ -129,6 +133,8 @@ export default function Generate({
     setCustomSize,
     batchSize,
     setBatchSize,
+    styleId,
+    setStyleId,
     lastRunSignature,
     setLastRunSignature,
   } = slotState;
@@ -175,12 +181,33 @@ export default function Generate({
   const runSteps = mode === 'video' ? VIDEO_QUALITY_SETTINGS[videoQuality].steps : steps;
   const runCfg = mode === 'video' ? VIDEO_QUALITY_SETTINGS[videoQuality].cfg : cfg;
 
+  // The user's styles (Styles tab), for the dropdown. Image mode only; "None" is the default and sends
+  // the prompt exactly as typed. A style picked in a tab that has since been deleted counts as none.
+  const [styles, setStyles] = useState<PromptStyle[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    window.kvgenius
+      .listStyles()
+      .then((list) => {
+        if (!cancelled) setStyles(list);
+      })
+      .catch(() => {
+        if (!cancelled) setStyles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stylesVersion]);
+  const activeStyle = mode === 'image' ? (styles.find((style) => style.id === styleId) ?? null) : null;
+  // What is actually sent: the prompt, plus the style's words when one is picked.
+  const finalPrompt = combinePrompt(prompt, activeStyle?.text);
+
   // Everything that decides what a run produces. The same signature with the same seed is the same
   // picture, so a locked seed plus an unchanged signature would only repeat the last result.
   function runSignature(seedValue: number): string {
     return JSON.stringify([
       mode,
-      prompt.trim(),
+      finalPrompt.trim(),
       width,
       height,
       seedValue,
@@ -205,7 +232,7 @@ export default function Generate({
     const timer = setTimeout(() => {
       window.kvgenius
         .findDuplicateGeneration(FAMILY_FOR_MODE[mode], {
-          prompt,
+          prompt: finalPrompt,
           width,
           height,
           seed,
@@ -224,7 +251,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, finishedRuns, libraryChanges]);
+  }, [seedLocked, mode, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, finishedRuns, libraryChanges]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -270,6 +297,8 @@ export default function Generate({
     (record: GenerationRecord, slotId: string) => {
       const recalledMode: Mode = FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
       setMode(recalledMode);
+      // A past generation's prompt already has its style's words in it, so no style is picked again.
+      setStyleId(null);
       setPrompt(record.prompt);
       setWidth(record.width);
       setHeight(record.height);
@@ -310,6 +339,8 @@ export default function Generate({
       setNotice(`All ${MAX_PROMPT_SLOTS} tabs are in use - loaded into this one.`);
       setTimeout(() => setNotice(null), 4000);
     }
+    // A prompt from Library > Prompts already has any style's words in it (see applyRecord).
+    setStyleId(null);
     setPrompt(text);
   }
 
@@ -388,7 +419,8 @@ export default function Generate({
     const seeds = seedLocked ? [seed] : uniqueRandomSeeds(effectiveBatch);
     if (!seedLocked) setSeed(seeds[0]);
     const base = {
-      prompt,
+      prompt: finalPrompt,
+      ...(activeStyle ? { styleName: activeStyle.name } : {}),
       width,
       height,
       steps: runSteps,
@@ -604,6 +636,32 @@ export default function Generate({
             placeholder="Describe the image you want..."
             style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
           />
+
+          {mode === 'image' && (
+            <div style={{ marginTop: 12 }}>
+              <label className="field-label" htmlFor="style-select">
+                Style (optional)
+              </label>
+              <select
+                id="style-select"
+                value={activeStyle ? String(activeStyle.id) : ''}
+                onChange={(e) => setStyleId(e.target.value === '' ? null : Number(e.target.value))}
+                style={{ width: '100%' }}
+              >
+                <option value="">None - use the prompt as written</option>
+                {styles.map((style) => (
+                  <option key={style.id} value={style.id}>
+                    {style.name}
+                  </option>
+                ))}
+              </select>
+              {activeStyle && (
+                <p className="style-picker__preview" title="Added after your prompt. Edit it in the Styles tab.">
+                  {activeStyle.text}
+                </p>
+              )}
+            </div>
+          )}
 
           <div style={{ marginTop: 12 }}>
             <label className="field-label" htmlFor="size-preset">

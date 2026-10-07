@@ -52,6 +52,11 @@ export const TOOLS: ToolDefinition[] = [
       type: 'object',
       properties: {
         prompt: { type: 'string', description: 'What to generate.' },
+        style: {
+          type: 'string',
+          description:
+            'Optional. The name of one of the user\'s saved styles (see list_styles; case-insensitive). Its wording is appended to the prompt, so describe only the subject in `prompt`. Omit to send the prompt exactly as written.',
+        },
         family: { type: 'string', description: 'Model family (see list_capabilities). Default "z-image-turbo".' },
         width: { type: 'integer', description: 'Pixels, snapped to a multiple of 64 (256-2048). Default 1024.' },
         height: { type: 'integer', description: 'Pixels, snapped to a multiple of 64 (256-2048). Default 1024.' },
@@ -62,6 +67,12 @@ export const TOOLS: ToolDefinition[] = [
       },
       required: ['prompt'],
     },
+  },
+  {
+    name: 'list_styles',
+    description:
+      'Lists the prompt styles the user saved in KVGenius (a name and the wording it adds after a prompt, e.g. "1930s movie poster"). Pass a style\'s name as `style` to generate_image to apply it.',
+    inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'generate_video',

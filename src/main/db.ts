@@ -6,6 +6,7 @@ import { TIMING_SCHEMA } from './timingStats';
 import { JOBS_SCHEMA } from './jobStore';
 import { IMPORTS_SCHEMA } from './library';
 import { ASSEMBLIES_SCHEMA } from './assembly';
+import { STYLES_SCHEMA } from './styles';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -26,6 +27,7 @@ CREATE TABLE IF NOT EXISTS generations (
   source_image_path TEXT,
   trashed_at TEXT,
   trash_from TEXT,
+  style_name TEXT,
   timing_id INTEGER,
   created_at TEXT NOT NULL
 );
@@ -65,6 +67,10 @@ function migrateSchema(db: DatabaseSync): void {
   }
   if (!columns.some((c) => c.name === 'trash_from')) {
     db.exec('ALTER TABLE generations ADD COLUMN trash_from TEXT;');
+  }
+  // The name of the style (see styles.ts) a prompt was combined with - display only, the stored prompt is already combined.
+  if (!columns.some((c) => c.name === 'style_name')) {
+    db.exec('ALTER TABLE generations ADD COLUMN style_name TEXT;');
   }
 }
 
@@ -144,6 +150,7 @@ export function initDatabase(dbPath: string): DatabaseSync {
   db.exec(JOBS_SCHEMA);
   db.exec(IMPORTS_SCHEMA);
   db.exec(ASSEMBLIES_SCHEMA);
+  db.exec(STYLES_SCHEMA);
   migrateSchema(db);
   // A database in memory has no folder to leave the export in.
   migrateSavedPrompts(db, dbPath === ':memory:' ? null : path.join(path.dirname(dbPath), 'saved-prompts-unpinned.txt'));
@@ -167,6 +174,7 @@ interface GenerationRow {
   pinned_at: string | null;
   source_image_path: string | null;
   trashed_at: string | null;
+  style_name: string | null;
   created_at: string;
   // Only in a listing grouped by prompt.
   group_count?: number;
@@ -204,6 +212,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     pinned: row.pinned_at !== null,
     sourceImagePath: row.source_image_path,
     trashedAt: row.trashed_at,
+    styleName: row.style_name ?? null,
     createdAt: row.created_at,
     timing:
       row.t_actual_ms == null
@@ -231,9 +240,10 @@ export function insertGeneration(
 ): GenerationRecord {
   const createdAt = new Date().toISOString();
   const length = params.length ?? null;
+  const styleName = params.styleName?.trim() || null;
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, timing_id, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, timing_id, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -247,6 +257,7 @@ export function insertGeneration(
     imagePath,
     hidden ? 1 : 0,
     sourceImagePath,
+    styleName,
     timingId,
     createdAt
   );
@@ -267,6 +278,7 @@ export function insertGeneration(
     pinned: false,
     sourceImagePath,
     trashedAt: null,
+    styleName,
     createdAt,
     timing: null,
   };

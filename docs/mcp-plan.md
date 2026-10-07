@@ -91,7 +91,8 @@ Requirements:
 |---|---|
 | `list_capabilities` | Families, image-vs-video kind (`FAMILY_KIND`), curated fields and limits per family |
 | `import_folder` | Import local images/audio from a path into the Library; returns IDs |
-| `generate_image` | Submit an image job; returns `job_id` |
+| `generate_image` | Submit an image job; returns `job_id`. Optional `style` (a saved style's name) is appended to the prompt |
+| `list_styles` | The user's saved prompt styles (name and text), for `generate_image`'s `style` |
 | `generate_video` | Submit an I2V job (source image by Library ID); returns `job_id` |
 | `list_jobs` / `get_job` | Progress, results, errors; supports re-attaching later; filter by batch |
 | `cancel_job` | Cancel queued/running job |
