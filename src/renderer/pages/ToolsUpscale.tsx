@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import type { GenerationQueue, Job } from '../hooks/useGenerationQueue';
 import ImageDropZone from '../components/ImageDropZone';
-import { DEFAULT_UPSCALE_FACTOR, UPSCALE_FACTORS, UPSCALE_FAMILY, fileNameOf, upscaledSize } from '../../shared/upscale';
+import { DEFAULT_UPSCALE_FACTOR, UPSCALE_FACTORS, UPSCALE_FAMILY, fileNameOf, nearestUpscaleFactor, upscaledSize } from '../../shared/upscale';
+import type { UpscaleRecall } from '../../shared/upscale';
 
 const MODEL_KEY = 'kvgenius-tools-upscale-model';
 const FACTOR_KEY = 'kvgenius-tools-upscale-factor';
@@ -52,6 +53,10 @@ interface Props {
   queue: GenerationQueue;
   /** Open the app-wide queue bar (upscales were just queued). */
   onShowQueue: () => void;
+  /** A kept original sent here to be upscaled again (a re-rack, or Library > Sources); null otherwise. */
+  recall: UpscaleRecall | null;
+  /** Called once the page has taken the recall, so it is not taken again. */
+  onRecallHandled: () => void;
 }
 
 /**
@@ -60,8 +65,11 @@ interface Props {
  * else, with the same progress and timing). Finished upscales are saved to Library > Output as new
  * images, and are listed here for the session.
  */
-export default function ToolsUpscale({ queue, onShowQueue }: Props) {
+export default function ToolsUpscale({ queue, onShowQueue, recall, onRecallHandled }: Props) {
   const [picked, setPicked] = useState<Picked[]>([]);
+  // For each picture sent here to be re-run: the width its earlier result came out at, so the size
+  // choice can be set to match once the picture's own size is known.
+  const recallWidths = useRef<Map<string, number>>(new Map());
   const [models, setModels] = useState<string[] | null>(null);
   const [model, setModelState] = useState(() => readSaved(MODEL_KEY) ?? '');
   const [factor, setFactorState] = useState(savedFactor);
@@ -125,7 +133,22 @@ export default function ToolsUpscale({ queue, onShowQueue }: Props) {
   function handleLoaded(path: string, img: HTMLImageElement) {
     const size = { width: img.naturalWidth, height: img.naturalHeight };
     setPicked((prev) => prev.map((p) => (p.path === path ? { ...p, size } : p)));
+    const earlierWidth = recallWidths.current.get(path);
+    if (earlierWidth) {
+      recallWidths.current.delete(path);
+      setFactor(nearestUpscaleFactor(size.width, earlierWidth));
+    }
   }
+
+  // An upscale re-racked from the Library or the queue, or a picture sent from Library > Sources:
+  // its kept original is put on the list, at the size it was made at.
+  useEffect(() => {
+    if (!recall) return;
+    if (recall.outputWidth > 0) recallWidths.current.set(recall.sourcePath, recall.outputWidth);
+    addPaths([recall.sourcePath]);
+    onRecallHandled();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recall]);
 
   function handleUpscale() {
     if (!model) return;

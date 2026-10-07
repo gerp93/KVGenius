@@ -61,6 +61,7 @@ import {
   countPinnedWithPrompt,
   findDuplicateGeneration,
   listPinnedGenerations,
+  listKeptSources,
 } from './db';
 import {
   isAvailable as comfyIsAvailable,
@@ -593,6 +594,26 @@ function registerIpcHandlers(): void {
       accepted.push(candidate);
     }
     return accepted;
+  });
+
+  // Which of a result's kept source images are gone from disk (deleted by hand, a moved data folder...),
+  // so Re-rack can be switched off for them. Only files the app itself serves are looked at.
+  ipcMain.handle('sourceImagesMissing', (_event, paths: unknown) => {
+    if (!Array.isArray(paths)) return [];
+    const missing: string[] = [];
+    for (const candidate of paths.slice(0, 500)) {
+      if (typeof candidate !== 'string') continue;
+      const resolved = path.resolve(candidate);
+      if (!isAllowedMediaPath(resolved, mediaDirs(), pickedSourceImages)) continue;
+      if (!fs.existsSync(resolved)) missing.push(candidate);
+    }
+    return missing;
+  });
+
+  // Library > Sources: every picture kept for the videos and upscales made from it.
+  ipcMain.handle('listSourceImages', () => {
+    if (!db) throw new Error('Database not initialized');
+    return listKeptSources(db).map((entry) => ({ ...entry, missing: !fs.existsSync(entry.path) }));
   });
 
   // Copies a picture to the clipboard so it can be pasted into other apps. Done here, from the file, so

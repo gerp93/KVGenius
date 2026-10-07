@@ -400,8 +400,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   }
 
   function handleRecreate(record: GenerationRecord) {
+    // The app opens the right page for it: Generate, or Tools > Upscale for an upscale.
     onRecall(record);
-    navigate('/');
   }
 
   function handleImageToVideo(record: GenerationRecord) {

@@ -50,6 +50,8 @@ const api: KVGeniusAPI = {
   imageUrlFor: (imagePath: string) => mediaUrlFor(imagePath),
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),
   chooseSourceImages: () => ipcRenderer.invoke('chooseSourceImages'),
+  sourceImagesMissing: (paths: string[]) => ipcRenderer.invoke('sourceImagesMissing', paths),
+  listSourceImages: () => ipcRenderer.invoke('listSourceImages'),
   droppedImagePaths: (files: unknown[]) => {
     const paths = files.flatMap((file) => {
       try {

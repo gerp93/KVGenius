@@ -25,3 +25,16 @@ export function upscaledSize(width: number, height: number, factor: number, isVi
 export function fileNameOf(filePath: string): string {
   return filePath.split(/[\\/]/).pop() ?? filePath;
 }
+
+/** An upscale being re-run: its kept original, and the width the result came out at. */
+export interface UpscaleRecall {
+  sourcePath: string;
+  outputWidth: number;
+}
+
+/** The offered size multiplier closest to how much wider `outputWidth` is than `sourceWidth`. */
+export function nearestUpscaleFactor(sourceWidth: number, outputWidth: number): number {
+  if (!(sourceWidth > 0) || !(outputWidth > 0)) return DEFAULT_UPSCALE_FACTOR;
+  const ratio = outputWidth / sourceWidth;
+  return UPSCALE_FACTORS.reduce((best, f) => (Math.abs(f - ratio) < Math.abs(best - ratio) ? f : best), UPSCALE_FACTORS[0]);
+}

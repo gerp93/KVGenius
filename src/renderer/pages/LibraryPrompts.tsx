@@ -11,6 +11,8 @@ import { useCycleIndex } from '../hooks/useCycleIndex';
 import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
 import { justifyRows } from '../utils/justifiedRows';
 import { isUpscale, pinNotice } from '../utils/library';
+import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
+import { useSourceMissing } from '../hooks/useMissingSources';
 
 const TARGET_ROW_HEIGHT = 240;
 const GRID_GAP = 12;
@@ -82,6 +84,7 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
   const index = useCycleIndex(group.items.length, hovered);
   const record = group.items[index] ?? group.items[0];
   const isVideo = kindOf(record) === 'video';
+  const sourceMissing = useSourceMissing(record);
   return (
     <div className={`library-card prompt-tile${active ? ' library-card--active' : ''}`} style={{ width }}>
       <div
@@ -137,7 +140,12 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
         <button type="button" className="primary" onClick={() => onUse(record)} title="Put this prompt on the Generate page">
           Use prompt
         </button>
-        <button type="button" onClick={() => onRerack(record)} title="Load this picture's prompt and settings (size, seed, steps)">
+        <button
+          type="button"
+          onClick={() => onRerack(record)}
+          disabled={sourceMissing}
+          title={sourceMissing ? SOURCE_MISSING_MESSAGE : "Load this picture's prompt and settings (size, seed, steps)"}
+        >
           ↺ Re-rack
         </button>
       </div>
@@ -255,8 +263,8 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
 
   /** Loads the picture's own settings too (size, seed, steps), not just its prompt. */
   function handleRerack(record: GenerationRecord) {
+    // The app opens the right page for it: Generate, or Tools > Upscale for an upscale.
     onRecall(record);
-    navigate('/');
   }
 
   function handleImageToVideo(record: GenerationRecord) {
