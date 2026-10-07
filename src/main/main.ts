@@ -49,6 +49,7 @@ import { normalizeDays, updateCleanupSettings } from '../shared/cleanup';
 import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
 import { deleteStyle, listStyles, saveStyle } from './styles';
+import { deleteModelProfile, listModelProfiles, saveModelProfile } from './modelProfiles';
 import {
   initDatabase,
   insertGeneration,
@@ -71,6 +72,7 @@ import {
   cancelCurrentGeneration,
   listUpscaleModels,
   listInstalledModels,
+  listSamplerChoices,
   GenerationCancelledError,
   DEFAULT_COMFYUI_HOST,
 } from './comfyui';
@@ -86,6 +88,7 @@ import { detectComfyUIProgram, launchComfyUIProgram } from './comfyLauncher';
 import { guessModelsDir, looksLikeModelsDir, scanModelsDir } from './modelsFolder';
 import { emptyInstalled, ModelStatusReport } from '../shared/modelStatus';
 import { migrationBackups } from '../shared/dbBackups';
+import { ModelProfileInput } from '../shared/modelProfiles';
 import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, LibraryListOptions, McpInfo, ModelsDirInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
@@ -709,6 +712,7 @@ function registerIpcHandlers(): void {
       cfg: params.cfg,
       length: params.length ?? null,
       sourceImagePath: params.sourceImagePath ?? null,
+      modelSettings: params.modelSettings ?? null,
     });
   });
 
@@ -788,6 +792,26 @@ function registerIpcHandlers(): void {
   ipcMain.handle('deleteStyle', (_event, id: number) => {
     if (!db) throw new Error('Database not initialized');
     deleteStyle(db, id);
+  });
+
+  ipcMain.handle('listModelProfiles', () => {
+    if (!db) throw new Error('Database not initialized');
+    return listModelProfiles(db);
+  });
+  ipcMain.handle('saveModelProfile', (_event, input: ModelProfileInput, id: number | null) => {
+    if (!db) throw new Error('Database not initialized');
+    return saveModelProfile(db, input, typeof id === 'number' ? id : null);
+  });
+  ipcMain.handle('deleteModelProfile', (_event, id: number) => {
+    if (!db) throw new Error('Database not initialized');
+    deleteModelProfile(db, id);
+  });
+  ipcMain.handle('getSamplerChoices', async () => {
+    try {
+      return await listSamplerChoices();
+    } catch {
+      return { samplers: [], schedulers: [] };
+    }
   });
 
   ipcMain.handle('getComfyUIHost', () => ({

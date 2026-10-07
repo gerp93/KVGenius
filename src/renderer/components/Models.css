@@ -53,7 +53,7 @@
 }
 
 .models-page {
-  max-width: 820px;
+  max-width: 1000px;
 }
 
 .models-page__status {
@@ -91,4 +91,35 @@
 
 .models-table td:first-child {
   width: 52%;
+}
+
+.models-profile__heading {
+  margin: 16px 0 6px;
+  font-size: 14px;
+}
+
+.models-profile__folder {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.models-profile__warn {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-accent-red);
+}
+
+.models-profile__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.models-profile__grid input,
+.models-profile__grid select {
+  width: 100%;
+}
+
+.models-profile__builtin {
+  cursor: default;
 }

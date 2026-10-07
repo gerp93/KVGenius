@@ -11,6 +11,7 @@ import upscaleImageTemplate from './templates/upscale-image.json';
 import upscaleVideoTemplate from './templates/upscale-video.json';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../shared/upscale';
 import { canonicalFamily } from '../shared/families';
+import { applyModelSettings } from './modelPatch';
 import { FOLDER_LOADERS, MODEL_FOLDERS } from '../shared/modelManifest';
 import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/modelStatus';
 
@@ -141,6 +142,12 @@ export function listUpscaleModels(): Promise<string[]> {
   return listLoaderChoices(FOLDER_LOADERS.upscale_models.node, FOLDER_LOADERS.upscale_models.input);
 }
 
+/** The sampler and scheduler names this ComfyUI offers (KSampler's own choice lists). */
+export async function listSamplerChoices(): Promise<{ samplers: string[]; schedulers: string[] }> {
+  const [samplers, schedulers] = await Promise.all([listLoaderChoices('KSampler', 'sampler_name'), listLoaderChoices('KSampler', 'scheduler')]);
+  return { samplers, schedulers };
+}
+
 /** Every model file ComfyUI can see in the folders the app cares about. A loader this ComfyUI does not
  * know is treated as having no files; if none of them can be asked at all, ComfyUI is unreachable. */
 export async function listInstalledModels(): Promise<InstalledModels> {
@@ -257,6 +264,9 @@ async function patchTemplate(
   const latentNode = workflow[Z_IMAGE_TURBO_NODE_MAP.latent] as { inputs: Record<string, unknown> };
   latentNode.inputs.width = params.width;
   latentNode.inputs.height = params.height;
+
+  // A model profile swaps the loader files and sampler values inside this same graph.
+  if (params.modelSettings) applyModelSettings(workflow, canonicalFamily(family), params.modelSettings);
 
   return workflow;
 }

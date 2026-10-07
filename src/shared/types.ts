@@ -1,4 +1,5 @@
 import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
+import type { ModelProfile, ModelProfileInput, ModelSettings } from './modelProfiles';
 import type { ModelStatusReport } from './modelStatus';
 import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
@@ -24,6 +25,12 @@ export interface GenerationParams {
    * (see shared/styles.ts). `prompt` is always the full text sent to the model; this is only a label
    * for the Library to show. */
   styleName?: string;
+  /** Image families only: the name of the model profile the files and sampler below came from (a label for
+   * the Library). Absent for the shipped template. */
+  modelName?: string;
+  /** Image families only: the profile resolved at submit time - which files to load and how to sample. Absent
+   * means the template exactly as shipped. (steps and cfg above are always the values to use.) */
+  modelSettings?: ModelSettings;
 }
 
 export interface GenerationRecord {
@@ -50,6 +57,10 @@ export interface GenerationRecord {
   trashedAt: string | null;
   /** The style that was combined into `prompt` when this was made (display only), or null for none. */
   styleName: string | null;
+  /** The model profile this was made with (display only), or null for the shipped model. */
+  modelName: string | null;
+  /** The exact files and sampler it was made with, or null for the shipped template. */
+  modelSettings: ModelSettings | null;
   createdAt: string;
   /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
    * null for generations made before timing was tracked. */
@@ -400,6 +411,13 @@ export interface KVGeniusAPI {
   saveStyle: (input: PromptStyleInput, id?: number | null) => Promise<PromptStyle>;
   /** Past generations are not affected: they keep the text they were made with. */
   deleteStyle: (id: number) => Promise<void>;
+
+  /** Saved model variants (see shared/modelProfiles.ts). Past generations keep the files and settings they were made with. */
+  listModelProfiles: () => Promise<ModelProfile[]>;
+  saveModelProfile: (input: ModelProfileInput, id?: number | null) => Promise<ModelProfile>;
+  deleteModelProfile: (id: number) => Promise<void>;
+  /** The sampler and scheduler names ComfyUI offers (empty lists when it is not reachable). */
+  getSamplerChoices: () => Promise<{ samplers: string[]; schedulers: string[] }>;
 
   getComfyUIHost: () => Promise<ComfyUIHostInfo>;
   setComfyUIHost: (host: string) => Promise<void>;

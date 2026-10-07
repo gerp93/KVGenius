@@ -4,6 +4,7 @@ import { MODEL_MANIFEST } from '../../shared/modelManifest';
 import { ModelsDirInfo } from '../../shared/types';
 import { ExternalLink } from '../components/Stepper';
 import ModelFilesTable, { summaryText } from '../components/ModelFilesTable';
+import ModelProfiles from '../components/ModelProfiles';
 import { useModelStatus } from '../hooks/useModelStatus';
 import SettingsSection from './settings/SettingsSection';
 import '../components/Models.css';
@@ -14,8 +15,13 @@ const SOURCE_TEXT = {
   none: "Can't tell yet: ComfyUI is not reachable and its models folder is not set.",
 } as const;
 
+interface Props {
+  /** Tells the app a saved model was added, edited or deleted, so Generate's dropdown reloads. */
+  onModelsChanged: () => void;
+}
+
 /** What model files KVGenius needs, which of them ComfyUI has, and where the missing ones go. */
-export default function Models() {
+export default function Models({ onModelsChanged }: Props) {
   const { report, refresh } = useModelStatus();
   const [dir, setDir] = useState<ModelsDirInfo | null>(null);
 
@@ -65,6 +71,8 @@ export default function Models() {
             </button>
           </div>
         </SettingsSection>
+
+        <ModelProfiles report={report} onChanged={onModelsChanged} />
 
         {MODEL_MANIFEST.map((feature) => {
           const summary = summaryText(feature, report);

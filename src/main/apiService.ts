@@ -4,6 +4,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/types';
 import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
+import { profileFamily, SAMPLER_LIMITS } from '../shared/modelFamilies';
+import { ModelProfile, profileSettings } from '../shared/modelProfiles';
+import { findModelProfileByName, listModelProfiles } from './modelProfiles';
 import { isUpscaleFamily } from '../shared/upscale';
 import { JobFilter, JobInfo, JobStatus, isTerminalJobStatus } from '../shared/jobs';
 import { TOOLS, ToolResult } from '../shared/tools';
@@ -145,6 +148,8 @@ export class ApiService {
         return { data: await this.importFolder(args) };
       case 'list_styles':
         return { data: this.listStylesTool() };
+      case 'list_models':
+        return { data: this.listModelsTool() };
       case 'generate_image':
         return { data: this.generateImage(args) };
       case 'generate_video':
@@ -190,8 +195,9 @@ export class ApiService {
             width: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
             height: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
             seed: 'integer, random by default',
-            steps: { min: 1, max: 20, default: 8 },
-            cfg: { min: 0.5, max: 3, default: 1 },
+            model: 'optional name of a saved model variant (see list_models); its steps and cfg become the defaults',
+            steps: { min: 1, max: 20, default: 8, note: 'up to 100 with a model' },
+            cfg: { min: 0.5, max: 3, default: 1, note: 'up to 30 with a model' },
           },
         },
         {
@@ -289,16 +295,59 @@ export class ApiService {
         `No style named "${styleName.trim()}". ${names.length ? `Saved styles: ${names.join(', ')}.` : 'There are no saved styles yet - they are created in the KVGenius Styles tab.'}`
       );
     }
+    // A saved model swaps the files and sampler inside the family's graph; it is resolved here, so the job and
+    // the Library record carry exactly what runs (the profile may change or go away later).
+    const model = this.resolveModel(optString(args, 'model', 200), family);
     const params: GenerationParams = {
       prompt: combinePrompt(prompt, style?.text),
       ...(style ? { styleName: style.name } : {}),
       width: snap(optNumber(args, 'width', 64, 8192, true) ?? 1024, 64, 256, 2048),
       height: snap(optNumber(args, 'height', 64, 8192, true) ?? 1024, 64, 256, 2048),
       seed: optNumber(args, 'seed', 0, 2 ** 32 - 1, true) ?? Math.floor(Math.random() * 2 ** 32),
-      steps: optNumber(args, 'steps', 1, 20, true) ?? 8,
-      cfg: optNumber(args, 'cfg', 0.5, 3) ?? 1,
+      steps: model ? (optNumber(args, 'steps', SAMPLER_LIMITS.steps.min, SAMPLER_LIMITS.steps.max, true) ?? model.sampler.steps) : (optNumber(args, 'steps', 1, 20, true) ?? 8),
+      cfg: model ? (optNumber(args, 'cfg', SAMPLER_LIMITS.cfg.min, SAMPLER_LIMITS.cfg.max) ?? model.sampler.cfg) : (optNumber(args, 'cfg', 0.5, 3) ?? 1),
+      ...(model ? { modelName: model.name, modelSettings: profileSettings(model) } : {}),
     };
     return this.jobView(this.deps.queue.submit({ family, params, source: 'mcp', batch: optBatch(args) }));
+  }
+
+  /** The saved model named `name`, or null for the built-in one (no name, "default", or its own name). */
+  private resolveModel(name: string | undefined, family: string): ModelProfile | null {
+    const wanted = name?.trim();
+    const def = profileFamily(family);
+    if (!wanted || wanted.toLowerCase() === 'default' || wanted.toLowerCase() === def?.builtInName.toLowerCase()) return null;
+    const profile = findModelProfileByName(this.deps.db, wanted);
+    if (!profile) {
+      const names = listModelProfiles(this.deps.db).map((p) => `"${p.name}"`);
+      throw new ApiError(
+        'not_found',
+        `No model named "${wanted}". ${names.length ? `Saved models: ${names.join(', ')}.` : 'There are no saved models yet - they are added in the KVGenius Models page.'} Omit \`model\` for the built-in one.`
+      );
+    }
+    if (profile.family !== family) fail(`The model "${profile.name}" is for the "${profile.family}" family, not "${family}".`);
+    return profile;
+  }
+
+  private listModelsTool() {
+    const def = profileFamily(Z_IMAGE_FAMILY);
+    const saved = listModelProfiles(this.deps.db).map((p) => ({
+      name: p.name,
+      family: p.family,
+      steps: p.sampler.steps,
+      cfg: p.sampler.cfg,
+      sampler: p.sampler.sampler,
+      scheduler: p.sampler.scheduler,
+      files: p.files,
+    }));
+    return {
+      models: [
+        { name: def?.builtInName, family: Z_IMAGE_FAMILY, built_in: true, steps: def?.sampler?.steps, cfg: def?.sampler?.cfg },
+        ...saved,
+      ],
+      note: saved.length
+        ? 'Pass a name as `model` to generate_image. Its steps and cfg are the defaults unless you pass your own.'
+        : 'Only the built-in model so far - the user adds others in the KVGenius Models page.',
+    };
   }
 
   private listStylesTool() {
