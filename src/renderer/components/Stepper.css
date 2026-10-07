@@ -131,26 +131,6 @@ button.stepper__dot.active {
   word-break: break-all;
 }
 
-.stepper__body table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 4px 0 12px;
-  font-size: 13px;
-}
-
-.stepper__body th,
-.stepper__body td {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: top;
-}
-
-.stepper__body th {
-  color: var(--color-text-muted);
-  font-weight: 600;
-}
-
 .stepper__callout {
   margin-top: 14px;
   padding: 10px 12px;

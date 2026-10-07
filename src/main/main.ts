@@ -34,6 +34,8 @@ import {
   getFfmpegOverride,
   setFfmpegOverride,
   getComfyUILaunchPath,
+  getComfyUIModelsDir,
+  setComfyUIModelsDir,
   setComfyUILaunchPath,
   getHiddenWords,
   setHiddenWords,
@@ -68,6 +70,7 @@ import {
   isAvailable as comfyIsAvailable,
   cancelCurrentGeneration,
   listUpscaleModels,
+  listInstalledModels,
   GenerationCancelledError,
   DEFAULT_COMFYUI_HOST,
 } from './comfyui';
@@ -80,7 +83,9 @@ import { FfmpegPaths, findFfmpeg, planGif, probeMedia, runFfmpeg } from './media
 import { GIF_FAMILY } from '../shared/gif';
 import { cleanOrigins } from '../shared/origin';
 import { detectComfyUIProgram, launchComfyUIProgram } from './comfyLauncher';
-import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, LibraryListOptions, McpInfo } from '../shared/types';
+import { guessModelsDir, looksLikeModelsDir, scanModelsDir } from './modelsFolder';
+import { emptyInstalled, ModelStatusReport } from '../shared/modelStatus';
+import { ComfyUILauncherInfo, ComfyUILaunchResult, FAMILY_KIND, GenerationKind, GenerationParams, LibraryListOptions, McpInfo, ModelsDirInfo } from '../shared/types';
 import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
@@ -276,6 +281,24 @@ async function chooseComfyUIProgram(): Promise<string | null> {
   if (result.canceled || result.filePaths.length === 0) return null;
   setComfyUILaunchPath(result.filePaths[0]);
   return result.filePaths[0];
+}
+
+function modelsDirInfo(): ModelsDirInfo {
+  const configured = getComfyUIModelsDir();
+  const guessed = guessModelsDir(getComfyUILaunchPath() ?? detectComfyUIProgram());
+  const effective = configured ?? guessed;
+  return { configured, guessed, effective, valid: effective !== null && looksLikeModelsDir(effective) };
+}
+
+/** Which model files are available: ComfyUI's own answer if it is up, else a read of the models folder. */
+async function modelStatus(): Promise<ModelStatusReport> {
+  try {
+    return { source: 'comfyui', installed: await listInstalledModels() };
+  } catch {
+    const info = modelsDirInfo();
+    if (info.valid && info.effective) return { source: 'folder', installed: scanModelsDir(info.effective) };
+    return { source: 'none', installed: emptyInstalled() };
+  }
 }
 
 async function launchComfyUI(): Promise<ComfyUILaunchResult> {
@@ -849,6 +872,23 @@ function registerIpcHandlers(): void {
     await shell.openExternal(url);
   });
   ipcMain.handle('launchComfyUI', () => launchComfyUI());
+  ipcMain.handle('getModelStatus', () => modelStatus());
+  ipcMain.handle('getModelsDirInfo', () => modelsDirInfo());
+  ipcMain.handle('chooseModelsDir', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose ComfyUI's models folder",
+      message: 'The folder that contains diffusion_models, vae, loras and so on.',
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    setComfyUIModelsDir(result.filePaths[0]);
+    return modelsDirInfo();
+  });
+  ipcMain.handle('clearModelsDir', () => {
+    setComfyUIModelsDir(null);
+    return modelsDirInfo();
+  });
   ipcMain.handle('getComfyUILauncher', () => comfyLauncherInfo());
   ipcMain.handle('chooseComfyUILauncher', async () => ((await chooseComfyUIProgram()) ? comfyLauncherInfo() : null));
   ipcMain.handle('clearComfyUILauncher', () => {

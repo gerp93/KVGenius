@@ -12,6 +12,7 @@ interface AppConfig {
   comfyuiHost?: string;
   /** Program the "ComfyUI not reachable" indicator launches (ComfyUI Desktop, a run script, an AppImage). */
   comfyuiLaunchPath?: string;
+  comfyuiModelsDir?: string;
   theme?: string;
   promptSlots?: PromptSlot[];
   hiddenWords?: string[];
@@ -300,6 +301,18 @@ export function setComfyUILaunchPath(launchPath: string | null): void {
   const config = readConfig();
   if (launchPath) config.comfyuiLaunchPath = launchPath;
   else delete config.comfyuiLaunchPath;
+  writeConfig(config);
+}
+
+/** Where ComfyUI's `models` folder is, if the user chose it (otherwise it is guessed - see modelsFolder.ts). */
+export function getComfyUIModelsDir(): string | null {
+  return readConfig().comfyuiModelsDir || null;
+}
+
+export function setComfyUIModelsDir(dir: string | null): void {
+  const config = readConfig();
+  if (dir) config.comfyuiModelsDir = dir;
+  else delete config.comfyuiModelsDir;
   writeConfig(config);
 }
 

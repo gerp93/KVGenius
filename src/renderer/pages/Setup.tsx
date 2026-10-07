@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { manifestFeature } from '../../shared/modelManifest';
+import { summarize } from '../../shared/modelStatus';
+import ModelFilesTable from '../components/ModelFilesTable';
 import Stepper, { ExternalLink, Step } from '../components/Stepper';
+import { useModelStatus } from '../hooks/useModelStatus';
 
 const POLL_MS = 3000;
 
@@ -24,53 +28,8 @@ function useComfyConnected(): boolean | null {
   return connected;
 }
 
-/** The upscale models ComfyUI has, once it is reachable (null until known). */
-function useUpscaleModels(connected: boolean | null): string[] | null {
-  const [models, setModels] = useState<string[] | null>(null);
-  useEffect(() => {
-    if (!connected) {
-      setModels(null);
-      return;
-    }
-    let cancelled = false;
-    window.kvgenius
-      .listUpscaleModels()
-      .then((list) => !cancelled && setModels(list))
-      .catch(() => !cancelled && setModels(null));
-    return () => {
-      cancelled = true;
-    };
-  }, [connected]);
-  return models;
-}
-
 function Callout({ children }: { children: React.ReactNode }) {
   return <div className="stepper__callout">{children}</div>;
-}
-
-function ModelTable({ rows }: { rows: { file: string; folder: string }[] }) {
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>File</th>
-          <th>Goes in (inside ComfyUI's models folder)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.file}>
-            <td>
-              <code>{row.file}</code>
-            </td>
-            <td>
-              <code>{row.folder}</code>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
 }
 
 const STATUS_LABEL = {
@@ -84,7 +43,16 @@ const STATUS_LABEL = {
 export default function Setup() {
   const navigate = useNavigate();
   const connected = useComfyConnected();
-  const upscaleModels = useUpscaleModels(connected);
+  const { report } = useModelStatus();
+  const [modelsDir, setModelsDir] = useState<string | null>(null);
+  useEffect(() => {
+    void window.kvgenius.getModelsDirInfo().then((info) => setModelsDir(info.valid ? info.effective : null));
+  }, []);
+  const zImage = manifestFeature('z-image')!;
+  const wan = manifestFeature('wan22-i2v')!;
+  const upscaleModels = report && report.source !== 'none' ? report.installed.upscale_models : null;
+  // How many of the picture files are still missing, for the connect step (null when nothing is known).
+  const missingPictureFiles = report && report.source !== 'none' ? zImage.files.length - summarize(zImage.files, report).present : null;
 
   const steps: Step[] = [
     {
@@ -147,16 +115,11 @@ export default function Setup() {
             Text to image uses <strong>Z Image Turbo</strong>. Download these three files and put each one in the folder
             shown. The <strong>names must match exactly</strong> - KVGenius asks ComfyUI for these file names.
           </p>
-          <ModelTable
-            rows={[
-              { file: 'z_image_turbo_bf16.safetensors', folder: 'diffusion_models' },
-              { file: 'qwen_3_4b.safetensors', folder: 'text_encoders' },
-              { file: 'ae.safetensors', folder: 'vae' },
-            ]}
-          />
+          <ModelFilesTable feature={zImage} report={report} modelsDir={modelsDir} />
           <p>
             ComfyUI's Z Image Turbo page has the download links. The <code>models</code> folder is inside your ComfyUI
-            folder (for ComfyUI Desktop, the base folder you picked when installing).
+            folder (for ComfyUI Desktop, the base folder you picked when installing). The Status column updates by itself
+            as you add the files.
           </p>
           <Callout>
             If ComfyUI was already running, restart it (or press <code>R</code> in its window) so it notices the new
@@ -164,7 +127,7 @@ export default function Setup() {
           </Callout>
         </>
       ),
-      links: [{ label: 'Z Image Turbo model page', href: 'https://docs.comfy.org/tutorials/image/z-image/z-image-turbo' }],
+      links: [{ label: zImage.source.label, href: zImage.source.url }, { label: 'Check all model files', to: '/models' }],
     },
     {
       kicker: 'Optional',
@@ -173,35 +136,21 @@ export default function Setup() {
         <>
           <p>
             Skip this if you only want pictures. Making a video from a picture uses <strong>Wan 2.2 image to video</strong>{' '}
-            (14B). It needs all five of these:
+            (14B). It needs all six of these:
           </p>
-          <ModelTable
-            rows={[
-              { file: 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors', folder: 'diffusion_models' },
-              { file: 'wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors', folder: 'diffusion_models' },
-              { file: 'umt5_xxl_fp8_e4m3fn_scaled.safetensors', folder: 'text_encoders' },
-              { file: 'wan_2.1_vae.safetensors', folder: 'vae' },
-            ]}
-          />
+          <ModelFilesTable feature={wan} report={report} modelsDir={modelsDir} />
           <p>
-            For the <strong>Fast</strong> video quality option, add the two 4-step LoRAs as well:
+            Two of them are the 4-step LoRAs behind the <strong>Fast</strong> quality option. The workflow contains both
+            LoRAs, so install all six even if you only plan to use High. They are all in the Wan 2.2 repackaged
+            repository, under its <code>split_files</code> folder.
           </p>
-          <ModelTable
-            rows={[
-              { file: 'wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors', folder: 'loras' },
-              { file: 'wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors', folder: 'loras' },
-            ]}
-          />
-          <p>All of them are in the Wan 2.2 repackaged repository, under its <code>split_files</code> folder.</p>
           <Callout>
             Video is much heavier than pictures: expect large downloads, a lot of graphics memory, and slow runs.
             ComfyUI's Wan 2.2 page lists the requirements.
           </Callout>
         </>
       ),
-      links: [
-        { label: 'Wan 2.2 files (Hugging Face)', href: 'https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged' },
-      ],
+      links: [{ label: wan.source.label, href: wan.source.url }],
     },
     {
       kicker: 'Optional',
@@ -216,16 +165,16 @@ export default function Setup() {
           <p>
             Put the downloaded file (<code>.pth</code> or <code>.safetensors</code>) in <code>upscale_models</code>.
           </p>
-          {connected && upscaleModels !== null && (
+          {upscaleModels !== null && (
             <p>
               {upscaleModels.length > 0
-                ? `Found in ComfyUI right now: ${upscaleModels.join(', ')}.`
-                : 'ComfyUI has no upscale models yet.'}
+                ? `Found right now: ${upscaleModels.join(', ')}.`
+                : 'No upscale models found yet.'}
             </p>
           )}
         </>
       ),
-      links: [{ label: 'Browse upscale models', href: 'https://openmodeldb.info' }],
+      links: [{ label: 'Browse upscale models', href: manifestFeature('upscale')!.source.url }],
     },
     {
       kicker: 'Step 3',
@@ -236,7 +185,17 @@ export default function Setup() {
             {STATUS_LABEL[String(connected) as keyof typeof STATUS_LABEL]}
           </div>
           {connected ? (
-            <p>KVGenius can reach ComfyUI. You are ready to make something.</p>
+            <>
+              <p>KVGenius can reach ComfyUI.</p>
+              {missingPictureFiles === null ? null : missingPictureFiles === 0 ? (
+                <p>All the picture model files are in place. You are ready to make something.</p>
+              ) : (
+                <p>
+                  {missingPictureFiles} of the {zImage.files.length} picture model files are still missing - go back to step 2 to
+                  see which.
+                </p>
+              )}
+            </>
           ) : (
             <>
               <p>
@@ -263,7 +222,10 @@ export default function Setup() {
           )}
         </>
       ),
-      links: [{ label: 'Open Settings > ComfyUI', to: '/settings?tab=comfyui' }],
+      links: [
+        { label: 'Open Settings > ComfyUI', to: '/settings?tab=comfyui' },
+        { label: 'Check all model files', to: '/models' },
+      ],
     },
     {
       kicker: 'Done',

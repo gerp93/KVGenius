@@ -10,6 +10,8 @@ import wan22I2vTemplate from './templates/wan22-i2v.json';
 import upscaleImageTemplate from './templates/upscale-image.json';
 import upscaleVideoTemplate from './templates/upscale-video.json';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../shared/upscale';
+import { FOLDER_LOADERS, MODEL_FOLDERS } from '../shared/modelManifest';
+import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/modelStatus';
 
 // Imported directly (not read from disk at runtime via fs) so tsc inlines the JSON into the
 // compiled output - `tsc -p tsconfig.main.json` only compiles .ts files, it doesn't copy
@@ -126,17 +128,30 @@ export async function cancelCurrentGeneration(): Promise<void> {
   currentAbortController?.abort();
 }
 
-/** Upscale models ComfyUI can load, read from the loader node's own list of choices. Older ComfyUI
- * versions describe a choice list as `[[...names]]`; newer ones as `["COMBO", { options: [...] }]`. */
-export async function listUpscaleModels(): Promise<string[]> {
-  const resp = await comfyRequest('/object_info/UpscaleModelLoader', { signal: AbortSignal.timeout(10000) });
-  const data = (await resp.json()) as {
-    UpscaleModelLoader?: { input?: { required?: { model_name?: unknown } } };
-  };
-  const spec = data.UpscaleModelLoader?.input?.required?.model_name;
-  if (!Array.isArray(spec)) return [];
-  const choices = Array.isArray(spec[0]) ? spec[0] : (spec[1] as { options?: unknown } | undefined)?.options;
-  return Array.isArray(choices) ? choices.map(String) : [];
+/** The files one of ComfyUI's loader nodes offers, read from the node's own list of choices. */
+async function listLoaderChoices(node: string, input: string): Promise<string[]> {
+  const resp = await comfyRequest(`/object_info/${node}`, { signal: AbortSignal.timeout(10000) });
+  const data = (await resp.json()) as Record<string, { input?: { required?: Record<string, unknown> } } | undefined>;
+  return parseChoiceList(data[node]?.input?.required?.[input]);
+}
+
+/** Upscale models ComfyUI can load. */
+export function listUpscaleModels(): Promise<string[]> {
+  return listLoaderChoices(FOLDER_LOADERS.upscale_models.node, FOLDER_LOADERS.upscale_models.input);
+}
+
+/** Every model file ComfyUI can see in the folders the app cares about. A loader this ComfyUI does not
+ * know is treated as having no files; if none of them can be asked at all, ComfyUI is unreachable. */
+export async function listInstalledModels(): Promise<InstalledModels> {
+  const installed = emptyInstalled();
+  const results = await Promise.allSettled(
+    MODEL_FOLDERS.map(async (folder) => {
+      installed[folder] = await listLoaderChoices(FOLDER_LOADERS[folder].node, FOLDER_LOADERS[folder].input);
+    }),
+  );
+  const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failures.length === results.length) throw failures[0].reason;
+  return installed;
 }
 
 export async function isAvailable(): Promise<boolean> {

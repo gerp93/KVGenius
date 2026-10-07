@@ -1,4 +1,5 @@
 import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
+import type { ModelStatusReport } from './modelStatus';
 import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
 import type { PromptStyle, PromptStyleInput } from './styles';
@@ -230,6 +231,16 @@ export interface ComfyUILauncherInfo {
   detected: string | null;
 }
 
+/** Where ComfyUI's `models` folder is: the one the user chose, else a guess from the launcher. */
+export interface ModelsDirInfo {
+  configured: string | null;
+  guessed: string | null;
+  /** configured, else guessed. */
+  effective: string | null;
+  /** effective exists and looks like a ComfyUI models folder. */
+  valid: boolean;
+}
+
 export type ComfyUILaunchResult =
   | { status: 'launched' | 'already-running' | 'cancelled' }
   | { status: 'error'; message: string };
@@ -402,6 +413,13 @@ export interface KVGeniusAPI {
   /** Opens a file dialog to choose the program to launch; resolves the new state, or null if cancelled. */
   chooseComfyUILauncher: () => Promise<ComfyUILauncherInfo | null>;
   clearComfyUILauncher: () => Promise<ComfyUILauncherInfo>;
+
+  /** Which model files ComfyUI has: asked of ComfyUI itself, else read from the models folder, else unknown. */
+  getModelStatus: () => Promise<ModelStatusReport>;
+  getModelsDirInfo: () => Promise<ModelsDirInfo>;
+  /** Opens a folder dialog; resolves the new state, or null if cancelled. */
+  chooseModelsDir: () => Promise<ModelsDirInfo | null>;
+  clearModelsDir: () => Promise<ModelsDirInfo>;
 
   getTheme: () => Promise<string>;
   setTheme: (themeId: string) => Promise<void>;
