@@ -51,6 +51,7 @@ const api: KVGeniusAPI = {
   setGenerationFavorite: (id: number, favorite: boolean) => ipcRenderer.invoke('setGenerationFavorite', id, favorite),
   imageUrlFor: (imagePath: string) => mediaUrlFor(imagePath),
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),
+  getImageSize: (filePath: string) => ipcRenderer.invoke('getImageSize', filePath),
   chooseSourceImages: () => ipcRenderer.invoke('chooseSourceImages'),
   sourceImagesMissing: (paths: string[]) => ipcRenderer.invoke('sourceImagesMissing', paths),
   listSourceImages: () => ipcRenderer.invoke('listSourceImages'),

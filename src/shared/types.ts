@@ -27,6 +27,8 @@ export interface GenerationParams {
    * (see shared/styles.ts). `prompt` is always the full text sent to the model; this is only a label
    * for the Library to show. */
   styleName?: string;
+  /** Image to image only: how much of the start picture is re-drawn, 0.05 to 1 (ComfyUI's denoise). 1 ignores it. */
+  denoise?: number;
   /** Image families only: the name of the model profile the files and sampler below came from (a label for
    * the Library). Absent for the shipped template. */
   modelName?: string;
@@ -59,6 +61,8 @@ export interface GenerationRecord {
   trashedAt: string | null;
   /** The style that was combined into `prompt` when this was made (display only), or null for none. */
   styleName: string | null;
+  /** Image to image only: how much of the start picture was re-drawn (see GenerationParams.denoise), else null. */
+  denoise: number | null;
   /** The model profile this was made with (display only), or null for the shipped model. */
   modelName: string | null;
   /** The exact files and sampler it was made with, or null for the shipped template. */
@@ -197,8 +201,10 @@ export interface SourceImageEntry {
 
 export type ExportResult = { status: 'saved'; path: string; count: number } | { status: 'cancelled' };
 
-/** A request to open the Generate tab in video mode with an existing image as the source. */
+/** A request to open the Generate tab with an existing image as the source - of a video, or of an image to image run. */
 export interface VideoSourceRequest {
+  /** What the picture is for: a video's source (the default) or the start picture of an image to image run. */
+  target?: 'video' | 'image';
   imagePath: string;
   /** The image's own dimensions, used to pick a video size that keeps its aspect ratio. */
   width: number;
@@ -209,6 +215,7 @@ export interface VideoSourceRequest {
  * renderer shows an <img> or a <video> for a given record's output/result. */
 export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'z-image': 'image',
+  'z-image-i2i': 'image',
   'wan22-i2v': 'video',
   'upscale-video': 'video',
 };
@@ -352,6 +359,8 @@ export interface KVGeniusAPI {
    * local paths, empty if cancelled. */
   chooseSourceImages: () => Promise<string[]>;
   /** Of the given source-image paths (a result's kept copy), the ones no longer on disk. */
+  /** A picture's own size (null if it cannot be read or is not one the app may show). */
+  getImageSize: (filePath: string) => Promise<{ width: number; height: number } | null>;
   sourceImagesMissing: (paths: string[]) => Promise<string[]>;
   /** Every kept source image with what was made from it (Library > Sources). */
   listSourceImages: () => Promise<SourceImageEntry[]>;

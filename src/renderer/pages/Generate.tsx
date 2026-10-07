@@ -11,6 +11,7 @@ import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import { PromptStyle, combinePrompt } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
+import { DENOISE_LIMITS, I2I_FAMILY, clampDenoise, imageFamilyFor } from '../../shared/imageToImage';
 import { ModelProfile, ModelSettings, profileMatchesSettings, profileSettings, serializeModelSettings } from '../../shared/modelProfiles';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { useGenerationChanges } from '../utils/generationChanges';
@@ -144,6 +145,10 @@ export default function Generate({
     setStyleId,
     profileId,
     setProfileId,
+    imageSourcePath,
+    setImageSourcePath,
+    denoise,
+    setDenoise,
     lastRunSignature,
     setLastRunSignature,
   } = slotState;
@@ -229,6 +234,9 @@ export default function Generate({
       cancelled = true;
     };
   }, [modelsVersion]);
+  // Image mode with a start picture is image to image: its own workflow, the same model (so profiles still apply).
+  const startPicture = mode === 'image' ? imageSourcePath : null;
+  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null) : FAMILY_FOR_MODE.video;
   const modelFamily = profileFamily(FAMILY_FOR_MODE[mode]);
   const familyModels = models.filter((m) => m.family === FAMILY_FOR_MODE[mode]);
   const activeModel = familyModels.find((m) => m.id === profileId) ?? null;
@@ -258,7 +266,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings)] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -278,7 +286,7 @@ export default function Generate({
     let cancelled = false;
     const timer = setTimeout(() => {
       window.kvgenius
-        .findDuplicateGeneration(FAMILY_FOR_MODE[mode], {
+        .findDuplicateGeneration(runFamily, {
           prompt: finalPrompt,
           width,
           height,
@@ -286,6 +294,7 @@ export default function Generate({
           steps: runSteps,
           cfg: runCfg,
           ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
+          ...(startPicture ? { sourceImagePath: startPicture, denoise } : {}),
           ...(modelSettings ? { modelSettings } : {}),
         })
         .then((found) => {
@@ -299,7 +308,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, finishedRuns, libraryChanges, modelSettings && serializeModelSettings(modelSettings)]);
+  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, startPicture, denoise, finishedRuns, libraryChanges, modelSettings && serializeModelSettings(modelSettings)]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -328,15 +337,52 @@ export default function Generate({
     setError(null);
   }
 
+  /** Switch to image mode with `request.imagePath` as the start picture (image to image), sized to its shape. */
+  function setUpImageToImage(request: VideoSourceRequest) {
+    setMode('image');
+    setImageSourcePath(request.imagePath);
+    setSizeToPicture(request.width, request.height);
+    setError(null);
+  }
+
+  /** The output takes the picture's shape - long side 1024, both sides a multiple of 64 - since it is fitted to that size. */
+  function setSizeToPicture(pictureWidth: number, pictureHeight: number) {
+    if (pictureWidth <= 0 || pictureHeight <= 0) return;
+    const scale = 1024 / Math.max(pictureWidth, pictureHeight);
+    const snap = (n: number) => Math.min(2048, Math.max(256, Math.round((n * scale) / 64) * 64));
+    setWidth(snap(pictureWidth));
+    setHeight(snap(pictureHeight));
+    setCustomSize(false);
+  }
+
+  /** A picture the user chose or dropped as the start of an image to image run. */
+  async function useStartPicture(path: string | null) {
+    setImageSourcePath(path);
+    setError(null);
+    if (!path) return;
+    try {
+      const size = await window.kvgenius.getImageSize(path);
+      if (size) setSizeToPicture(size.width, size.height);
+    } catch {
+      // The size stays as it was; the picture is still used.
+    }
+  }
+
   useEffect(() => {
     if (!videoSource) return;
-    setUpVideoFromImage(videoSource);
+    if (videoSource.target === 'image') setUpImageToImage(videoSource);
+    else setUpVideoFromImage(videoSource);
     onVideoSourceHandled();
   }, [videoSource, onVideoSourceHandled]);
 
   async function handleChooseSourceImage() {
     const path = await window.kvgenius.chooseSourceImage();
     if (path) setSourceImagePath(path);
+  }
+
+  async function handleChooseStartPicture() {
+    const path = await window.kvgenius.chooseSourceImage();
+    if (path) await useStartPicture(path);
   }
 
   /** Loads a past generation's prompt and exact settings into the form and shows it in the viewer,
@@ -371,6 +417,10 @@ export default function Generate({
       // A video keeps a copy of the image it was made from, so it can be re-run in place. Videos made
       // before that was kept have none: a new one has to be chosen before they can be re-run.
       setSourceImagePath(recalledMode === 'video' ? record.sourceImagePath : null);
+      // An image to image result is re-run from the copy of its start picture the Library kept, at its strength.
+      const fromPicture = record.modelFamily === I2I_FAMILY;
+      setImageSourcePath(fromPicture ? record.sourceImagePath : null);
+      if (fromPicture) setDenoise(clampDenoise(record.denoise));
       showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath), slotId);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -487,9 +537,10 @@ export default function Generate({
       steps: runSteps,
       cfg: runCfg,
       ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
+      ...(startPicture ? { sourceImagePath: startPicture, denoise } : {}),
     };
     const added = queue.enqueue(
-      seeds.map((jobSeed) => ({ family: FAMILY_FOR_MODE[mode], kind: mode, params: { ...base, seed: jobSeed } })),
+      seeds.map((jobSeed) => ({ family: runFamily, kind: mode, params: { ...base, seed: jobSeed } })),
       activeSlotId
     );
     if (added < seeds.length) {
@@ -687,6 +738,53 @@ export default function Generate({
                     alt="Source image"
                   />
                 </div>
+              )}
+            </ImageDropZone>
+          )}
+
+          {mode === 'image' && (
+            <ImageDropZone
+              style={{ marginBottom: 12 }}
+              onPaths={(paths) => void useStartPicture(paths[0] ?? null)}
+              onReject={setError}
+            >
+              <label className="field-label">Start from a picture (optional)</label>
+              {startPicture ? (
+                <>
+                  <div className="source-image-preview-wrap">
+                    <ExpandButton src={window.kvgenius.imageUrlFor(startPicture)} kind="image" filePath={startPicture} alt="Start picture" />
+                    <img className="source-image-preview" src={window.kvgenius.imageUrlFor(startPicture)} alt="Start picture" />
+                  </div>
+                  <div className="button-row" style={{ marginTop: 6 }}>
+                    <button type="button" onClick={() => void handleChooseStartPicture()}>
+                      Change...
+                    </button>
+                    <button type="button" onClick={() => void useStartPicture(null)}>
+                      Remove
+                    </button>
+                  </div>
+                  <label className="field-label" htmlFor="denoise" style={{ marginTop: 10 }}>
+                    How much to change it: {denoise.toFixed(2)}
+                  </label>
+                  <input
+                    id="denoise"
+                    type="range"
+                    min={DENOISE_LIMITS.min}
+                    max={DENOISE_LIMITS.max}
+                    step={0.05}
+                    value={denoise}
+                    onChange={(e) => setDenoise(clampDenoise(Number(e.target.value)))}
+                    style={{ width: '100%' }}
+                  />
+                  <p className="style-picker__preview">
+                    Low keeps most of the picture; 1 ignores it. The result is made at the size chosen below, so a different shape is cropped
+                    from the centre.
+                  </p>
+                </>
+              ) : (
+                <button type="button" className="source-image-button" onClick={() => void handleChooseStartPicture()} title="Image to image: the new picture is drawn from this one and your prompt">
+                  <span className="source-image-button__name">Choose a picture... (or drop one here)</span>
+                </button>
               )}
             </ImageDropZone>
           )}

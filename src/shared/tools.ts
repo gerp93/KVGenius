@@ -47,7 +47,7 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'generate_image',
     description:
-      'Queues a text-to-image generation and returns immediately with a job id. Generation takes seconds to minutes; poll with get_job.',
+      'Queues a text-to-image generation - or, with `source`, an image-to-image one - and returns immediately with a job id. Generation takes seconds to minutes; poll with get_job.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -56,6 +56,12 @@ export const TOOLS: ToolDefinition[] = [
           type: 'string',
           description:
             'Optional. The name of one of the user\'s saved styles (see list_styles; case-insensitive). Its wording is appended to the prompt, so describe only the subject in `prompt`. Omit to send the prompt exactly as written.',
+        },
+        source: itemIdProp('Optional. A library picture to start from (image to image). The new picture is drawn from it and the prompt, instead of from nothing; width and height then default to its shape'),
+        strength: {
+          type: 'number',
+          description:
+            'With `source`: how much of the picture is re-drawn, 0.05-1. Small keeps most of it, 1 ignores it. Default 0.6.',
         },
         model: {
           type: 'string',

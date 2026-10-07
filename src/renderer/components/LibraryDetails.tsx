@@ -43,6 +43,8 @@ interface Props {
   /** Load the generation into a Generate tab. */
   onRerack: (record: GenerationRecord) => void;
   onImageToVideo: (record: GenerationRecord) => void;
+  /** Start an image to image run from this picture (opens Generate with it as the start picture). */
+  onImageToImage: (record: GenerationRecord) => void;
   onSaveAs: (record: GenerationRecord) => void;
   onReveal: (record: GenerationRecord) => void;
   /** An upscale was added to the queue (the page can show its queue). */
@@ -70,6 +72,7 @@ export default function LibraryDetails({
   onDelete,
   onRerack,
   onImageToVideo,
+  onImageToImage,
   onSaveAs,
   onReveal,
   onUpscaleQueued,
@@ -350,6 +353,11 @@ export default function LibraryDetails({
         {kindOf(record) === 'image' && !isGif(record) && (
           <button type="button" onClick={() => onImageToVideo(record)} title="Create video from image">
             🎬 Video
+          </button>
+        )}
+        {kindOf(record) === 'image' && !isGif(record) && (
+          <button type="button" onClick={() => onImageToImage(record)} title="Start a new picture from this one (image to image)">
+            🎨 Image
           </button>
         )}
         {kindOf(record) === 'image' && (

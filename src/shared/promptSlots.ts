@@ -1,3 +1,4 @@
+import { DEFAULT_DENOISE } from './imageToImage';
 import type { GenerationKind } from './types';
 import type { VideoQuality } from './videoQuality';
 
@@ -28,6 +29,11 @@ export interface PromptSlotData {
    * built-in. Absent in configs saved before models existed - read as null. A model that has since been deleted
    * is treated as the built-in by the Generate page. */
   profileId?: number | null;
+  /** Image mode only: a picture to start from (image to image), or null for text to image. Kept apart from a
+   * video's `sourceImagePath` so switching modes never turns one into the other. Absent in older configs - null. */
+  imageSourcePath?: string | null;
+  /** Image to image only: how much of the start picture is re-drawn (0.05-1). Absent in older configs - the default. */
+  denoise?: number;
   /** The "would repeat the last run" guard - kept per slot so switching away and back doesn't
    * forget it, and it doesn't wrongly carry over between unrelated tabs. */
   lastRunSignature: string | null;
@@ -63,6 +69,8 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     batchSize: 1,
     styleId: null,
     profileId: null,
+    imageSourcePath: null,
+    denoise: DEFAULT_DENOISE,
     lastRunSignature: null,
   };
 }
@@ -107,6 +115,8 @@ function isValidData(data: unknown): data is PromptSlotData {
     typeof d.batchSize === 'number' &&
     (d.styleId === undefined || d.styleId === null || typeof d.styleId === 'number') &&
     (d.profileId === undefined || d.profileId === null || typeof d.profileId === 'number') &&
+    (d.imageSourcePath === undefined || d.imageSourcePath === null || typeof d.imageSourcePath === 'string') &&
+    (d.denoise === undefined || typeof d.denoise === 'number') &&
     (d.lastRunSignature === undefined || d.lastRunSignature === null || typeof d.lastRunSignature === 'string')
   );
 }

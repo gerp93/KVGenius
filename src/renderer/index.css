@@ -2964,3 +2964,7 @@ button.button-danger--armed:hover:not(:disabled) {
 .style-picker__preview a {
   color: var(--color-accent-blue);
 }
+
+.library-card__origin-badge--image-to-image {
+  background: rgba(170, 95, 20, 0.88);
+}

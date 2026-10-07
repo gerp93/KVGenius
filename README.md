@@ -13,9 +13,9 @@ ComfyUI Desktop's own default - the standalone ComfyUI server defaults to
 active template expects already installed. See `src/main/templates/` for
 the workflow templates KVGenius ships with.
 
-**Status:** early rewrite. Currently supports one mode (plain text-to-image)
-against one model template (Z Image Turbo). Image-to-image, inpainting, and
-additional model families are planned — see [TODO.md](TODO.md).
+**What it does:** text to image and image to image (Z Image), image to video (Wan 2.2), and
+upscaling, each from a curated workflow template. Other models of a supported family can be
+added on the Models page; inpainting and further model families are planned - see [TODO.md](TODO.md).
 
 The previous Flet/Python implementation of this app is preserved on the
 [`legacy-flet-app`](https://github.com/gerp93/KVGenius/tree/legacy-flet-app)

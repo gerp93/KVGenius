@@ -40,6 +40,6 @@ test('an origin filter passes the chosen origins; none chosen passes everything'
 });
 
 test('each tab offers only the origins that can occur on it', () => {
-  assert.deepEqual(originsForKind('image'), ['text-to-image', 'upscale', 'gif']);
+  assert.deepEqual(originsForKind('image'), ['text-to-image', 'image-to-image', 'upscale', 'gif']);
   assert.deepEqual(originsForKind('video'), ['image-to-video', 'upscale']);
 });

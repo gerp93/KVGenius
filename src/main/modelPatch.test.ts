@@ -1,22 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PROFILE_FAMILIES } from '../shared/modelFamilies';
+import { PROFILE_FAMILIES, profileFamilyKey } from '../shared/modelFamilies';
 import { ModelSettings, profileSettings } from '../shared/modelProfiles';
 import { SAMPLER_NODES, SLOT_NODES, applyModelSettings } from './modelPatch';
 import zImageTemplate from './templates/z-image.json';
+import i2iTemplate from './templates/z-image-i2i.json';
 import wanTemplate from './templates/wan22-i2v.json';
 
 type Template = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
-const templates: Record<string, Template> = { 'z-image': zImageTemplate as unknown as Template, 'wan22-i2v': wanTemplate as unknown as Template };
+const templates: Record<string, Template> = { 'z-image': zImageTemplate as unknown as Template, 'z-image-i2i': i2iTemplate as unknown as Template, 'wan22-i2v': wanTemplate as unknown as Template };
 
-test('every profile slot is wired to a template node whose current file is the slot default', () => {
-  for (const family of PROFILE_FAMILIES) {
-    const template = templates[family.family];
-    assert.ok(template, `a template for ${family.family}`);
+test('every profile slot is wired to a template node whose current file is the slot default - in every template that uses the family', () => {
+  for (const [templateFamily, template] of Object.entries(templates)) {
+    // image to image runs Z-Image's files, so it is held to Z-Image's slots too
+    const family = PROFILE_FAMILIES.find((f) => f.family === profileFamilyKey(templateFamily));
+    assert.ok(family, `a profile family for ${templateFamily}`);
     for (const slot of family.slots) {
-      const target = SLOT_NODES[family.family][slot.key];
+      const target: { node: string; input: string } | undefined = SLOT_NODES[family.family][slot.key];
       assert.ok(target, `${family.family}.${slot.key} has a node`);
-      assert.equal(template[target.node].inputs[target.input], slot.defaultFile, `${family.family}.${slot.key} default`);
+      assert.equal(template[target.node].inputs[target.input], slot.defaultFile, `${templateFamily}.${slot.key} default`);
     }
   }
 });

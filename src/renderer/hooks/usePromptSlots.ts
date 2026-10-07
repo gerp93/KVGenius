@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { clampDenoise, DEFAULT_DENOISE } from '../../shared/imageToImage';
 import { GenerationKind } from '../../shared/types';
 import type { VideoQuality } from '../../shared/videoQuality';
 import { MAX_PROMPT_SLOTS, PromptSlot, PromptSlotData, newPromptSlot, slotLabel } from '../../shared/promptSlots';
@@ -34,6 +35,8 @@ export function usePromptSlots() {
   const [batchSize, setBatchSize] = useState(1);
   const [styleId, setStyleId] = useState<number | null>(null);
   const [profileId, setProfileId] = useState<number | null>(null);
+  const [imageSourcePath, setImageSourcePath] = useState<string | null>(null);
+  const [denoise, setDenoise] = useState(DEFAULT_DENOISE);
   const [lastRunSignature, setLastRunSignature] = useState<string | null>(null);
 
   function applySnapshot(data: PromptSlotData) {
@@ -53,6 +56,8 @@ export function usePromptSlots() {
     setBatchSize(data.batchSize);
     setStyleId(data.styleId ?? null);
     setProfileId(data.profileId ?? null);
+    setImageSourcePath(data.imageSourcePath ?? null);
+    setDenoise(clampDenoise(data.denoise));
     setLastRunSignature(data.lastRunSignature ?? null);
   }
 
@@ -102,6 +107,8 @@ export function usePromptSlots() {
       batchSize,
       styleId,
       profileId,
+      imageSourcePath,
+      denoise,
       lastRunSignature,
     };
   }
@@ -139,6 +146,8 @@ export function usePromptSlots() {
     batchSize,
     styleId,
     profileId,
+    imageSourcePath,
+    denoise,
     lastRunSignature,
   ]);
 
@@ -236,6 +245,10 @@ export function usePromptSlots() {
     setStyleId,
     profileId,
     setProfileId,
+    imageSourcePath,
+    setImageSourcePath,
+    denoise,
+    setDenoise,
     lastRunSignature,
     setLastRunSignature,
   };

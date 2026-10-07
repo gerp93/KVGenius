@@ -269,6 +269,11 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     navigate('/');
   }
 
+  function handleImageToImage(record: GenerationRecord) {
+    onImageToVideo({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height });
+    navigate('/');
+  }
+
   async function handleTogglePinned(record: GenerationRecord) {
     const pinned = !record.pinned;
     let groupSize: number;
@@ -441,6 +446,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             onDelete={handleDelete}
             onRerack={handleRerack}
             onImageToVideo={handleImageToVideo}
+            onImageToImage={handleImageToImage}
             onSaveAs={handleSaveAs}
             onReveal={handleReveal}
             onUpscaleQueued={onShowQueue}

@@ -457,6 +457,11 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     navigate('/');
   }
 
+  function handleImageToImage(record: GenerationRecord) {
+    onImageToVideo({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height });
+    navigate('/');
+  }
+
   function forgetIds(ids: number[], kind: GenerationKind) {
     if (stacking) {
       // Taking an item out of a stack changes its count and maybe its cover, so load the stacks again.
@@ -957,6 +962,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             onDelete={handleDelete}
             onRerack={handleRecreate}
             onImageToVideo={handleImageToVideo}
+            onImageToImage={handleImageToImage}
             onSaveAs={handleSaveAs}
             onReveal={handleReveal}
             onUpscaleQueued={onShowQueue}
