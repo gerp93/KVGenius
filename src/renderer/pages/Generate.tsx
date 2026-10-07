@@ -9,6 +9,9 @@ import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useG
 import { usePromptSlots } from '../hooks/usePromptSlots';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import { PromptStyle, combinePrompt } from '../../shared/styles';
+import { Link } from 'react-router-dom';
+import { SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
+import { ModelProfile, ModelSettings, profileMatchesSettings, profileSettings, serializeModelSettings } from '../../shared/modelProfiles';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { useGenerationChanges } from '../utils/generationChanges';
 import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
@@ -32,6 +35,8 @@ interface Props {
   onVideoSourceHandled: () => void;
   /** Bumped by the Styles page when a style is added, edited or deleted, so the dropdown reloads. */
   stylesVersion: number;
+  /** Bumped by the Models page when a model is added, edited or deleted, so the dropdown reloads. */
+  modelsVersion: number;
 }
 
 // Long side of a video generated from an existing image (matches the 640px default).
@@ -94,6 +99,7 @@ export default function Generate({
   videoSource,
   onVideoSourceHandled,
   stylesVersion,
+  modelsVersion,
 }: Props) {
   // The left-hand form is one of several independent "tabs" (prompt + every setting below it),
   // switchable and persisted across restarts - see usePromptSlots for the field definitions.
@@ -136,6 +142,8 @@ export default function Generate({
     setBatchSize,
     styleId,
     setStyleId,
+    profileId,
+    setProfileId,
     lastRunSignature,
     setLastRunSignature,
   } = slotState;
@@ -200,6 +208,41 @@ export default function Generate({
     };
   }, [stylesVersion]);
   const activeStyle = mode === 'image' ? (styles.find((style) => style.id === styleId) ?? null) : null;
+
+  // The user's saved models (Models page): variants of the built-in one. Image mode only; none picked means the
+  // built-in model, exactly as before. A model picked in a tab that has since been deleted counts as the built-in.
+  const [models, setModels] = useState<ModelProfile[]>([]);
+  const modelsRef = useRef<ModelProfile[]>([]);
+  modelsRef.current = models;
+  useEffect(() => {
+    let cancelled = false;
+    window.kvgenius
+      .listModelProfiles()
+      .then((list) => {
+        if (!cancelled) setModels(list);
+      })
+      .catch(() => {
+        if (!cancelled) setModels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modelsVersion]);
+  const builtInSampler = profileFamily(FAMILY_FOR_MODE.image)?.sampler;
+  const imageModels = models.filter((m) => m.family === FAMILY_FOR_MODE.image);
+  const activeModel = mode === 'image' ? (imageModels.find((m) => m.id === profileId) ?? null) : null;
+  const modelSettings: ModelSettings | undefined = activeModel ? profileSettings(activeModel) : undefined;
+
+  /** Picking a model also sets steps and CFG to what it is set up for (still editable under Advanced). */
+  function handleModelChange(id: number | null) {
+    setProfileId(id);
+    const picked = imageModels.find((m) => m.id === id);
+    const sampler = picked?.sampler ?? builtInSampler;
+    if (sampler) {
+      setSteps(sampler.steps);
+      setCfg(sampler.cfg);
+    }
+  }
   // What is actually sent: the prompt, plus the style's words when one is picked.
   const finalPrompt = combinePrompt(prompt, activeStyle?.text);
 
@@ -212,7 +255,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath],
+      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings)] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -239,7 +282,7 @@ export default function Generate({
           seed,
           steps: runSteps,
           cfg: runCfg,
-          ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
+          ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : modelSettings ? { modelSettings } : {}),
         })
         .then((found) => {
           if (!cancelled) setDuplicate(found);
@@ -252,7 +295,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, finishedRuns, libraryChanges]);
+  }, [seedLocked, mode, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, finishedRuns, libraryChanges, modelSettings && serializeModelSettings(modelSettings)]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -300,6 +343,18 @@ export default function Generate({
       setMode(recalledMode);
       // A past generation's prompt already has its style's words in it, so no style is picked again.
       setStyleId(null);
+      // The model it was made with: picked again if a saved model still means exactly that, otherwise the built-in
+      // model is picked and the user is told, so a re-run never quietly uses different files.
+      if (recalledMode === 'image' && record.modelSettings) {
+        const match = modelsRef.current.find((m) => profileMatchesSettings(m, record.modelSettings));
+        setProfileId(match ? match.id : null);
+        if (!match) {
+          setNotice(`This was made with "${record.modelName ?? 'another model'}", which has changed or been removed - the built-in model is picked instead. Add it again on the Models page to match.`);
+          setTimeout(() => setNotice(null), 9000);
+        }
+      } else {
+        setProfileId(null);
+      }
       setPrompt(record.prompt);
       setWidth(record.width);
       setHeight(record.height);
@@ -422,6 +477,7 @@ export default function Generate({
     const base = {
       prompt: finalPrompt,
       ...(activeStyle ? { styleName: activeStyle.name } : {}),
+      ...(activeModel && modelSettings ? { modelName: activeModel.name, modelSettings } : {}),
       width,
       height,
       steps: runSteps,
@@ -647,6 +703,33 @@ export default function Generate({
 
           {mode === 'image' && (
             <div style={{ marginTop: 12 }}>
+              <label className="field-label" htmlFor="model-select">
+                Model
+              </label>
+              <select
+                id="model-select"
+                value={activeModel ? String(activeModel.id) : ''}
+                onChange={(e) => handleModelChange(e.target.value === '' ? null : Number(e.target.value))}
+                style={{ width: '100%' }}
+              >
+                <option value="">{profileFamily(FAMILY_FOR_MODE.image)?.builtInName} (built-in)</option>
+                {imageModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+              <p className="style-picker__preview">
+                {activeModel
+                  ? `${activeModel.sampler.steps} steps, CFG ${activeModel.sampler.cfg}, ${activeModel.sampler.sampler} / ${activeModel.sampler.scheduler}. `
+                  : ''}
+                <Link to="/models">Add or edit models</Link>
+              </p>
+            </div>
+          )}
+
+          {mode === 'image' && (
+            <div style={{ marginTop: 12 }}>
               <label className="field-label" htmlFor="style-select">
                 Style (optional)
               </label>
@@ -828,8 +911,8 @@ export default function Generate({
                     id="steps"
                     type="number"
                     value={steps}
-                    min={1}
-                    max={20}
+                    min={activeModel ? SAMPLER_LIMITS.steps.min : 1}
+                    max={activeModel ? SAMPLER_LIMITS.steps.max : 20}
                     onChange={(e) => setSteps(Number(e.target.value))}
                     style={{ width: 100 }}
                   />
@@ -842,8 +925,8 @@ export default function Generate({
                     id="cfg"
                     type="number"
                     value={cfg}
-                    min={0.5}
-                    max={3}
+                    min={activeModel ? SAMPLER_LIMITS.cfg.min : 0.5}
+                    max={activeModel ? SAMPLER_LIMITS.cfg.max : 3}
                     step={0.1}
                     onChange={(e) => setCfg(Number(e.target.value))}
                     style={{ width: 100 }}

@@ -157,6 +157,17 @@ implementation here is exactly the kind of drift it exists to prevent.
   `generations`, `jobs` and `timing_stats` at startup, in one transaction, after copying the database to
   `<db>.pre-family-rename` (`VACUUM INTO`). That copy is never deleted by the app; Settings > Library & Data
   lists it so the user can. Add a future rename to `LEGACY_FAMILY_KEYS` and the migration picks it up.
+- **Model profiles are values inside a family's graph, never a different graph** (`shared/modelFamilies.ts`,
+  `shared/modelProfiles.ts`, `main/modelProfiles.ts`, `main/modelPatch.ts`, Models page). A profile is a name, a
+  file per loader slot and sampler values; the built-in model is not a row, it is the shipped template. Like
+  styles, a profile is resolved *before* the job is queued (UI `generate` and MCP `generate_image`'s `model`
+  argument): `GenerationParams.modelName` / `modelSettings` carry the exact files and sampler, and
+  `generations.model_name` / `model_settings` keep them, so the queue, Re-rack and the details panel never depend
+  on the profile still existing. With no profile `modelSettings` is absent and the template runs exactly as
+  shipped. Re-rack picks a saved model again only if it still means *exactly* the recorded settings
+  (`profileMatchesSettings`), otherwise it falls back to the built-in one and says so. The duplicate guard compares
+  the model too. `modelPatch.ts`'s node ids must match the template (`modelPatch.test.ts` checks it); a new
+  family with profiles needs an entry in `PROFILE_FAMILIES`, `SLOT_NODES` and `SAMPLER_NODES`.
 - **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and
   `main/modelManifest.test.ts` pins it to the template JSON - change a template's loader file and that test fails
   until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,

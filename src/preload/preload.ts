@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { GenerationKind, GenerationParams, GenerationProgress, KVGeniusAPI, LibraryListOptions } from '../shared/types';
 import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
+import { ModelProfileInput } from '../shared/modelProfiles';
 
 // Videos are served by a local HTTP server, everything else by the kvimage:// protocol - the same
 // rule as imageUrlFor() in main.ts (the sandboxed preload can't import it).
@@ -95,6 +96,10 @@ const api: KVGeniusAPI = {
   listStyles: () => ipcRenderer.invoke('listStyles'),
   saveStyle: (input: PromptStyleInput, id?: number | null) => ipcRenderer.invoke('saveStyle', input, id ?? null),
   deleteStyle: (id: number) => ipcRenderer.invoke('deleteStyle', id),
+  listModelProfiles: () => ipcRenderer.invoke('listModelProfiles'),
+  saveModelProfile: (input: ModelProfileInput, id?: number | null) => ipcRenderer.invoke('saveModelProfile', input, id ?? null),
+  deleteModelProfile: (id: number) => ipcRenderer.invoke('deleteModelProfile', id),
+  getSamplerChoices: () => ipcRenderer.invoke('getSamplerChoices'),
 
   getComfyUIHost: () => ipcRenderer.invoke('getComfyUIHost'),
   setComfyUIHost: (host: string) => ipcRenderer.invoke('setComfyUIHost', host),

@@ -24,6 +24,10 @@ export interface PromptSlotData {
    * none. Absent in configs saved before styles existed - read as null. A style that has since been
    * deleted is treated as none by the Generate page. */
   styleId?: number | null;
+  /** Image mode only: the id of the saved model (Models page) used instead of the built-in one, or null for the
+   * built-in. Absent in configs saved before models existed - read as null. A model that has since been deleted
+   * is treated as the built-in by the Generate page. */
+  profileId?: number | null;
   /** The "would repeat the last run" guard - kept per slot so switching away and back doesn't
    * forget it, and it doesn't wrongly carry over between unrelated tabs. */
   lastRunSignature: string | null;
@@ -58,6 +62,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     customSize: false,
     batchSize: 1,
     styleId: null,
+    profileId: null,
     lastRunSignature: null,
   };
 }
@@ -101,6 +106,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     typeof d.customSize === 'boolean' &&
     typeof d.batchSize === 'number' &&
     (d.styleId === undefined || d.styleId === null || typeof d.styleId === 'number') &&
+    (d.profileId === undefined || d.profileId === null || typeof d.profileId === 'number') &&
     (d.lastRunSignature === undefined || d.lastRunSignature === null || typeof d.lastRunSignature === 'string')
   );
 }

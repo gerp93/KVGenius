@@ -57,16 +57,27 @@ export const TOOLS: ToolDefinition[] = [
           description:
             'Optional. The name of one of the user\'s saved styles (see list_styles; case-insensitive). Its wording is appended to the prompt, so describe only the subject in `prompt`. Omit to send the prompt exactly as written.',
         },
+        model: {
+          type: 'string',
+          description:
+            'Optional. The name of one of the user\'s saved models (see list_models; case-insensitive), a variant of the family such as a fine-tune. Its files and sampler are used, and `steps` and `cfg` default to its own. Omit for the built-in model.',
+        },
         family: { type: 'string', description: 'Model family (see list_capabilities). Default "z-image" (the old name "z-image-turbo" still works).' },
         width: { type: 'integer', description: 'Pixels, snapped to a multiple of 64 (256-2048). Default 1024.' },
         height: { type: 'integer', description: 'Pixels, snapped to a multiple of 64 (256-2048). Default 1024.' },
         seed: { type: 'integer', description: 'Random if omitted. Reuse a seed to reproduce a result.' },
-        steps: { type: 'integer', description: 'Sampling steps, 1-20. Default 8.' },
-        cfg: { type: 'number', description: 'Guidance, 0.5-3. Default 1.' },
+        steps: { type: 'integer', description: 'Sampling steps, 1-20 (1-100 with a `model`). Default 8, or the model\'s own.' },
+        cfg: { type: 'number', description: 'Guidance, 0.5-3 (0-30 with a `model`). Default 1, or the model\'s own.' },
         batch: batchProp,
       },
       required: ['prompt'],
     },
+  },
+  {
+    name: 'list_models',
+    description:
+      'Lists the models available to generate_image: the built-in one and any variants the user saved in KVGenius (a fine-tune or a different checkpoint of the same family), with the steps and CFG each is set up for. Pass a model\'s name as `model` to generate_image.',
+    inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'list_styles',

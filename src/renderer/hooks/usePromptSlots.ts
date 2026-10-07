@@ -33,6 +33,7 @@ export function usePromptSlots() {
   const [customSize, setCustomSize] = useState(false);
   const [batchSize, setBatchSize] = useState(1);
   const [styleId, setStyleId] = useState<number | null>(null);
+  const [profileId, setProfileId] = useState<number | null>(null);
   const [lastRunSignature, setLastRunSignature] = useState<string | null>(null);
 
   function applySnapshot(data: PromptSlotData) {
@@ -51,6 +52,7 @@ export function usePromptSlots() {
     setCustomSize(data.customSize);
     setBatchSize(data.batchSize);
     setStyleId(data.styleId ?? null);
+    setProfileId(data.profileId ?? null);
     setLastRunSignature(data.lastRunSignature ?? null);
   }
 
@@ -99,6 +101,7 @@ export function usePromptSlots() {
       customSize,
       batchSize,
       styleId,
+      profileId,
       lastRunSignature,
     };
   }
@@ -135,6 +138,7 @@ export function usePromptSlots() {
     customSize,
     batchSize,
     styleId,
+    profileId,
     lastRunSignature,
   ]);
 
@@ -230,6 +234,8 @@ export function usePromptSlots() {
     setBatchSize,
     styleId,
     setStyleId,
+    profileId,
+    setProfileId,
     lastRunSignature,
     setLastRunSignature,
   };

@@ -7,6 +7,7 @@ import * as path from 'path';
 import { DatabaseSync } from 'node:sqlite';
 import { initDatabase, insertGeneration, getGenerationById } from './db';
 import { saveStyle } from './styles';
+import { saveModelProfile } from './modelProfiles';
 import { JobQueue, JobRunner } from './jobQueue';
 import { AssemblyManager } from './assembly';
 import { ApiError, ApiService } from './apiService';
@@ -113,6 +114,59 @@ test('generate_image still accepts the old family key, and queues the job under 
   assert.equal(job.family, 'z-image');
   released.shift()?.();
   await call('get_job', { job_id: job.job_id, wait_seconds: 5 });
+});
+
+function lastJobParams(): Record<string, unknown> {
+  const row = db.prepare('SELECT params FROM jobs ORDER BY id DESC LIMIT 1').get() as { params: string };
+  return JSON.parse(row.params) as Record<string, unknown>;
+}
+
+test('generate_image with a saved model sends its files and sampler, and defaults steps and cfg to its own', async () => {
+  saveModelProfile(db, {
+    family: 'z-image',
+    name: 'Photoreal',
+    files: { diffusionModel: 'photoreal.safetensors', textEncoder: 'qwen_3_4b.safetensors', vae: 'ae.safetensors' },
+    sampler: { steps: 30, cfg: 4, sampler: 'euler', scheduler: 'karras', shift: 3 },
+  });
+  const job = await call('generate_image', { prompt: 'a red fox', model: 'photoreal' });
+  const params = lastJobParams();
+  assert.equal(params.steps, 30);
+  assert.equal(params.cfg, 4);
+  assert.equal(params.modelName, 'Photoreal');
+  assert.deepEqual(params.modelSettings, {
+    files: { diffusionModel: 'photoreal.safetensors', textEncoder: 'qwen_3_4b.safetensors', vae: 'ae.safetensors' },
+    sampler: 'euler',
+    scheduler: 'karras',
+    shift: 3,
+  });
+  released.shift()?.();
+  await call('get_job', { job_id: job.job_id, wait_seconds: 5 });
+
+  // steps may be overridden, up to the wider limit a model allows
+  const second = await call('generate_image', { prompt: 'a red fox', model: 'Photoreal', steps: 60 });
+  assert.equal(lastJobParams().steps, 60);
+  released.shift()?.();
+  await call('get_job', { job_id: second.job_id, wait_seconds: 5 });
+});
+
+test('generate_image without a model, or with the built-in one, sends the template as shipped', async () => {
+  const plain = await call('generate_image', { prompt: 'a red fox' });
+  assert.equal(lastJobParams().modelSettings, undefined);
+  released.shift()?.();
+  await call('get_job', { job_id: plain.job_id, wait_seconds: 5 });
+  const builtIn = await call('generate_image', { prompt: 'a red fox', model: 'Z Image Turbo' });
+  assert.equal(lastJobParams().modelSettings, undefined);
+  released.shift()?.();
+  await call('get_job', { job_id: builtIn.job_id, wait_seconds: 5 });
+  // the shipped limits still apply to it
+  await assert.rejects(() => call('generate_image', { prompt: 'a red fox', steps: 50 }), /steps/);
+});
+
+test('an unknown model is refused with the saved names, and list_models shows what there is', async () => {
+  await assert.rejects(() => call('generate_image', { prompt: 'a red fox', model: 'Nope' }), /No model named "Nope".*"Photoreal"/);
+  const listed = await call('list_models', {});
+  assert.deepEqual(listed.models.map((m: { name: string }) => m.name), ['Z Image Turbo', 'Photoreal']);
+  assert.equal(listed.models[0].built_in, true);
 });
 
 test('generate_image without a style sends the prompt untouched, with one it appends the style', async () => {

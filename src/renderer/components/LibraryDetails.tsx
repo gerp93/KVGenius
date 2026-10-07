@@ -383,6 +383,14 @@ export default function LibraryDetails({
         <dd>{kindOf(record) === 'video' ? 'Video' : 'Image'}</dd>
         <dt>Model</dt>
         <dd>{isUpscale(record) ? `Upscale (${record.modelFamily}) - enlarged from another picture` : record.modelFamily}</dd>
+        {record.modelName && record.modelSettings && (
+          <>
+            <dt>Variant</dt>
+            <dd title={Object.values(record.modelSettings.files).join('\n')}>
+              {record.modelName} - {record.modelSettings.sampler} / {record.modelSettings.scheduler}
+            </dd>
+          </>
+        )}
         {record.styleName && (
           <>
             <dt>Style</dt>

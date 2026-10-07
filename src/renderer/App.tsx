@@ -51,6 +51,8 @@ export default function App() {
   const [recallPrompt, setRecallPrompt] = useState<string | null>(null);
   // Bumped when a style is added, edited or deleted, so Generate's Style dropdown reloads.
   const [stylesVersion, setStylesVersion] = useState(0);
+  // Bumped when a saved model is added, edited or deleted, so Generate's Model dropdown reloads.
+  const [modelsVersion, setModelsVersion] = useState(0);
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<string | null>(null);
@@ -337,6 +339,7 @@ export default function App() {
                 videoSource={videoSource}
                 onVideoSourceHandled={() => setVideoSource(null)}
                 stylesVersion={stylesVersion}
+                modelsVersion={modelsVersion}
               />
             </div>
             <Routes>
@@ -403,7 +406,7 @@ export default function App() {
               <Route path="/timing" element={<Timing />} />
               <Route path="/hardpoint" element={<Hardpoint />} />
               <Route path="/setup" element={<Setup />} />
-              <Route path="/models" element={<Models />} />
+              <Route path="/models" element={<Models onModelsChanged={() => setModelsVersion((v) => v + 1)} />} />
               <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
             </Routes>
           </div>
