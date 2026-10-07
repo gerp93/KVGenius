@@ -72,8 +72,17 @@ implementation here is exactly the kind of drift it exists to prevent.
   `output/sources`, named by content hash so one picture is stored once - see
   `sourceImages.ts`). The original is only ever uploaded to ComfyUI and may be anywhere
   on disk or move/vanish inside the Library, so without the copy Re-rack could not re-run
-  a video in place. The copy is deleted with the last video that uses it; videos made
+  a video in place. The copy is deleted with the last result that uses it; videos made
   before this have none and need a source chosen again.
+  **This is the pattern for anything made from a supplied picture**, not a video-only rule:
+  `shared/sourceFamilies.ts` lists the families (`wan22-i2v`, `upscale-image`), and a new
+  tool that works on a picture goes in that list. For every family in it: the generation
+  keeps a copy (`generationService.ts`); the details panel shows it as "Original"; Library >
+  Sources lists the kept pictures (Upscale / Make video from them); and Re-rack is disabled,
+  with "Not available - the source image is missing.", once the copy is gone from disk
+  (`useMissingSources.ts`, checked by the `sourceImagesMissing` IPC). An upscale's Re-rack
+  opens Tools > Upscale with its original instead of loading Generate. A record with no
+  recorded source (made before copies were kept) is left re-rackable as it always was.
 - **Deleting is two steps, and there is no delete confirmation** (`trash.ts`,
   `cleanupScheduler.ts`, `shared/cleanup.ts`). Step 1: the Delete button anywhere (and the
   cleanup, for unfavorited/unpinned items older than N days) only moves the item to

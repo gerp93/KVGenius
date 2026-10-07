@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { GenerationRecord } from '../../shared/types';
-import { isUpscaleFamily } from '../../shared/upscale';
+import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
+import { UPSCALE_FAMILY, isUpscaleFamily } from '../../shared/upscale';
+import { sourcePathOf, useMissingSources } from '../hooks/useMissingSources';
 import { videoQualityFromCfg } from '../../shared/videoQuality';
 import { Job, JobKind, ProgressInfo } from '../hooks/useGenerationQueue';
 import { formatDuration } from '../utils/format';
@@ -98,6 +100,8 @@ export default function QueuePanel({
   // jobs is oldest-first (push order), so the most recently finished are at the end.
   const allDone = jobs.filter(isDone);
   const done = allDone.slice(-MAX_COMPLETED_SHOWN).reverse();
+  // Results made from a picture can only be re-racked while their kept copy of it still exists.
+  const missingSources = useMissingSources(done.map((job) => sourcePathOf(job.record)));
   const olderDoneCount = allDone.length - done.length;
 
   const runningDisplay = running
@@ -328,12 +332,19 @@ export default function QueuePanel({
                       {job.params.prompt}
                     </div>
                     <div className="queue-done__actions">
-                      {!isUpscaleFamily(job.family) && (
+                      {(!isUpscaleFamily(job.family) || job.family === UPSCALE_FAMILY) && (
                         <button
                           type="button"
                           className="queue-done__rerack"
                           onClick={() => onRerack(job.record)}
-                          title="Load this prompt and its exact settings back into the form"
+                          disabled={missingSources.has(sourcePathOf(job.record) ?? '')}
+                          title={
+                            missingSources.has(sourcePathOf(job.record) ?? '')
+                              ? SOURCE_MISSING_MESSAGE
+                              : job.family === UPSCALE_FAMILY
+                                ? 'Open the original in Tools > Upscale'
+                                : 'Load this prompt and its exact settings back into the form'
+                          }
                         >
                           ↺ Re-rack
                         </button>

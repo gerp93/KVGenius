@@ -14,9 +14,12 @@ import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
 import Styles from './pages/Styles';
+import LibrarySources from './pages/LibrarySources';
 import ToolsLayout from './pages/ToolsLayout';
 import ToolsUpscale from './pages/ToolsUpscale';
 import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../shared/types';
+import { UPSCALE_FAMILY } from '../shared/upscale';
+import type { UpscaleRecall } from '../shared/upscale';
 import { announceGenerationChange, useGenerationChanges } from './utils/generationChanges';
 import { pinNotice } from './utils/library';
 
@@ -41,6 +44,8 @@ function loadQueueCollapsed(): boolean {
 export default function App() {
   const [recallRecord, setRecallRecord] = useState<GenerationRecord | null>(null);
   const [videoSource, setVideoSource] = useState<VideoSourceRequest | null>(null);
+  // An upscale being re-run in Tools > Upscale, and a picture sent there from Library > Sources.
+  const [upscaleRecall, setUpscaleRecall] = useState<UpscaleRecall | null>(null);
   const [recallPrompt, setRecallPrompt] = useState<string | null>(null);
   // Bumped when a style is added, edited or deleted, so Generate's Style dropdown reloads.
   const [stylesVersion, setStylesVersion] = useState(0);
@@ -179,7 +184,14 @@ export default function App() {
     navigate('/');
   }
 
-  function handleQueueRerack(record: GenerationRecord) {
+  /** Re-rack, from anywhere. An upscale is re-run from its kept original in Tools > Upscale; everything
+   * else opens as a new tab on Generate. */
+  function handleRerack(record: GenerationRecord) {
+    if (record.modelFamily === UPSCALE_FAMILY && record.sourceImagePath) {
+      setUpscaleRecall({ sourcePath: record.sourceImagePath, outputWidth: record.width });
+      navigate('/tools/upscale');
+      return;
+    }
     setRecallRecord(record);
     navigate('/');
   }
@@ -244,6 +256,9 @@ export default function App() {
         </NavLink>
         <NavLink to="/library/prompts" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Prompts
+        </NavLink>
+        <NavLink to="/library/sources" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
+          Sources
         </NavLink>
         <NavLink to="/library/trash" className={({ isActive }) => `top-bar__link${isActive ? ' active' : ''}`}>
           Trash
@@ -320,7 +335,17 @@ export default function App() {
             <Routes>
               <Route path="/tools" element={<ToolsLayout />}>
                 <Route index element={<Navigate to="upscale" replace />} />
-                <Route path="upscale" element={<ToolsUpscale queue={queue} onShowQueue={() => setQueueCollapsed(false)} />} />
+                <Route
+                  path="upscale"
+                  element={
+                    <ToolsUpscale
+                      queue={queue}
+                      onShowQueue={() => setQueueCollapsed(false)}
+                      recall={upscaleRecall}
+                      onRecallHandled={() => setUpscaleRecall(null)}
+                    />
+                  }
+                />
               </Route>
               <Route path="/library" element={<LibraryLayout />}>
                 <Route index element={<Navigate to="output" replace />} />
@@ -329,7 +354,7 @@ export default function App() {
                   element={
                     <LibraryOutput
                       queue={queue}
-                      onRecall={setRecallRecord}
+                      onRecall={handleRerack}
                       onImageToVideo={setVideoSource}
                       showHidden={showHidden}
                       onShowQueue={() => setQueueCollapsed(false)}
@@ -342,10 +367,26 @@ export default function App() {
                     <LibraryPrompts
                       queue={queue}
                       onRecallPrompt={setRecallPrompt}
-                      onRecall={setRecallRecord}
+                      onRecall={handleRerack}
                       onImageToVideo={setVideoSource}
                       showHidden={showHidden}
                       onShowQueue={() => setQueueCollapsed(false)}
+                    />
+                  }
+                />
+                <Route
+                  path="sources"
+                  element={
+                    <LibrarySources
+                      queue={queue}
+                      onUpscale={(sourcePath) => {
+                        setUpscaleRecall({ sourcePath, outputWidth: 0 });
+                        navigate('/tools/upscale');
+                      }}
+                      onMakeVideo={(request) => {
+                        setVideoSource(request);
+                        navigate('/');
+                      }}
                     />
                   }
                 />
@@ -372,7 +413,7 @@ export default function App() {
             onToggleFavorite={handleQueueFavorite}
             onTogglePinned={handleQueuePin}
             onDelete={handleQueueDelete}
-            onRerack={handleQueueRerack}
+            onRerack={handleRerack}
           />
         </div>
         {/* Where the details panels dock (see DetailsDock): full height, right of the page and queue bar. */}
@@ -390,7 +431,7 @@ export default function App() {
               onTogglePinned={handleQueuePin}
               onToggleHidden={handleQueueHide}
               onDelete={handleQueueDelete}
-              onRerack={handleQueueRerack}
+              onRerack={handleRerack}
               onImageToVideo={handleQueueImageToVideo}
               onSaveAs={(r) => void runFileAction(() => window.kvgenius.saveGenerationAs(r.imagePath))}
               onReveal={(r) => void runFileAction(() => window.kvgenius.revealGenerationInFileManager(r.imagePath))}

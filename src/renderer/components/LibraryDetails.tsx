@@ -5,10 +5,13 @@ import { FAMILY_KIND, GenerationKind, GenerationRecord } from '../../shared/type
 import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { formatBytes, formatDifference, formatDuration } from '../utils/format';
 import { shouldSplitDetails } from '../../shared/detailsLayout';
+import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
+import { useSourceMissing } from '../hooks/useMissingSources';
 import { isUpscale } from '../utils/library';
 import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
 import OriginBadge from './OriginBadge';
+import ExpandButton from './Lightbox';
 
 // wan22-i2v's frame rate (see Generate.tsx) - only used to show a video's length in seconds.
 const VIDEO_FPS = 16;
@@ -75,6 +78,8 @@ export default function LibraryDetails({
   onNotice,
 }: Props) {
   const [size, setSize] = useState<number | null>(null);
+  // A video or upscale made from a picture keeps a copy of it; if that copy is gone it cannot be re-run.
+  const sourceMissing = useSourceMissing(record);
   // Upscale controls: the models come from ComfyUI when the panel opens.
   const [upscaleModels, setUpscaleModels] = useState<string[] | null>(null);
   const [upscaleModel, setUpscaleModelState] = useState(lastUpscaleModel);
@@ -252,9 +257,21 @@ export default function LibraryDetails({
   );
   const rest = (
     <>
-      <button type="button" className="primary" onClick={() => onRerack(record)} style={{ width: '100%' }}>
+      <button
+        type="button"
+        className="primary"
+        onClick={() => onRerack(record)}
+        disabled={sourceMissing}
+        title={sourceMissing ? SOURCE_MISSING_MESSAGE : undefined}
+        style={{ width: '100%' }}
+      >
         ↺ Re-rack
       </button>
+      {sourceMissing && (
+        <p className="library-panel__warning" role="alert">
+          {SOURCE_MISSING_MESSAGE}
+        </p>
+      )}
       {kindOf(record) === 'video' && (
         <div className="library-panel__upscale">
           <span className="field-label" style={{ margin: 0 }}>
@@ -420,6 +437,21 @@ export default function LibraryDetails({
         <dt>File</dt>
         <dd>{record.imagePath.split(/[\\/]/).pop()}</dd>
       </dl>
+      {record.sourceImagePath && (
+        <div className="library-panel__original">
+          <span className="field-label" style={{ margin: 0 }}>
+            Original
+          </span>
+          {sourceMissing ? (
+            <p className="library-panel__warning">The original is no longer there - the kept copy was deleted.</p>
+          ) : (
+            <div className="library-panel__original-media">
+              <ExpandButton src={window.kvgenius.imageUrlFor(record.sourceImagePath)} kind="image" filePath={record.sourceImagePath} alt="Original" />
+              <img src={window.kvgenius.imageUrlFor(record.sourceImagePath)} alt="Original picture this was made from" />
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 

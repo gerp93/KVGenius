@@ -5,6 +5,7 @@ import { FAMILY_KIND } from '../shared/types';
 import { generate as comfyGenerate } from './comfyui';
 import { getHiddenWords, getImagesDir, getSourcesDir, getVideosDir } from './dbLocation';
 import { keepSourceImage } from './sourceImages';
+import { needsSourceImage } from '../shared/sourceFamilies';
 import { compileHiddenMatcher } from '../shared/hiddenWords';
 import { insertGeneration } from './db';
 import { insertTiming } from './timingStats';
@@ -75,9 +76,10 @@ export function createGenerationRunner(getDb: () => DatabaseSync | null): JobRun
     });
     // A prompt containing one of the user's hidden words is kept out of the Library (Settings > Hidden Content).
     const hidden = compileHiddenMatcher(getHiddenWords())(params.prompt);
-    // A video keeps a copy of the image it was made from, so Re-rack can run it again in place.
+    // Whatever is made from a supplied picture (a video, an upscale) keeps its own copy of it, so it can be
+    // re-run in place and shown as its original - see shared/sourceFamilies.ts.
     const keptSource =
-      family === 'wan22-i2v' && params.sourceImagePath ? keepSourceImage(params.sourceImagePath, getSourcesDir()) : null;
+      needsSourceImage(family) && params.sourceImagePath ? keepSourceImage(params.sourceImagePath, getSourcesDir()) : null;
     const record = insertGeneration(db, params, family, imagePath, timingId, hidden, keptSource);
     return { generationId: record.id };
   };
