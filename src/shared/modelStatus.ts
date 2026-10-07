@@ -38,7 +38,7 @@ function baseName(name: string): string {
   return name.split(/[\\/]/).pop() ?? name;
 }
 
-export function fileState(file: ManifestFile, report: ModelStatusReport): FileState {
+export function fileState(file: Pick<ManifestFile, 'file' | 'folder'>, report: ModelStatusReport): FileState {
   if (report.source === 'none') return { state: 'unknown' };
   const names = report.installed[file.folder] ?? [];
   if (names.includes(file.file)) return { state: 'present' };
@@ -53,7 +53,7 @@ export interface FeatureSummary {
   inSubfolder: number;
 }
 
-export function summarize(files: ManifestFile[], report: ModelStatusReport): FeatureSummary {
+export function summarize(files: Pick<ManifestFile, 'file' | 'folder'>[], report: ModelStatusReport): FeatureSummary {
   const summary: FeatureSummary = { total: files.length, present: 0, missing: 0, inSubfolder: 0 };
   for (const file of files) {
     const s = fileState(file, report).state;
@@ -62,4 +62,21 @@ export function summarize(files: ManifestFile[], report: ModelStatusReport): Fea
     else if (s === 'missing') summary.missing++;
   }
   return summary;
+}
+
+/** The same summary for a model's loader slots: `files` maps a slot's key to the file chosen for it. A slot with no file
+ * chosen counts as missing. */
+export function summarizeSlots(slots: { key: string; folder: ModelFolder }[], files: Record<string, string>, report: ModelStatusReport): FeatureSummary {
+  return summarize(
+    slots.map((slot) => ({ file: files[slot.key] ?? '', folder: slot.folder })),
+    report,
+  );
+}
+
+/** One short word-or-two status for a list entry: "ready", "2 files missing", or null when nothing is known. */
+export function readinessLabel(summary: FeatureSummary | null): { ok: boolean; text: string } | null {
+  if (!summary || summary.total === 0) return null;
+  if (summary.present === summary.total) return { ok: true, text: 'ready' };
+  const notThere = summary.total - summary.present;
+  return { ok: false, text: `${notThere} file${notThere === 1 ? '' : 's'} missing` };
 }

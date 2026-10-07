@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyInstalled, fileState, parseChoiceList, summarize } from './modelStatus';
+import { emptyInstalled, fileState, parseChoiceList, readinessLabel, summarize, summarizeSlots } from './modelStatus';
 import { ManifestFile } from './modelManifest';
 
 const vae: ManifestFile = { file: 'ae.safetensors', folder: 'vae', role: 'VAE' };
@@ -49,4 +49,21 @@ test('a summary counts each state', () => {
   installed.vae = ['ae.safetensors'];
   installed.diffusion_models = ['x/big.safetensors'];
   assert.deepEqual(summarize([vae, unet], { source: 'comfyui', installed }), { total: 2, present: 1, missing: 0, inSubfolder: 1 });
+});
+
+test('a model\'s slots are summarised like a feature\'s files', () => {
+  const report = { source: 'comfyui' as const, installed: { ...emptyInstalled(), diffusion_models: ['a.safetensors'], vae: ['v.safetensors'] } };
+  const slots = [
+    { key: 'model', folder: 'diffusion_models' as const },
+    { key: 'vae', folder: 'vae' as const },
+    { key: 'enc', folder: 'text_encoders' as const },
+  ];
+  const summary = summarizeSlots(slots, { model: 'a.safetensors', vae: 'v.safetensors', enc: 'e.safetensors' }, report);
+  assert.equal(summary.present, 2);
+  assert.equal(summary.missing, 1);
+  assert.deepEqual(readinessLabel(summary), { ok: false, text: '1 file missing' });
+  assert.deepEqual(readinessLabel(summarizeSlots(slots.slice(0, 2), { model: 'a.safetensors', vae: 'v.safetensors' }, report)), { ok: true, text: 'ready' });
+  // a slot with no file chosen is missing, and nothing known gives no label
+  assert.equal(summarizeSlots(slots.slice(0, 1), {}, report).missing, 1);
+  assert.equal(readinessLabel(null), null);
 });

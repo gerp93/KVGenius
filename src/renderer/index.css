@@ -184,6 +184,24 @@ button.copy-button {
   white-space: nowrap;
 }
 
+/* Just the icon, sitting right beside a label (the prompt's): no frame until hovered. */
+button.copy-button.copy-button--icon {
+  padding: 1px 5px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+button.copy-button.copy-button--icon:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+}
+
+.field-label-row--inline {
+  justify-content: flex-start;
+}
+
 /* On a Prompts tile the copy button is a round icon beside the unpin button, in the picture's corner. */
 button.copy-button.prompt-tile__copy {
   position: absolute;
@@ -519,7 +537,8 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   flex: none;
   display: flex;
   flex-direction: column;
-  background: var(--color-surface);
+  /* The same colour as the sidebar, so the two read as one frame around the page. */
+  background: var(--color-top-bar-bg);
   border-top: 1px solid var(--color-border);
   overflow: hidden;
 }
@@ -542,8 +561,9 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   transition: background 0.15s ease;
 }
 
+/* Hover matches the sidebar's rows. */
 .queue-bar__head:hover {
-  background: var(--color-bg-hover);
+  background: var(--color-top-bar-hover);
 }
 
 .queue-bar:not(.queue-bar--collapsed) .queue-bar__head {
@@ -2240,14 +2260,19 @@ textarea:disabled {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 6px;
 }
 
 .library-panel__prompt-header button {
   min-height: 28px;
   padding: 2px 10px;
   font-size: 13px;
+}
+
+.library-panel__prompt-header button.copy-button--icon {
+  min-height: 0;
+  padding: 1px 5px;
 }
 
 .generate-sidebar-group {

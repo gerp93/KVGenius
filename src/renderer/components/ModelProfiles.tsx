@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { NO_SAMPLER, PROFILE_FAMILIES, SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
 import { MAX_PROFILE_NAME_LENGTH, ModelProfile, SamplerSettings } from '../../shared/modelProfiles';
-import { ModelStatusReport } from '../../shared/modelStatus';
+import { MODEL_MANIFEST, manifestFeature } from '../../shared/modelManifest';
+import { ModelStatusReport, readinessLabel, summarize, summarizeSlots } from '../../shared/modelStatus';
+import { FAMILY_KIND } from '../../shared/types';
 import { ImageSettingsResult, ModelTestResult } from '../../shared/modelCheck';
 import ModelFileImport from './ModelFileImport';
+import ModelDownload from './ModelDownload';
+import ModelFilesTable, { ChosenModelsTable, summaryText } from './ModelFilesTable';
 
 interface Props {
   /** What ComfyUI (or the models folder) has, to choose files from. null while the first check runs. */
@@ -14,7 +18,12 @@ interface Props {
   canImport: boolean;
   /** A file was copied into ComfyUI's folder: look again at what it has. */
   onFilesChanged: () => void;
+  /** ComfyUI's models folder when it is usable (where downloads go), else null. */
+  modelsDir: string | null;
 }
+
+/** What the right-hand panel shows: a starter model (read-only), one of the user's own (or a new one), or the upscale models. */
+type PanelMode = 'starter' | 'edit' | 'upscale';
 
 /** Electron prefixes errors thrown in an ipcMain handler with "Error invoking remote method". */
 function cleanError(err: unknown): string {
@@ -73,8 +82,9 @@ function sameDraft(a: Draft, b: Draft): boolean {
  * selected model's editor on the right - the same layout as Styles. The built-in model is always there and
  * is not edited.
  */
-export default function ModelProfiles({ report, onChanged, canImport, onFilesChanged }: Props) {
+export default function ModelProfiles({ report, onChanged, canImport, onFilesChanged, modelsDir }: Props) {
   const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
+  const [mode, setMode] = useState<PanelMode>('starter');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [draft, setDraft] = useState<Draft>(newDraft());
   const [saved, setSaved] = useState<Draft>(newDraft());
@@ -114,8 +124,28 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
   const builtInFile = def.slots[0].defaultFile;
   const diffusionFile = draft.files[def.slots[0].key] ?? '';
 
+  function selectStarter(family: string) {
+    const next = newDraft(family);
+    setMode('starter');
+    setSelectedId(null);
+    setDraft(next);
+    setSaved(next);
+    setError(null);
+    setNotice(null);
+    setConfirmingDelete(false);
+    setImageNote(null);
+  }
+
+  function selectUpscale() {
+    setMode('upscale');
+    setSelectedId(null);
+    setError(null);
+    setNotice(null);
+  }
+
   function select(profile: ModelProfile | null) {
     const next = profile ? draftFrom(profile) : newDraft();
+    setMode('edit');
     setSelectedId(profile ? profile.id : null);
     setDraft(next);
     setSaved(next);
@@ -249,220 +279,324 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
 
   const canSave = dirty && draft.name.trim() !== '';
   const count = profiles?.length ?? 0;
+  const starter = mode === 'starter';
+  const feature = manifestFeature(def.family) ?? MODEL_MANIFEST.find((f) => f.family === def.family);
+  const upscaleFeature = manifestFeature('upscale');
+  const upscaleModels = report && report.source !== 'none' ? report.installed.upscale_models : null;
+  const totalModels = PROFILE_FAMILIES.length + count + 1;
+
+  /** One list entry's subtitle and readiness, for a starter model (its manifest files) or a saved one (its slots). */
+  function readiness(family: string, files: Record<string, string> | null) {
+    if (!report || report.source === 'none') return null;
+    const fam = profileFamily(family);
+    if (!fam) return null;
+    if (files) return readinessLabel(summarizeSlots(fam.slots, files, report));
+    const feat = MODEL_MANIFEST.find((f) => f.family === family);
+    return readinessLabel(feat ? summarize(feat.files, report) : null);
+  }
+
+  const KINDS: { kind: 'image' | 'video'; label: string }[] = [
+    { kind: 'image', label: 'Image' },
+    { kind: 'video', label: 'Video' },
+  ];
+  const sub = (family: string, sampler: SamplerSettings | null) =>
+    profileFamily(family)?.sampler && sampler ? `${sampler.steps} steps, CFG ${sampler.cfg}` : profileFamily(family)?.sampler ? '' : 'Fast / High';
 
   return (
     <section className="settings-section">
-      <h3 className="settings-section__title">Your models</h3>
+      <h3 className="settings-section__title">Models</h3>
       <p className="settings-hint">
-        A model here is another file set for a family the app already supports - a fine-tune, say, or a different checkpoint. Pick it
-        on the Generate page. Steps and CFG are the settings it was set up for; it is up to you to set what suits it.
+        Every model KVGenius can use, with the files each one needs. Add your own for a kind the app already supports - a fine-tune, say, or
+        a different checkpoint - and pick it on the Generate page. Steps and CFG are the settings a model was set up for; it is up to you
+        to set what suits it.
       </p>
       <div className="styles-page__body">
         <aside className="panel styles-page__list">
           <div className="styles-page__list-head">
-            <h4 className="panel__title">Models{profiles ? ` (${count + 1})` : ''}</h4>
-            <button type="button" className="primary" onClick={() => select(null)} disabled={selectedId === null && !dirty}>
+            <h4 className="panel__title">Models{profiles ? ` (${totalModels - 1})` : ''}</h4>
+            <button type="button" className="primary" onClick={() => select(null)} disabled={mode === 'edit' && selectedId === null && !dirty}>
               + New
             </button>
           </div>
-          <ul>
-            <li>
-              <div className="styles-page__item models-profile__builtin">
-                <span className="styles-page__item-name">{def.builtInName}</span>
-                <span className="styles-page__item-text">Built-in - the model KVGenius ships with</span>
-              </div>
-            </li>
-            {profiles?.map((p) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  className={`styles-page__item${p.id === selectedId ? ' styles-page__item--active' : ''}`}
-                  onClick={() => select(p)}
-                >
-                  <span className="styles-page__item-name">{p.name}</span>
-                  <span className="styles-page__item-text">
-                    {profileFamily(p.family)?.sampler ? `${p.sampler.steps} steps, CFG ${p.sampler.cfg}` : 'Video model'}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {KINDS.map(({ kind, label }) => (
+            <div key={kind}>
+              <div className="models-list__group">{label}</div>
+              <ul>
+                {PROFILE_FAMILIES.filter((f) => FAMILY_KIND[f.family] === kind).map((f) => (
+                  <Entry
+                    key={f.family}
+                    active={starter && draft.family === f.family}
+                    onClick={() => selectStarter(f.family)}
+                    name={f.builtInName}
+                    text={sub(f.family, f.sampler)}
+                    status={readiness(f.family, null)}
+                  />
+                ))}
+                {profiles
+                  ?.filter((p) => FAMILY_KIND[p.family] === kind)
+                  .map((p) => (
+                    <Entry
+                      key={p.id}
+                      active={mode === 'edit' && p.id === selectedId}
+                      onClick={() => select(p)}
+                      name={p.name}
+                      text={sub(p.family, p.sampler)}
+                      status={readiness(p.family, p.files)}
+                    />
+                  ))}
+              </ul>
+            </div>
+          ))}
+          <div>
+            <div className="models-list__group">Upscaling</div>
+            <ul>
+              <Entry
+                active={mode === 'upscale'}
+                onClick={selectUpscale}
+                name="Upscale models"
+                text="you choose"
+                status={upscaleModels ? { ok: upscaleModels.length > 0, text: upscaleModels.length > 0 ? `${upscaleModels.length} installed` : 'none installed' } : null}
+              />
+            </ul>
+          </div>
         </aside>
 
         <div className="panel styles-page__editor">
-          <div className="styles-page__editor-head">
-            <h4 className="panel__title">{selected ? `Edit "${selected.name}"` : 'New model'}</h4>
-            {dirty && <span className="styles-page__unsaved">Unsaved changes</span>}
-          </div>
-
-          <div className="styles-page__field">
-            <div className="styles-page__field-head">
-              <label className="field-label" htmlFor="model-name">
-                Name
-              </label>
-              <span className="styles-page__count">
-                {draft.name.length} / {MAX_PROFILE_NAME_LENGTH}
-              </span>
-            </div>
-            <input
-              id="model-name"
-              type="text"
-              value={draft.name}
-              maxLength={MAX_PROFILE_NAME_LENGTH}
-              onChange={(e) => setField('name', e.target.value)}
-              placeholder="e.g. Photoreal v2"
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          {PROFILE_FAMILIES.length > 1 ? (
-            <div className="styles-page__field">
-              <label className="field-label" htmlFor="model-family">
-                Kind of model
-              </label>
-              <select
-                id="model-family"
-                value={draft.family}
-                disabled={selectedId !== null}
-                onChange={(e) => setDraft(newDraftKeepingName(draft, e.target.value))}
-                style={{ width: '100%' }}
-              >
-                {PROFILE_FAMILIES.map((f) => (
-                  <option key={f.family} value={f.family}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <p className="settings-hint">Kind: {def.label}</p>
-          )}
-
-          <h4 className="models-profile__heading">Files</h4>
-          {def.slots.map((slot) => {
-            const options = installed ? installed[slot.folder] : null;
-            const value = draft.files[slot.key] ?? '';
-            const missing = options !== null && value !== '' && !options.includes(value);
-            return (
-              <div className="styles-page__field" key={slot.key}>
-                <label className="field-label" htmlFor={`slot-${slot.key}`}>
-                  {slot.label} <span className="models-profile__folder">({slot.folder})</span>
-                </label>
-                {options === null ? (
-                  <input id={`slot-${slot.key}`} type="text" value={value} onChange={(e) => setFile(slot.key, e.target.value)} style={{ width: '100%' }} />
-                ) : (
-                  <select id={`slot-${slot.key}`} value={value} onChange={(e) => setFile(slot.key, e.target.value)} style={{ width: '100%' }}>
-                    {missing && <option value={value}>{value} (not found in ComfyUI)</option>}
-                    {options.map((file) => (
-                      <option key={file} value={file}>
-                        {file}
-                      </option>
-                    ))}
-                    {options.length === 0 && !missing && <option value="">No files found in {slot.folder}</option>}
-                  </select>
-                )}
-                {missing && <p className="models-profile__warn">ComfyUI does not list this file. Put it in {slot.folder} and use Check Again above.</p>}
-                <ModelFileImport
-                  family={draft.family}
-                  slot={slot}
-                  canImport={canImport}
-                  onImported={(fileName) => {
-                    setFile(slot.key, fileName);
-                    onFilesChanged();
-                  }}
-                />
-              </div>
-            );
-          })}
-          <FilesNote installed={installed} />
-
-          {def.sampler ? (
+          {mode === 'upscale' ? (
             <>
-            <h4 className="models-profile__heading">Settings</h4>
-            <div className="button-row" style={{ marginBottom: 8 }}>
-              <button type="button" onClick={() => void handleReadImage()}>
-                Read settings from an image...
-              </button>
-            </div>
-            {imageNote && <p className="settings-hint">{imageNote}</p>}
-            <div className="models-profile__grid">
-              <label>
-                <span className="field-label">Steps</span>
-                <input type="number" min={SAMPLER_LIMITS.steps.min} max={SAMPLER_LIMITS.steps.max} value={draft.steps} onChange={(e) => setField('steps', e.target.value)} />
-              </label>
-              <label>
-                <span className="field-label">CFG</span>
-                <input type="number" step={0.1} min={SAMPLER_LIMITS.cfg.min} max={SAMPLER_LIMITS.cfg.max} value={draft.cfg} onChange={(e) => setField('cfg', e.target.value)} />
-              </label>
-              <label>
-                <span className="field-label">Shift</span>
-                <input type="number" step={0.5} min={SAMPLER_LIMITS.shift.min} max={SAMPLER_LIMITS.shift.max} value={draft.shift} onChange={(e) => setField('shift', e.target.value)} />
-              </label>
-              <label>
-                <span className="field-label">Sampler</span>
-                <ChoiceField value={draft.sampler} choices={choices.samplers} onChange={(v) => setField('sampler', v)} />
-              </label>
-              <label>
-                <span className="field-label">Scheduler</span>
-                <ChoiceField value={draft.scheduler} choices={choices.schedulers} onChange={(v) => setField('scheduler', v)} />
-              </label>
-            </div>
-            {def.sampler && diffusionFile && diffusionFile !== builtInFile && (
-              <p className="settings-hint">
-                {DISTILLED_NAME.test(diffusionFile)
-                  ? 'The file name suggests a distilled model, which wants few steps and a CFG near 1 - like the starting values here.'
-                  : 'The starting values are the built-in Turbo model\'s, which is distilled. If this model is not, it probably wants more steps and a higher CFG - check its model page for what it recommends.'}
-              </p>
-            )}
+              <div className="styles-page__editor-head">
+                <h4 className="panel__title">{upscaleFeature?.title ?? 'Upscaling'}</h4>
+              </div>
+              <p className="settings-hint">{upscaleFeature?.summary}</p>
+              {upscaleModels ? (
+                <ChosenModelsTable
+                  folder="upscale_models"
+                  role="Upscale model"
+                  names={upscaleModels}
+                  emptyText="No upscale models installed yet. Put one in upscale_models."
+                />
+              ) : (
+                <p className="settings-hint">Can&apos;t tell which upscale models are installed until ComfyUI is reachable or its models folder is set.</p>
+              )}
             </>
           ) : (
-            <p className="settings-hint">
-              A video model only changes which files are used. Quality (Fast or High) is chosen on the Generate page, as for the built-in one.
-            </p>
-          )}
+            <>
+              <div className="styles-page__editor-head">
+                <h4 className="panel__title">{starter ? def.builtInName : selected ? `Edit "${selected.name}"` : 'New model'}</h4>
+                {dirty && !starter && <span className="styles-page__unsaved">Unsaved changes</span>}
+              </div>
+              {starter && feature && <p className="settings-hint">{feature.summary}</p>}
 
-          <div className="button-row" style={{ marginTop: 12 }}>
-            <button type="button" onClick={() => void handleTest()} disabled={testing}>
-              {testing ? 'Testing...' : 'Test this model'}
-            </button>
-            <span className="settings-hint" style={{ margin: 0 }}>
-              {def.sampler
-                ? 'One small image, to see that the files load and run. Needs ComfyUI running and the queue empty.'
-                : 'One tiny clip, to see that the files load and run. The video models are large, so this can take a few minutes. Needs ComfyUI running and the queue empty.'}
-            </span>
-          </div>
-          {testResult && (
-            <div className={`model-test model-test--${testResult.ok ? 'ok' : 'failed'}`}>
-              {testResult.ok ? '✓ ' : '✗ '}
-              {testResult.message}
-              {testResult.imageBase64 && testResult.mime?.startsWith('video/') ? (
-                <video src={`data:${testResult.mime};base64,${testResult.imageBase64}`} autoPlay loop muted controls />
-              ) : (
-                testResult.imageBase64 && <img src={`data:${testResult.mime ?? 'image/png'};base64,${testResult.imageBase64}`} alt="The test image" />
+              {!starter && (
+                <>
+                  <div className="styles-page__field">
+                    <div className="styles-page__field-head">
+                      <label className="field-label" htmlFor="model-name">
+                        Name
+                      </label>
+                      <span className="styles-page__count">
+                        {draft.name.length} / {MAX_PROFILE_NAME_LENGTH}
+                      </span>
+                    </div>
+                    <input
+                      id="model-name"
+                      type="text"
+                      value={draft.name}
+                      maxLength={MAX_PROFILE_NAME_LENGTH}
+                      onChange={(e) => setField('name', e.target.value)}
+                      placeholder="e.g. Photoreal v2"
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+
+                  {PROFILE_FAMILIES.length > 1 ? (
+                    <div className="styles-page__field">
+                      <label className="field-label" htmlFor="model-family">
+                        Kind of model
+                      </label>
+                      <select
+                        id="model-family"
+                        value={draft.family}
+                        disabled={selectedId !== null}
+                        onChange={(e) => setDraft(newDraftKeepingName(draft, e.target.value))}
+                        style={{ width: '100%' }}
+                      >
+                        {PROFILE_FAMILIES.map((f) => (
+                          <option key={f.family} value={f.family}>
+                            {f.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <p className="settings-hint">Kind: {def.label}</p>
+                  )}
+                </>
               )}
-            </div>
-          )}
 
-          <div className="styles-page__actions">
-            <button type="button" className="primary" onClick={() => void handleSave()} disabled={!canSave}>
-              {selected ? 'Save changes' : 'Save model'}
-            </button>
-            {error && <span className="styles-page__error">{error}</span>}
-            {!error && notice && <span className="styles-page__notice">{notice}</span>}
-            {selected && (
-              <button
-                type="button"
-                className={`button-danger${confirmingDelete ? ' button-danger--armed' : ''}`}
-                onClick={() => void handleDelete()}
-                onBlur={() => setConfirmingDelete(false)}
-              >
-                {confirmingDelete ? 'Click again to delete' : 'Delete'}
-              </button>
-            )}
-          </div>
+              <h4 className="models-profile__heading">Files</h4>
+              {starter && feature ? (
+                <>
+                  <ModelFilesTable feature={feature} report={report} modelsDir={modelsDir} />
+                  {summaryText(feature, report) && <div className="models-feature__summary">{summaryText(feature, report)}</div>}
+                  <ModelDownload feature={feature} report={report} modelsDir={modelsDir} />
+                  {feature.note && <p className="settings-hint">{feature.note}</p>}
+                </>
+              ) : (
+                <>
+                  {report && report.source !== 'none' && (
+                    <div className="models-feature__summary">
+                      {(() => {
+                        const s = summarizeSlots(def.slots, draft.files, report);
+                        return s.present === s.total ? `All ${s.total} installed` : `${s.present} of ${s.total} installed`;
+                      })()}
+                    </div>
+                  )}
+                  {def.slots.map((slot) => {
+                    const options = installed ? installed[slot.folder] : null;
+                    const value = draft.files[slot.key] ?? '';
+                    const missing = options !== null && value !== '' && !options.includes(value);
+                    return (
+                      <div className="styles-page__field" key={slot.key}>
+                        <label className="field-label" htmlFor={`slot-${slot.key}`}>
+                          {slot.label} <span className="models-profile__folder">({slot.folder})</span>
+                        </label>
+                        {options === null ? (
+                          <input id={`slot-${slot.key}`} type="text" value={value} onChange={(e) => setFile(slot.key, e.target.value)} style={{ width: '100%' }} />
+                        ) : (
+                          <select id={`slot-${slot.key}`} value={value} onChange={(e) => setFile(slot.key, e.target.value)} style={{ width: '100%' }}>
+                            {missing && <option value={value}>{value} (not found in ComfyUI)</option>}
+                            {options.map((file) => (
+                              <option key={file} value={file}>
+                                {file}
+                              </option>
+                            ))}
+                            {options.length === 0 && !missing && <option value="">No files found in {slot.folder}</option>}
+                          </select>
+                        )}
+                        {missing && <p className="models-profile__warn">ComfyUI does not list this file. Put it in {slot.folder} and use Check Again above.</p>}
+                        <ModelFileImport
+                          family={draft.family}
+                          slot={slot}
+                          canImport={canImport}
+                          onImported={(fileName) => {
+                            setFile(slot.key, fileName);
+                            onFilesChanged();
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                  <FilesNote installed={installed} />
+                </>
+              )}
+
+              {def.sampler ? (
+                <>
+                  <h4 className="models-profile__heading">Settings</h4>
+                  {!starter && (
+                    <div className="button-row" style={{ marginBottom: 8 }}>
+                      <button type="button" onClick={() => void handleReadImage()}>
+                        Read settings from an image...
+                      </button>
+                    </div>
+                  )}
+                  {imageNote && <p className="settings-hint">{imageNote}</p>}
+                  <div className="models-profile__grid">
+                    <label>
+                      <span className="field-label">Steps</span>
+                      <input type="number" disabled={starter} min={SAMPLER_LIMITS.steps.min} max={SAMPLER_LIMITS.steps.max} value={draft.steps} onChange={(e) => setField('steps', e.target.value)} />
+                    </label>
+                    <label>
+                      <span className="field-label">CFG</span>
+                      <input type="number" disabled={starter} step={0.1} min={SAMPLER_LIMITS.cfg.min} max={SAMPLER_LIMITS.cfg.max} value={draft.cfg} onChange={(e) => setField('cfg', e.target.value)} />
+                    </label>
+                    <label>
+                      <span className="field-label">Shift</span>
+                      <input type="number" disabled={starter} step={0.5} min={SAMPLER_LIMITS.shift.min} max={SAMPLER_LIMITS.shift.max} value={draft.shift} onChange={(e) => setField('shift', e.target.value)} />
+                    </label>
+                    <label>
+                      <span className="field-label">Sampler</span>
+                      <ChoiceField disabled={starter} value={draft.sampler} choices={choices.samplers} onChange={(v) => setField('sampler', v)} />
+                    </label>
+                    <label>
+                      <span className="field-label">Scheduler</span>
+                      <ChoiceField disabled={starter} value={draft.scheduler} choices={choices.schedulers} onChange={(v) => setField('scheduler', v)} />
+                    </label>
+                  </div>
+                  {!starter && def.sampler && diffusionFile && diffusionFile !== builtInFile && (
+                    <p className="settings-hint">
+                      {DISTILLED_NAME.test(diffusionFile)
+                        ? 'The file name suggests a distilled model, which wants few steps and a CFG near 1 - like the starting values here.'
+                        : `The starting values are ${def.builtInName}'s, which is distilled. If this model is not, it probably wants more steps and a higher CFG - check its model page for what it recommends.`}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="settings-hint">A video model only changes which files are used. Quality (Fast or High) is chosen on the Generate page.</p>
+              )}
+
+              <div className="button-row" style={{ marginTop: 12 }}>
+                <button type="button" onClick={() => void handleTest()} disabled={testing}>
+                  {testing ? 'Testing...' : starter ? 'Test this model' : 'Test this model'}
+                </button>
+                <span className="settings-hint" style={{ margin: 0 }}>
+                  {def.sampler
+                    ? 'One small image, to see that the files load and run. Needs ComfyUI running and the queue empty.'
+                    : 'One tiny clip, to see that the files load and run. The video models are large, so this can take a few minutes. Needs ComfyUI running and the queue empty.'}
+                </span>
+              </div>
+              {testResult && (
+                <div className={`model-test model-test--${testResult.ok ? 'ok' : 'failed'}`}>
+                  {testResult.ok ? '✓ ' : '✗ '}
+                  {testResult.message}
+                  {testResult.imageBase64 && testResult.mime?.startsWith('video/') ? (
+                    <video src={`data:${testResult.mime};base64,${testResult.imageBase64}`} autoPlay loop muted controls />
+                  ) : (
+                    testResult.imageBase64 && <img src={`data:${testResult.mime ?? 'image/png'};base64,${testResult.imageBase64}`} alt="The test image" />
+                  )}
+                </div>
+              )}
+
+              {!starter && (
+                <div className="styles-page__actions">
+                  <button type="button" className="primary" onClick={() => void handleSave()} disabled={!canSave}>
+                    {selected ? 'Save changes' : 'Save model'}
+                  </button>
+                  {error && <span className="styles-page__error">{error}</span>}
+                  {!error && notice && <span className="styles-page__notice">{notice}</span>}
+                  {selected && (
+                    <button
+                      type="button"
+                      className={`button-danger${confirmingDelete ? ' button-danger--armed' : ''}`}
+                      onClick={() => void handleDelete()}
+                      onBlur={() => setConfirmingDelete(false)}
+                    >
+                      {confirmingDelete ? 'Click again to delete' : 'Delete'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </section>
+  );
+}
+
+/** One row of the models list: name, what it is set up for, and whether its files are all there. */
+function Entry({ active, onClick, name, text, status }: { active: boolean; onClick: () => void; name: string; text: string; status: { ok: boolean; text: string } | null }) {
+  return (
+    <li>
+      <button type="button" className={`styles-page__item${active ? ' styles-page__item--active' : ''}`} onClick={onClick}>
+        <span className="styles-page__item-name">{name}</span>
+        <span className="styles-page__item-text models-list__sub">
+          <span>{text}</span>
+          {status && <span className={status.ok ? 'models-list__ok' : 'models-list__bad'}>{status.ok ? '✓' : '✗'} {status.text}</span>}
+        </span>
+      </button>
+    </li>
   );
 }
 
@@ -477,11 +611,11 @@ function FilesNote({ installed }: { installed: unknown }) {
 }
 
 /** A dropdown of the names ComfyUI offers, or a plain text box when they are not known. */
-function ChoiceField({ value, choices, onChange }: { value: string; choices: string[]; onChange: (value: string) => void }) {
-  if (choices.length === 0) return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} />;
+function ChoiceField({ value, choices, onChange, disabled }: { value: string; choices: string[]; onChange: (value: string) => void; disabled?: boolean }) {
+  if (choices.length === 0) return <input type="text" disabled={disabled} value={value} onChange={(e) => onChange(e.target.value)} />;
   const withCurrent = choices.includes(value) || value === '' ? choices : [value, ...choices];
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}>
+    <select disabled={disabled} value={value} onChange={(e) => onChange(e.target.value)}>
       {withCurrent.map((name) => (
         <option key={name} value={name}>
           {name}

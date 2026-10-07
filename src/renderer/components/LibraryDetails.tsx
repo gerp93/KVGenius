@@ -382,7 +382,7 @@ export default function LibraryDetails({
         <span className="field-label" style={{ margin: 0 }}>
           Prompt
         </span>
-        <CopyButton text={record.prompt} title="Copy this prompt" />
+        <CopyButton compact className="copy-button--icon" text={record.prompt} title="Copy this prompt" />
       </div>
       <p className="library-panel__prompt">{record.prompt}</p>
 
