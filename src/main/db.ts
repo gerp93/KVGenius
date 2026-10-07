@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
 import * as path from 'path';
+import { FAMILIES_BY_ORIGIN, OriginKind, cleanOrigins } from '../shared/origin';
 import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, LibraryListOptions } from '../shared/types';
 import { TIMING_SCHEMA } from './timingStats';
 import { JOBS_SCHEMA } from './jobStore';
@@ -300,6 +301,14 @@ function extensionCondition(extension: string | null | undefined): { sql: string
   return { sql: 'AND LOWER(image_path) LIKE ? ', params: [`%.${extension.toLowerCase()}`] };
 }
 
+/** Narrows a listing to the items made one of the chosen ways (see shared/origin.ts); nothing chosen
+ * narrows nothing. The model families come from a fixed table, never from the caller. */
+function originCondition(origins: OriginKind[] | undefined): { sql: string; params: string[] } {
+  const families = cleanOrigins(origins).flatMap((kind) => FAMILIES_BY_ORIGIN[kind]);
+  if (families.length === 0) return { sql: '', params: [] };
+  return { sql: `AND model_family IN (${families.map(() => '?').join(', ')}) `, params: families };
+}
+
 /** The Library's filters as SQL: anything in the Trash is always left out, favorites only on request,
  * and hidden ones left out unless asked for. */
 function filterSql(favoritesOnly: boolean, showHidden: boolean): string {
@@ -385,19 +394,20 @@ export function listGenerations(
   const condition = kindCondition(videoFamilies, kind);
   const ext = extensionCondition(extension);
   const prompt = promptCondition(options.prompt);
+  const origin = originCondition(options.origins);
 
   if (options.grouped && prompt.sql === '') {
     return listPromptStacks(
       db,
-      `${condition.sql} ${ext.sql}${filterSql(favoritesOnly, showHidden)}`,
-      [...condition.params, ...ext.params],
+      `${condition.sql} ${ext.sql}${origin.sql}${filterSql(favoritesOnly, showHidden)}`,
+      [...condition.params, ...ext.params, ...origin.params],
       limit,
       beforeId
     );
   }
 
-  const cursor = ext.sql + prompt.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
-  const params: (string | number)[] = [...condition.params, ...ext.params, ...prompt.params];
+  const cursor = ext.sql + origin.sql + prompt.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
+  const params: (string | number)[] = [...condition.params, ...ext.params, ...origin.params, ...prompt.params];
   if (beforeId !== null) params.push(beforeId);
   params.push(limit);
   const rows = db
@@ -418,11 +428,12 @@ export function listGenerationRefs(
   const condition = kindCondition(videoFamilies, kind);
   const ext = extensionCondition(extension);
   const prompt = promptCondition(options.prompt);
+  const origin = originCondition(options.origins);
   const rows = db
     .prepare(
-      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
+      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
     )
-    .all(...condition.params, ...ext.params, ...prompt.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
+    .all(...condition.params, ...ext.params, ...origin.params, ...prompt.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
   return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1, pinned: r.pinned === 1 }));
 }
 
@@ -435,6 +446,7 @@ export function countGenerations(
   options: LibraryListOptions = {}
 ): Record<GenerationKind, number> {
   const prompt = promptCondition(options.prompt);
+  const origin = originCondition(options.origins);
   // Grouped, the number is stacks (distinct prompts); opened onto one prompt, it is that prompt's items.
   const grouped = options.grouped === true && prompt.sql === '';
   const count = (kind: GenerationKind): number => {
@@ -442,9 +454,9 @@ export function countGenerations(
     const ext = extensionCondition(kind === 'image' ? imageExtension : null);
     const row = db
       .prepare(
-        `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)}`
+        `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)}`
       )
-      .get(...condition.params, ...ext.params, ...prompt.params) as unknown as { n: number };
+      .get(...condition.params, ...ext.params, ...origin.params, ...prompt.params) as unknown as { n: number };
     return row.n;
   };
   return { image: count('image'), video: count('video') };

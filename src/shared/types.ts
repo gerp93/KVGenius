@@ -1,4 +1,5 @@
 import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
+import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
 import type { PromptStyle, PromptStyleInput } from './styles';
 
@@ -68,6 +69,8 @@ export interface LibraryListOptions {
   grouped?: boolean;
   /** Only the items whose prompt is exactly this (what opening a stack shows). */
   prompt?: string | null;
+  /** Only items made this way (text to image, upscale, ...); none or empty = every kind. */
+  origins?: OriginKind[];
 }
 
 /** The estimate shown for a run and how long it actually took, in milliseconds. */

@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { countGenerations, initDatabase, insertGeneration, listGenerationRefs, listGenerations, listImageExtensions } from './db';
 import { OutputDirs, applyFavorite } from './favorites';
 import { GIF_FAMILY } from '../shared/gif';
+import { OriginKind } from '../shared/origin';
 
 const VIDEO_FAMILIES = ['wan22-i2v'];
 const params = (seed: number) => ({ prompt: `p${seed}`, width: 64, height: 64, seed, steps: 4, cfg: 1 });
@@ -68,4 +69,37 @@ test('a favorited GIF lives under gifs/favorites and returns to gifs/', () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('a listing can be narrowed to the items made one of the chosen ways', () => {
+  const db = initDatabase(':memory:');
+  insertGeneration(db, params(1), 'z-image-turbo', '/out/images/a.png');
+  insertGeneration(db, params(2), 'upscale-image', '/out/images/b.png');
+  insertGeneration(db, params(3), GIF_FAMILY, '/out/gifs/c.gif');
+  insertGeneration(db, params(4), 'wan22-i2v', '/out/videos/d.mp4');
+  insertGeneration(db, params(5), 'upscale-video', '/out/videos/e.mp4');
+  const seeds = (origins: OriginKind[], kind: 'image' | 'video') =>
+    listGenerations(db, ['wan22-i2v', 'upscale-video'], kind, 50, null, false, false, null, { origins })
+      .map((r) => r.seed)
+      .sort();
+  assert.deepEqual(seeds(['upscale'], 'image'), [2]);
+  assert.deepEqual(seeds(['upscale'], 'video'), [5]);
+  assert.deepEqual(seeds(['text-to-image', 'gif'], 'image'), [1, 3]);
+  assert.deepEqual(seeds(['image-to-video'], 'image'), []);
+  // Nothing chosen narrows nothing.
+  assert.deepEqual(seeds([], 'image'), [1, 2, 3]);
+});
+
+test('the origin filter applies to counts, refs and stacks too, and ignores junk', () => {
+  const db = initDatabase(':memory:');
+  insertGeneration(db, params(1), 'z-image-turbo', '/out/images/a.png');
+  insertGeneration(db, params(2), 'upscale-image', '/out/images/b.png');
+  const families = ['wan22-i2v', 'upscale-video'];
+  assert.deepEqual(countGenerations(db, families, false, false, null, { origins: ['upscale'] }), { image: 1, video: 0 });
+  assert.deepEqual(listGenerationRefs(db, families, 'image', false, false, null, { origins: ['text-to-image'] }).length, 1);
+  const stacks = listGenerations(db, families, 'image', 50, null, false, false, null, { grouped: true, origins: ['upscale'] });
+  assert.deepEqual(stacks.map((r) => r.seed), [2]);
+  // Not real origins: no filtering (and nothing reaches SQL).
+  const junk = ['x" OR 1=1 --'] as unknown as OriginKind[];
+  assert.equal(listGenerations(db, families, 'image', 50, null, false, false, null, { origins: junk }).length, 2);
 });

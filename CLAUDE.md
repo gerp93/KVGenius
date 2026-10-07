@@ -138,6 +138,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   Image → Video, Upscaled or GIF, from its `modelFamily`; an unknown family gets no tag rather than a
   wrong one. It sits in the badge row of an Output card, a Prompts tile and the details panel header -
   add a family to `generationOrigin` when adding a model.
+  Library > Output can show only chosen origins (chips at the left of its toolbar; none on = all):
+  `LibraryListOptions.origins` -> `originCondition` in `db.ts` (a fixed family table, never caller text),
+  applied to listings, stacks, counts and select-all refs; `passesOriginFilter` keeps freshly made items
+  (finished upscales, GIFs) consistent with it.
 - **Compare picks a best, "winner stays"** (`shared/tournament.ts`, `CompareOverlay.tsx`):
   A or B, the pick meets the next item, N-1 questions; "Neither" drops both; undo is a
   history of states. Afterwards the rest can go to the Trash - never favorites or pinned
