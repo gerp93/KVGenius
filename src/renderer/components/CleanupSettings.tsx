@@ -179,7 +179,9 @@ export default function CleanupSettings() {
           : ''}
       </p>
 
-      <h4 style={{ margin: '20px 0 6px' }}>2. Empty the Trash</h4>
+      <hr className="settings-divider" />
+
+      <h4 style={{ margin: '0 0 6px' }}>2. Empty the Trash</h4>
       <div style={row}>
         <span>
           In the Trash: {plural(trash.count)}
