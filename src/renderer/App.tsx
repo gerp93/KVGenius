@@ -414,7 +414,7 @@ export default function App() {
               </Route>
               <Route path="/styles" element={<Styles onChanged={() => setStylesVersion((v) => v + 1)} />} />
               <Route path="/timing" element={<Timing />} />
-              <Route path="/hardpoint" element={<Hardpoint />} />
+              <Route path="/hardpoint" element={<Hardpoint theme={theme} />} />
               <Route path="/setup" element={<Setup />} />
               <Route path="/models" element={<Models onModelsChanged={() => setModelsVersion((v) => v + 1)} />} />
               <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} />} />
