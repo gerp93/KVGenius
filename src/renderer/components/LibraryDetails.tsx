@@ -10,6 +10,7 @@ import { useSourceMissing } from '../hooks/useMissingSources';
 import { isUpscale } from '../utils/library';
 import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
+import OriginBadge from './OriginBadge';
 import ExpandButton from './Lightbox';
 
 // wan22-i2v's frame rate (see Generate.tsx) - only used to show a video's length in seconds.
@@ -214,11 +215,7 @@ export default function LibraryDetails({
     <div className="library-panel__header">
       <span className="library-panel__title">
         <strong>Details</strong>
-        {isUpscale(record) && (
-          <span className="library-card__upscale-badge" title="An enlarged copy of another picture, not generated from the prompt">
-            Upscaled
-          </span>
-        )}
+        <OriginBadge record={record} />
       </span>
       <span className="library-panel__window-buttons">
         <button type="button" onClick={onClose} title="Close">
