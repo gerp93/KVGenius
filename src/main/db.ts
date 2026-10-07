@@ -464,6 +464,18 @@ export function listImageExtensions(db: DatabaseSync, videoFamilies: string[]): 
   return rows.map((r) => r.ext).filter((ext) => /^[a-z0-9]{1,8}$/.test(ext));
 }
 
+/** The kept source images (see sourceImages.ts) and what was made from each, most recently used first.
+ * Results in the Trash still count: they keep their source until they are deleted for good. */
+export function listKeptSources(db: DatabaseSync): Array<{ path: string; uses: number; families: string[]; lastUsedAt: string }> {
+  const rows = db
+    .prepare(
+      `SELECT source_image_path AS path, COUNT(*) AS uses, GROUP_CONCAT(DISTINCT model_family) AS families, MAX(created_at) AS lastUsedAt
+       FROM generations WHERE source_image_path IS NOT NULL GROUP BY source_image_path ORDER BY MAX(id) DESC`
+    )
+    .all() as unknown as { path: string; uses: number; families: string | null; lastUsedAt: string }[];
+  return rows.map((r) => ({ path: r.path, uses: r.uses, families: r.families ? r.families.split(',') : [], lastUsedAt: r.lastUsedAt }));
+}
+
 /**
  * One-time tidy-up for output saved before images and videos got their own folders: any file
  * that still sits directly in `legacyDir` is moved into `imagesDir` or `videosDir` (by its row's

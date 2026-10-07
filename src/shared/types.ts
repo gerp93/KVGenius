@@ -162,6 +162,19 @@ export interface GenerationRef {
   pinned: boolean;
 }
 
+/** A picture kept for the results made from it (Library > Sources): its kept copy, what used it, and
+ * whether the copy is still on disk. */
+export interface SourceImageEntry {
+  path: string;
+  /** How many results (videos, upscales) were made from it. */
+  uses: number;
+  /** The model families among them, e.g. wan22-i2v, upscale-image. */
+  families: string[];
+  lastUsedAt: string;
+  /** The kept copy is no longer at its path. */
+  missing: boolean;
+}
+
 export type ExportResult = { status: 'saved'; path: string; count: number } | { status: 'cancelled' };
 
 /** A request to open the Generate tab in video mode with an existing image as the source. */
@@ -306,6 +319,10 @@ export interface KVGeniusAPI {
   /** Like chooseSourceImage, but for any number of images (Tools > Upscale). Resolves the chosen
    * local paths, empty if cancelled. */
   chooseSourceImages: () => Promise<string[]>;
+  /** Of the given source-image paths (a result's kept copy), the ones no longer on disk. */
+  sourceImagesMissing: (paths: string[]) => Promise<string[]>;
+  /** Every kept source image with what was made from it (Library > Sources). */
+  listSourceImages: () => Promise<SourceImageEntry[]>;
   /** The local paths of picture files dropped onto the window (pass the dropped `File` objects).
    * Resolves only the existing PNG / JPG / WebP ones, each now usable as a source image. */
   droppedImagePaths: (files: unknown[]) => Promise<string[]>;

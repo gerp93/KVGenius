@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { getGenerationById, initDatabase, insertGeneration } from './db';
+import { getGenerationById, initDatabase, insertGeneration, listKeptSources } from './db';
 import { keepSourceImage, releaseSourceImage } from './sourceImages';
 
 const temp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-src-'));
@@ -90,4 +90,22 @@ test('a kept source image is deleted with its last video, and nothing outside th
   assert.equal(releaseSourceImage(db, original, sources), false);
   assert.ok(fs.existsSync(original));
   assert.equal(releaseSourceImage(db, null, sources), false);
+});
+
+test('listKeptSources counts what each kept source was used for, newest use first', () => {
+  const db = initDatabase(':memory:');
+  insertGeneration(db, params(1), 'wan22-i2v', '/out/1.mp4', null, false, '/s/a.png');
+  insertGeneration(db, params(2), 'upscale-image', '/out/2.png', null, false, '/s/a.png');
+  insertGeneration(db, params(3), 'wan22-i2v', '/out/3.mp4', null, false, '/s/b.png');
+  insertGeneration(db, params(4), 'z-image-turbo', '/out/4.png', null, false, null);
+
+  const sources = listKeptSources(db);
+  assert.deepEqual(
+    sources.map((s) => [s.path, s.uses]),
+    [
+      ['/s/b.png', 1],
+      ['/s/a.png', 2],
+    ]
+  );
+  assert.deepEqual(sources[1].families.sort(), ['upscale-image', 'wan22-i2v']);
 });

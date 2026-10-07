@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileNameOf, isUpscaleFamily, upscaledSize, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from './upscale';
+import { DEFAULT_UPSCALE_FACTOR, fileNameOf, isUpscaleFamily, nearestUpscaleFactor, upscaledSize, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from './upscale';
 
 test('upscaledSize rounds a picture to whole pixels', () => {
   assert.deepEqual(upscaledSize(1000, 750, 2), { width: 2000, height: 1500 });
@@ -24,4 +24,12 @@ test('isUpscaleFamily knows both upscale families and nothing else', () => {
   assert.ok(isUpscaleFamily(UPSCALE_FAMILY));
   assert.ok(isUpscaleFamily(UPSCALE_VIDEO_FAMILY));
   assert.ok(!isUpscaleFamily('z-image-turbo'));
+});
+
+test('nearestUpscaleFactor picks the offered multiplier closest to the real one', () => {
+  assert.equal(nearestUpscaleFactor(1000, 2000), 2);
+  assert.equal(nearestUpscaleFactor(1000, 1500), 1.5);
+  assert.equal(nearestUpscaleFactor(1000, 4000), 4);
+  assert.equal(nearestUpscaleFactor(1000, 2900), 3);
+  assert.equal(nearestUpscaleFactor(0, 2000), DEFAULT_UPSCALE_FACTOR);
 });
