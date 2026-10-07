@@ -5,8 +5,10 @@ import './Hardpoint.css';
 /**
  * Embeds Hardpoint's loopback UI when the Hardpoint app is running.
  * Service start/stop/unload live there — KVGenius only deep-links / iframes.
+ * The embed is asked to use KVGenius's current theme and drop its own title bar
+ * (needs a Hardpoint build with the `theme` / `bare` embed params; older ones ignore them).
  */
-export default function HardpointPage() {
+export default function HardpointPage({ theme }: { theme: string | null }) {
   const [reachable, setReachable] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -57,11 +59,11 @@ export default function HardpointPage() {
           <code>{HARDPOINT_API_BASE}/api/status</code> in a browser to verify.
         </p>
       )}
-      {reachable && (
+      {reachable && theme && (
         <iframe
           className="hardpoint-frame"
           title="Hardpoint"
-          src={`${HARDPOINT_API_BASE}/`}
+          src={`${HARDPOINT_API_BASE}/?theme=${encodeURIComponent(theme)}&bare=1`}
           allow="local-network-access; clipboard-read; clipboard-write"
         />
       )}
