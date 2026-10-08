@@ -62,7 +62,13 @@ export async function checkModelFile(srcPath: string, options: CheckOptions): Pr
     if (options.folder !== 'upscale_models') {
       findings.push({ level: 'warn', text: `${ext} files can run code when loaded - only use one from a source you trust. A .safetensors copy is safer if one exists.` });
     }
-    findings.push({ level: 'info', text: 'This format cannot be looked inside, so only a test render can tell whether it fits.' });
+    findings.push({
+      level: 'info',
+      text:
+        options.folder === 'upscale_models'
+          ? 'This format cannot be looked inside, so only trying it on the Upscale page can tell whether it works.'
+          : 'This format cannot be looked inside, so only a test render can tell whether it fits.',
+    });
     return finish();
   }
 
@@ -81,7 +87,13 @@ export async function checkModelFile(srcPath: string, options: CheckOptions): Pr
 
   const reference = options.modelsDir && options.referenceFile ? path.join(options.modelsDir, options.folder, options.referenceFile) : null;
   if (!reference || !fs.existsSync(reference)) {
-    findings.push({ level: 'info', text: 'Not compared with a known-good file (that needs the models folder set and the original file in it), so only a test render can tell whether it fits.' });
+    findings.push({
+      level: 'info',
+      text:
+        options.folder === 'upscale_models'
+          ? 'Looks complete. There is nothing to compare an upscale model with, so try it on the Upscale page.'
+          : 'Not compared with a known-good file (that needs the models folder set and the original file in it), so only a test render can tell whether it fits.',
+    });
     return finish();
   }
   const ref = await readSafetensorsHeader(reference);

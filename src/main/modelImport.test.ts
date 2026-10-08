@@ -92,7 +92,9 @@ test('other formats: not a model, GGUF, and the older code-carrying ones', async
     assert.match(warned.messages[0], /run code/);
     const pth = path.join(t.downloads, 'up.pth');
     fs.writeFileSync(pth, 'x');
-    assert.equal((await checkModelFile(pth, { ...opts, folder: 'upscale_models' })).severity, 'ok');
+    const upscale = await checkModelFile(pth, { ...opts, folder: 'upscale_models' });
+    assert.equal(upscale.severity, 'ok');
+    assert.match(upscale.messages.join(' '), /Upscale page/);
     assert.equal((await checkModelFile(path.join(t.downloads, 'gone.safetensors'), opts)).severity, 'block');
   } finally {
     t.cleanup();
