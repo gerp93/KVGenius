@@ -117,6 +117,7 @@ const api: KVGeniusAPI = {
     return ipcRenderer.invoke('registerDroppedModelFiles', paths);
   },
   checkModelFile: (path: string, family: string, slotKey: string) => ipcRenderer.invoke('checkModelFile', path, family, slotKey),
+  getModelFileTraits: (folder: string, files: string[]) => ipcRenderer.invoke('getModelFileTraits', folder, files),
   importModelFile: (path: string, family: string, slotKey: string, options: { move: boolean; overwrite: boolean }) =>
     ipcRenderer.invoke('importModelFile', path, family, slotKey, options),
   cancelModelImport: () => ipcRenderer.invoke('cancelModelImport'),

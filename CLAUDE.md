@@ -218,6 +218,16 @@ implementation here is exactly the kind of drift it exists to prevent.
   refuses while a job runs and holds the queue while it works, so it never shares the GPU or the module-level
   in-flight prompt with a queued job. "Read settings from a picture" parses PNG text chunks only
   (`imageMetadata.ts`); pictures with the metadata stripped yield nothing, and nothing is guessed.
+- **The model editor's file dropdowns only offer files that fit together, worked out from the files' own headers** (`shared/modelTraits.ts`,
+  `main/modelTraitsReader.ts`, the `getModelFileTraits` IPC, `ModelProfiles.tsx`). `readTraits` reads, from tensor names and shapes, what a file
+  is (`arch`) and the one number it must agree with its neighbours on: a diffusion model's text-embedding width and latent channels, an encoder's
+  output width, a VAE's latent channels (and picture vs video VAE; Wan t2v vs i2v by patch-embedding input channels). `checkFit(family, slot,
+  candidate, chosen)` compares a candidate with the family's needs and with what the *other* slots picked, so the template's default files are
+  not the filter - a pick in one slot narrows the others, in any order. Files that conflict are hidden behind "Show every file" (shown with ⚠ and a
+  reason); a file that cannot be read or is not recognised is `unknown` and never hidden; LoRA slots are not checked. Only headers are read, cached
+  by path/size/mtime, and only inside the models folder. **The tensor names in `readTraits` were written from memory of the model code, not checked
+  against real files - verify them against real headers (Z-Image, Qwen3-4B, Flux VAE, Wan 2.2 t2v/i2v, UMT5, Wan VAE) when Hugging Face is
+  reachable.** A wrong name makes a file read as `unknown` (nothing filtered), a wrong shape position could hide valid files.
 - **The download helper only fetches manifest files, by running a script in a terminal** (`downloadScript.ts`,
   `downloadLauncher.ts`, `ModelDownload.tsx`). Links come from `ManifestFile.url` (Hugging Face, public, no token);
   anything else the user fetches themselves and imports. The user confirms a list of exactly what, from where, into

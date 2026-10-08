@@ -95,6 +95,7 @@ import { importSlot } from '../shared/modelFamilies';
 import { isModelFileName, ModelImportOutcome } from '../shared/modelCheck';
 import { saveMaskPng } from './maskStore';
 import { checkModelFile, importModelFile, ModelImportError } from './modelImport';
+import { readFolderTraits } from './modelTraitsReader';
 import { settingsFromPng } from './imageMetadata';
 import { runModelTest } from './modelTest';
 import { solidPng } from './solidPng';
@@ -903,6 +904,13 @@ function registerIpcHandlers(): void {
     const { slot, resolved } = pickedModelSlot(filePath, family, slotKey);
     const dir = modelsDirInfo();
     return checkModelFile(resolved, { folder: slot.folder, modelsDir: dir.valid ? dir.effective : null, referenceFile: slot.defaultFile });
+  });
+  // What the installed files in one models folder are (see shared/modelTraits.ts), so the editor can offer only files that fit together.
+  // Empty when the models folder is not usable from this computer.
+  ipcMain.handle('getModelFileTraits', async (_event, folder: string, files: string[]) => {
+    const dir = modelsDirInfo();
+    if (!dir.valid || !dir.effective || typeof folder !== 'string' || !Array.isArray(files)) return {};
+    return readFolderTraits(dir.effective, folder, files);
   });
   ipcMain.handle('importModelFile', async (event, filePath: string, family: string, slotKey: string, options: { move?: boolean; overwrite?: boolean }): Promise<ModelImportOutcome> => {
     if (modelImportAbort) return { ok: false, code: 'failed', message: 'Another import is already running.' };
