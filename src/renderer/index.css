@@ -1263,6 +1263,10 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   background: rgba(110, 60, 170, 0.88);
 }
 
+.library-card__origin-badge--outpaint {
+  background: rgba(20, 110, 120, 0.88);
+}
+
 .library-card__origin-badge--text-to-video {
   background: rgba(150, 50, 130, 0.88);
 }
@@ -1991,6 +1995,10 @@ textarea:disabled {
 
 .origin-filter__chip--image-to-video.origin-filter__chip--on {
   background: rgba(110, 60, 170, 0.88);
+}
+
+.origin-filter__chip--outpaint.origin-filter__chip--on {
+  background: rgba(20, 110, 120, 0.88);
 }
 
 .origin-filter__chip--text-to-video.origin-filter__chip--on {
@@ -2958,4 +2966,75 @@ button.button-danger--armed:hover:not(:disabled) {
 
 .library-card__origin-badge--inpaint {
   background: rgba(120, 60, 160, 0.9);
+}
+
+/* Generate > Image -> Image: outpainting's per-side padding, laid out around a box standing for the picture. */
+.extend-field {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.extend-field__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.extend-field__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.extend-field__side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  min-width: 0;
+}
+
+.extend-field__side input {
+  width: 100%;
+  min-width: 0;
+}
+
+.extend-field__side--top {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.extend-field__side--left {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.extend-field__side--right {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.extend-field__side--bottom {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.extend-field__picture {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--color-text-muted);
 }

@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MODEL_MANIFEST } from '../shared/modelManifest';
 import { DEFAULT_DENOISE } from '../shared/imageToImage';
-import { fillImageToImage, Z_IMAGE_I2I_NODE_MAP } from './imageToImagePatch';
+import { fillImageToImage, fillOutpaint, Z_IMAGE_I2I_NODE_MAP } from './imageToImagePatch';
+import outpaintTemplate from './templates/z-image-outpaint.json';
 import i2iTemplate from './templates/z-image-i2i.json';
 import textTemplate from './templates/z-image.json';
 
@@ -132,4 +133,30 @@ test('a model profile applies to inpainting as to the other Z-Image graphs', () 
     'm.png',
   );
   assert.equal(t['57:28'].inputs.unet_name, 'other.safetensors');
+});
+
+test('the outpainting template pads the picture and takes its mask from the padding; nothing points at a missing node', () => {
+  const t = JSON.parse(JSON.stringify(outpaintTemplate)) as Template;
+  assert.equal(t['ip-maskload'], undefined, 'no painted mask file');
+  assert.equal(t['op-pad'].class_type, 'ImagePadForOutpaint');
+  assert.deepEqual(t['op-pad'].inputs.image, ['i2i-load', 0]);
+  assert.deepEqual(t['i2i-scale'].inputs.image, ['op-pad', 0]);
+  assert.deepEqual(t['ip-mask2img'].inputs.mask, ['op-pad', 1]);
+  assert.equal(t['i2i-scale'].inputs.crop, 'disabled', 'the output is the whole canvas, never cropped');
+  for (const [id, node] of Object.entries(t)) {
+    for (const value of Object.values(node.inputs)) {
+      if (Array.isArray(value) && typeof value[0] === 'string') assert.ok(t[value[0]], `${id} refers to ${value[0]}`);
+    }
+  }
+});
+
+test('filling the outpainting template sets the padding, the canvas size and a full-strength sampler', () => {
+  const t = JSON.parse(JSON.stringify(outpaintTemplate)) as Template;
+  fillOutpaint(t, { ...params, width: 1536, height: 1024, denoise: 0.3 }, 'up.png', { left: 512, top: 0, right: 0, bottom: 64 });
+  assert.equal(t['i2i-load'].inputs.image, 'up.png');
+  assert.deepEqual([t['op-pad'].inputs.left, t['op-pad'].inputs.top, t['op-pad'].inputs.right, t['op-pad'].inputs.bottom], [512, 0, 0, 64]);
+  assert.deepEqual([t['i2i-scale'].inputs.width, t['i2i-scale'].inputs.height], [1536, 1024]);
+  assert.deepEqual([t['ip-maskscale'].inputs.width, t['ip-maskscale'].inputs.height], [1536, 1024]);
+  assert.equal(t['57:3'].inputs.denoise, 1, 'a stray strength never reaches the sampler');
+  assert.equal(t['57:27'].inputs.text, 'a fox');
 });

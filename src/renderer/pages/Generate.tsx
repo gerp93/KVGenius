@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CopyButton from '../components/CopyButton';
+import ExtendField from '../components/ExtendField';
 import ImageDropZone from '../components/ImageDropZone';
 import LibraryPicker from '../components/LibraryPicker';
 import SourceImageField from '../components/SourceImageField';
@@ -14,7 +15,7 @@ import type { PromptTabsModel } from '../utils/promptTabs';
 import { PromptStyle, combinePrompt } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
-import { DENOISE_LIMITS, INPAINT_FAMILY, clampDenoise, imageFamilyFor, isPictureStartFamily } from '../../shared/imageToImage';
+import { DENOISE_LIMITS, INPAINT_FAMILY, clampDenoise, imageFamilyFor, isPictureStartFamily, normalizeOutpaint, outpaintOutputSize, serializeOutpaint } from '../../shared/imageToImage';
 import { ModelProfile, ModelSettings, profileMatchesSettings, profileSettings, serializeModelSettings } from '../../shared/modelProfiles';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { useGenerationChanges } from '../utils/generationChanges';
@@ -162,6 +163,8 @@ export default function Generate({
     setDenoise,
     maskPath,
     setMaskPath,
+    outpaint,
+    setOutpaint,
     lastRunSignature,
     setLastRunSignature,
   } = slotState;
@@ -263,11 +266,41 @@ export default function Generate({
   // Image -> Image chosen but no picture yet: nothing to run until one is picked.
   const needsStartPicture = mode === 'image' && imageFromPicture && !imageSourcePath;
   // A mask painted on that source image makes it inpainting: only the painted spots are re-drawn.
-  const startMask = startPicture && maskPath ? maskPath : null;
+  // Extending the picture beyond its frame (outpainting) is its own run, and replaces a mask.
+  const startPad = startPicture ? normalizeOutpaint(outpaint) : null;
+  const startMask = startPicture && !startPad && maskPath ? maskPath : null;
+  // The source picture's size, needed to work out the extended picture's size.
+  const [startDims, setStartDims] = useState<{ path: string; width: number; height: number } | null>(null);
+  useEffect(() => {
+    if (!startPicture) return;
+    let cancelled = false;
+    window.kvgenius
+      .getImageSize(startPicture)
+      .then((size) => {
+        if (!cancelled && size) setStartDims({ path: startPicture, width: size.width, height: size.height });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [startPicture]);
+  const sourceDims = startDims && startDims.path === startPicture ? startDims : null;
+  const padKey = serializeOutpaint(startPad);
+  // The output is the whole extended canvas, so its size follows the picture and the padding rather than the size menu.
+  useEffect(() => {
+    if (!startPad || !sourceDims) return;
+    const size = outpaintOutputSize(sourceDims.width, sourceDims.height, startPad);
+    setWidth(size.width);
+    setHeight(size.height);
+    setCustomSize(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [padKey, sourceDims?.width, sourceDims?.height]);
+  // Extending but the picture's size is not known yet: nothing to run.
+  const needsPadSize = startPad !== null && sourceDims === null;
   // Video mode is image to video with a source image, or text to video without one - two graphs with their own model files.
   const videoStartPicture = mode === 'video' && videoFromPicture ? sourceImagePath : null;
   const needsVideoPicture = mode === 'video' && videoFromPicture && !sourceImagePath;
-  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null, startMask !== null) : videoFamilyFor(videoFromPicture);
+  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null, startMask !== null, startPad !== null) : videoFamilyFor(videoFromPicture);
   // The family whose saved models apply (image to image and inpainting share text to image's).
   const modelBase = mode === 'image' ? FAMILY_FOR_MODE.image : runFamily;
   const modelFamily = profileFamily(modelBase);
@@ -299,7 +332,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture && !startPad ? denoise : null, startMask, padKey] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -312,7 +345,7 @@ export default function Generate({
   // Bumped when something leaves the Library, which can turn a match into no match.
   const [libraryChanges, setLibraryChanges] = useState(0);
   useEffect(() => {
-    if (!seedLocked || !prompt.trim() || needsVideoPicture || needsStartPicture) {
+    if (!seedLocked || !prompt.trim() || needsVideoPicture || needsStartPicture || needsPadSize) {
       setDuplicate(null);
       return;
     }
@@ -327,7 +360,7 @@ export default function Generate({
           steps: runSteps,
           cfg: runCfg,
           ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined } : {}),
-          ...(startPicture ? { sourceImagePath: startPicture, denoise, ...(startMask ? { maskImagePath: startMask } : {}) } : {}),
+          ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
           ...(modelSettings ? { modelSettings } : {}),
         })
         .then((found) => {
@@ -341,7 +374,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, startPicture, startMask, denoise, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, modelSettings && serializeModelSettings(modelSettings)]);
+  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, startPicture, startMask, denoise, padKey, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, needsPadSize, modelSettings && serializeModelSettings(modelSettings)]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -442,6 +475,8 @@ export default function Generate({
     }
     try {
       setMaskPath(await window.kvgenius.saveMaskImage(dataUrl));
+      // A mask and an extension are different runs: painting one drops the other.
+      setOutpaint(null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err));
@@ -501,8 +536,9 @@ export default function Generate({
       const fromPicture = isPictureStartFamily(record.modelFamily);
       setImageSourcePath(fromPicture ? record.sourceImagePath : null);
       setMaskPath(record.modelFamily === INPAINT_FAMILY ? record.maskImagePath : null);
+      setOutpaint(record.outpaint);
       setImageFromPicture(fromPicture);
-      if (fromPicture) setDenoise(clampDenoise(record.denoise));
+      if (fromPicture && record.denoise !== null) setDenoise(clampDenoise(record.denoise));
       showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath), slotId);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -609,6 +645,10 @@ export default function Generate({
       setError('Choose a source image first, or switch to Text → Image.');
       return;
     }
+    if (needsPadSize) {
+      setError('Reading the source image to work out the extended size - try again in a moment.');
+      return;
+    }
     if (blocked) return;
     setError(null);
 
@@ -623,7 +663,7 @@ export default function Generate({
       steps: runSteps,
       cfg: runCfg,
       ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined } : {}),
-      ...(startPicture ? { sourceImagePath: startPicture, denoise, ...(startMask ? { maskImagePath: startMask } : {}) } : {}),
+      ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
     };
     const added = queue.enqueue(
       seeds.map((jobSeed) => ({ family: runFamily, kind: mode, params: { ...base, seed: jobSeed } })),
@@ -782,7 +822,7 @@ export default function Generate({
               onReject={setError}
             >
               <SourceImageField path={imageSourcePath} onChooseFile={() => void handleChooseStartPicture()} onChooseFromLibrary={() => setPicker('start')} />
-              {imageSourcePath && (
+              {imageSourcePath && !startPad && (
                 <div className="mask-field">
                   {maskPath ? (
                     <>
@@ -810,6 +850,17 @@ export default function Generate({
                 </div>
               )}
               {imageSourcePath && (
+                <ExtendField
+                  value={startPad}
+                  sourceSize={sourceDims}
+                  onChange={(next) => {
+                    setOutpaint(next);
+                    // Extending replaces a painted mask.
+                    if (next) setMaskPath(null);
+                  }}
+                />
+              )}
+              {imageSourcePath && !startPad && (
                 <>
                   <label className="field-label" htmlFor="denoise" style={{ marginTop: 10 }}>
                     {maskPath ? 'How much to change the painted spots' : 'How much to change it'}: {denoise.toFixed(2)}
@@ -902,7 +953,13 @@ export default function Generate({
             </div>
           )}
 
-          <div style={{ marginTop: 12 }}>
+          {startPad && (
+            <p className="style-picker__preview" style={{ marginTop: 12 }}>
+              <strong>Size:</strong> {width} × {height} - the whole extended picture.
+            </p>
+          )}
+
+          <div style={{ marginTop: 12, display: startPad ? 'none' : undefined }}>
             <label className="field-label" htmlFor="size-preset">
               Size
             </label>
@@ -931,7 +988,7 @@ export default function Generate({
             </select>
           </div>
 
-          {sizeSelectValue === 'custom' && (
+          {sizeSelectValue === 'custom' && !startPad && (
             <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <label className="field-label" htmlFor="width">
@@ -1094,7 +1151,7 @@ export default function Generate({
               type="button"
               className="primary generate-actions__go"
               onClick={handleGenerate}
-              disabled={needsVideoPicture || needsStartPicture || blocked}
+              disabled={needsVideoPicture || needsStartPicture || needsPadSize || blocked}
               title={
                 duplicate
                   ? 'This exact result is already in your Library'

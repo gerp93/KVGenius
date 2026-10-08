@@ -97,6 +97,28 @@ test('a stack previews no more than a dozen pictures', () => {
   assert.equal(stack.groupPreviewPaths?.length, 12);
 });
 
+test('an outpainting run is a duplicate only of the same picture extended by the same amounts', () => {
+  const db = initDatabase(':memory:');
+  const pad = { left: 256, top: 0, right: 256, bottom: 0 };
+  const query = { ...base, sourceImagePath: '/s/pic.png', outpaint: pad };
+  const made = insertGeneration(db, { ...base, outpaint: pad }, 'z-image-outpaint', '/out/x.png', null, false, '/s/pic.png');
+  assert.deepEqual(made.outpaint, pad);
+  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', query)?.id, made.id);
+  assert.deepEqual(findDuplicateGeneration(db, 'z-image-outpaint', query)?.outpaint, pad, 'read back from the database');
+  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { ...query, outpaint: { ...pad, top: 64 } }), null, 'a different extension');
+  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { ...query, sourceImagePath: '/s/other.png' }), null, 'a different picture');
+  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { ...query, outpaint: null }), null, 'no extension yet means nothing to compare');
+});
+
+test('a text-to-video run is a duplicate of the same prompt, size, seed and length - it has no source image to compare', () => {
+  const db = initDatabase(':memory:');
+  const made = insertGeneration(db, { ...base, length: 81 }, 'wan22-t2v', '/out/v.mp4');
+  assert.equal(findDuplicateGeneration(db, 'wan22-t2v', { ...base, length: 81 })?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'wan22-t2v', { ...base, length: 65 }), null);
+  // an image-to-video run of the same settings is a different family
+  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { ...base, length: 81, sourceImagePath: '/s/pic.png' }), null);
+});
+
 test('an inpainting run is a duplicate only of the same picture with the same mask', () => {
   const db = initDatabase(':memory:');
   const query = { ...base, denoise: 0.8, sourceImagePath: '/s/pic.png', maskImagePath: '/s/mask-a.png' };

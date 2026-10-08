@@ -1,4 +1,4 @@
-import { I2I_FAMILY, INPAINT_FAMILY } from './imageToImage';
+import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY } from './imageToImage';
 import { UPSCALE_FAMILY } from './upscale';
 
 /**
@@ -9,7 +9,7 @@ import { UPSCALE_FAMILY } from './upscale';
  *
  * A new tool that works on a supplied picture belongs in this list - it is the one place the app asks.
  */
-export const SOURCE_IMAGE_FAMILIES: ReadonlySet<string> = new Set(['wan22-i2v', I2I_FAMILY, INPAINT_FAMILY, UPSCALE_FAMILY]);
+export const SOURCE_IMAGE_FAMILIES: ReadonlySet<string> = new Set(['wan22-i2v', I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, UPSCALE_FAMILY]);
 
 export function needsSourceImage(family: string): boolean {
   return SOURCE_IMAGE_FAMILIES.has(family);

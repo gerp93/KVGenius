@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { clampDenoise, DEFAULT_DENOISE } from '../../shared/imageToImage';
+import { clampDenoise, DEFAULT_DENOISE, normalizeOutpaint } from '../../shared/imageToImage';
+import type { OutpaintPadding } from '../../shared/imageToImage';
 import { GenerationKind } from '../../shared/types';
 import type { VideoQuality } from '../../shared/videoQuality';
 import { MAX_PROMPT_SLOTS, PromptSlot, PromptSlotData, newPromptSlot, slotLabel } from '../../shared/promptSlots';
@@ -40,6 +41,7 @@ export function usePromptSlots() {
   const [imageFromPicture, setImageFromPicture] = useState(false);
   const [denoise, setDenoise] = useState(DEFAULT_DENOISE);
   const [maskPath, setMaskPath] = useState<string | null>(null);
+  const [outpaint, setOutpaint] = useState<OutpaintPadding | null>(null);
   const [lastRunSignature, setLastRunSignature] = useState<string | null>(null);
 
   function applySnapshot(data: PromptSlotData) {
@@ -64,6 +66,7 @@ export function usePromptSlots() {
     setImageFromPicture(data.imageFromPicture ?? (data.imageSourcePath ?? null) !== null);
     setDenoise(clampDenoise(data.denoise));
     setMaskPath(data.maskImagePath ?? null);
+    setOutpaint(normalizeOutpaint(data.outpaint));
     setLastRunSignature(data.lastRunSignature ?? null);
   }
 
@@ -118,6 +121,7 @@ export function usePromptSlots() {
       imageFromPicture,
       denoise,
       maskImagePath: maskPath,
+      outpaint,
       lastRunSignature,
     };
   }
@@ -160,6 +164,7 @@ export function usePromptSlots() {
     imageFromPicture,
     denoise,
     maskPath,
+    outpaint,
     lastRunSignature,
   ]);
 
@@ -267,6 +272,8 @@ export function usePromptSlots() {
     setDenoise,
     maskPath,
     setMaskPath,
+    outpaint,
+    setOutpaint,
     lastRunSignature,
     setLastRunSignature,
   };

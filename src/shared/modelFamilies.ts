@@ -1,4 +1,4 @@
-import { I2I_FAMILY, INPAINT_FAMILY } from './imageToImage';
+import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY } from './imageToImage';
 import type { ModelFolder } from './modelManifest';
 
 /**
@@ -88,7 +88,7 @@ export const PROFILE_FAMILIES: ProfileFamily[] = [
 
 /** Families that run another family's model files, and so use that family's model profiles (image to image
  * loads the same Z-Image files as text to image). Their templates must keep the same loader node ids. */
-const PROFILE_BASE: Record<string, string> = { [I2I_FAMILY]: 'z-image', [INPAINT_FAMILY]: 'z-image' };
+const PROFILE_BASE: Record<string, string> = { [I2I_FAMILY]: 'z-image', [INPAINT_FAMILY]: 'z-image', [OUTPAINT_FAMILY]: 'z-image' };
 
 /** The family whose profiles apply to a job of `family`. */
 export function profileFamilyKey(family: string): string {

@@ -467,6 +467,16 @@ export default function LibraryDetails({
               <img src={window.kvgenius.imageUrlFor(record.sourceImagePath)} alt="Original picture this was made from" />
             </div>
           )}
+          {record.outpaint && !sourceMissing && (
+            <p className="settings-hint" style={{ margin: '8px 0 0' }}>
+              Extended by{' '}
+              {(['left', 'top', 'right', 'bottom'] as const)
+                .filter((side) => record.outpaint![side] > 0)
+                .map((side) => `${record.outpaint![side]} px ${side}`)
+                .join(', ')}
+              . The original is untouched; only the new area was drawn.
+            </p>
+          )}
           {record.maskImagePath && !sourceMissing && (
             <>
               <span className="field-label" style={{ margin: '10px 0 0', display: 'block' }}>

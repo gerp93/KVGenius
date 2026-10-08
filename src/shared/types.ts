@@ -4,6 +4,7 @@ import type { DownloadPlanInfo, DownloadStartResult } from './modelDownloads';
 import type { ImageSettingsResult, ModelFileCheck, ModelImportOutcome, ModelImportProgress, ModelTestResult, PickedModelFile } from './modelCheck';
 import type { ModelProfile, ModelProfileInput, ModelSettings } from './modelProfiles';
 import type { ModelStatusReport } from './modelStatus';
+import type { OutpaintPadding } from './imageToImage';
 import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
 import type { PromptStyle, PromptStyleInput } from './styles';
@@ -32,6 +33,8 @@ export interface GenerationParams {
   denoise?: number;
   /** Inpainting only: a black and white picture the size of the source image - white is where it is re-drawn, black stays as it was. */
   maskImagePath?: string;
+  /** Outpainting only: how far the source image is extended on each side, in its own pixels. `width`/`height` are the size of the whole extended picture. */
+  outpaint?: OutpaintPadding;
   /** Image families only: the name of the model profile the files and sampler below came from (a label for
    * the Library). Absent for the shipped template. */
   modelName?: string;
@@ -68,6 +71,8 @@ export interface GenerationRecord {
   denoise: number | null;
   /** Inpainting only: the app's kept copy of the mask the result was made with (see GenerationParams.maskImagePath), else null. */
   maskImagePath: string | null;
+  /** Outpainting only: how far the source image was extended (see GenerationParams.outpaint), else null. */
+  outpaint: OutpaintPadding | null;
   /** The model profile this was made with (display only), or null for the shipped model. */
   modelName: string | null;
   /** The exact files and sampler it was made with, or null for the shipped template. */
@@ -222,6 +227,7 @@ export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'z-image': 'image',
   'z-image-i2i': 'image',
   'z-image-inpaint': 'image',
+  'z-image-outpaint': 'image',
   'wan22-i2v': 'video',
   'wan22-t2v': 'video',
   'upscale-video': 'video',

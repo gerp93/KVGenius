@@ -58,3 +58,49 @@ test('inpainting is made from a supplied picture, makes an image, has its own ta
   assert.ok(originsForKind('image').includes('inpaint'));
   assert.ok(!originsForKind('video').includes('inpaint'));
 });
+
+import { OUTPAINT_FAMILY, OUTPAINT_MAX_PAD, normalizeOutpaint, outpaintOutputSize, parseOutpaint, serializeOutpaint } from './imageToImage';
+
+test('an extension makes it outpainting, and wins over a mask; without a source image it means nothing', () => {
+  assert.equal(imageFamilyFor('z-image', true, false, true), OUTPAINT_FAMILY);
+  assert.equal(imageFamilyFor('z-image', true, true, true), OUTPAINT_FAMILY);
+  assert.equal(imageFamilyFor('z-image', false, false, true), 'z-image');
+  assert.equal(isPictureStartFamily(OUTPAINT_FAMILY), true);
+});
+
+test('outpainting is made from a supplied picture, makes an image, has its own tag and uses Z-Image\'s profiles', () => {
+  assert.equal(needsSourceImage(OUTPAINT_FAMILY), true);
+  assert.equal(FAMILY_KIND[OUTPAINT_FAMILY], 'image');
+  assert.equal(generationOrigin(OUTPAINT_FAMILY)?.kind, 'outpaint');
+  assert.deepEqual(FAMILIES_BY_ORIGIN.outpaint, [OUTPAINT_FAMILY]);
+  assert.equal(profileFamilyKey(OUTPAINT_FAMILY), 'z-image');
+  assert.ok(originsForKind('image').includes('outpaint'));
+  assert.ok(!originsForKind('video').includes('outpaint'));
+});
+
+test('a padding is whole pixels within limits, and none at all is null', () => {
+  assert.equal(normalizeOutpaint(null), null);
+  assert.equal(normalizeOutpaint({ left: 0, top: 0, right: 0, bottom: 0 }), null);
+  assert.equal(normalizeOutpaint({ left: -5, right: 'x' }), null);
+  assert.deepEqual(normalizeOutpaint({ left: 100.4, top: 99999, right: 0, bottom: '64' }), { left: 100, top: OUTPAINT_MAX_PAD, right: 0, bottom: 64 });
+});
+
+test('a padding round-trips through its stored string', () => {
+  const pad = { left: 256, top: 0, right: 128, bottom: 64 };
+  assert.equal(serializeOutpaint(pad), '256,0,128,64');
+  assert.deepEqual(parseOutpaint(serializeOutpaint(pad)), pad);
+  assert.equal(serializeOutpaint(null), null);
+  assert.equal(parseOutpaint(null), null);
+  assert.equal(parseOutpaint('nonsense'), null);
+});
+
+test('the extended picture is drawn at its whole canvas, long side kept within 1024-1536, sides in 64s', () => {
+  assert.deepEqual(outpaintOutputSize(1024, 1024, { left: 512, top: 0, right: 0, bottom: 0 }), { width: 1536, height: 1024 });
+  // a small picture is drawn larger rather than tiny
+  assert.deepEqual(outpaintOutputSize(512, 512, { left: 0, top: 0, right: 512, bottom: 0 }), { width: 1024, height: 512 });
+  // a big one is brought down
+  const big = outpaintOutputSize(4000, 3000, { left: 1000, top: 0, right: 1000, bottom: 0 });
+  assert.equal(Math.max(big.width, big.height), 1536);
+  assert.equal(big.width % 64, 0);
+  assert.equal(big.height % 64, 0);
+});

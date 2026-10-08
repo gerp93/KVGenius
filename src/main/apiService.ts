@@ -6,7 +6,7 @@ import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/typ
 import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
 import { I2V_FAMILY, T2V_FAMILY, videoFamilyFor } from '../shared/textToVideo';
 import { PROFILE_FAMILIES, profileFamily, profileFamilyKey, SAMPLER_LIMITS } from '../shared/modelFamilies';
-import { clampDenoise, DEFAULT_DENOISE, DENOISE_LIMITS, I2I_FAMILY, INPAINT_FAMILY } from '../shared/imageToImage';
+import { clampDenoise, DEFAULT_DENOISE, DENOISE_LIMITS, I2I_FAMILY, INPAINT_FAMILY, normalizeOutpaint, OUTPAINT_FAMILY, outpaintOutputSize } from '../shared/imageToImage';
 import { ModelProfile, profileSettings } from '../shared/modelProfiles';
 import { findModelProfileByName, listModelProfiles } from './modelProfiles';
 import { isUpscaleFamily } from '../shared/upscale';
@@ -302,6 +302,7 @@ export class ApiService {
     const prompt = reqString(args, 'prompt');
     const family = canonicalFamily(optString(args, 'family', 64) ?? Z_IMAGE_FAMILY);
     if (family === INPAINT_FAMILY) fail('Inpainting is not available here yet - it needs a painted mask, which only the app can make.');
+    if (family === OUTPAINT_FAMILY) fail('Outpainting is not a family of its own here: use family "z-image" and pass `source` (a library picture) with `extend` (pixels to add on each side).');
     if (family === I2I_FAMILY) fail('Image to image is not a family of its own here: use family "z-image" and pass `source` (a library picture to start from).');
     if (FAMILY_KIND[family] !== 'image') fail(`"${family}" is not an image family. Image families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'image').join(', ')}.`);
     // A style's words are added here, so the job (and the Library record) holds the full prompt that is
@@ -326,18 +327,25 @@ export class ApiService {
     const fit = sourceSize ? 1024 / Math.max(sourceSize.width, sourceSize.height) : 1;
     const defaultWidth = sourceSize ? Math.round(sourceSize.width * fit) : 1024;
     const defaultHeight = sourceSize ? Math.round(sourceSize.height * fit) : 1024;
+    // `extend` makes it outpainting: the picture grows by those pixels per side and only the new area is drawn.
+    const extend = args.extend === undefined || args.extend === null ? null : normalizeOutpaint(args.extend);
+    if (args.extend !== undefined && args.extend !== null && !extend) fail('"extend" needs at least one of left, top, right, bottom above 0 (pixels to add on that side).');
+    if (extend && !source) fail('"extend" needs a "source": the library picture to extend.');
+    if (extend && (!sourceSize || sourceSize.width <= 0)) throw new ApiError('unreadable_image', `Could not read the size of ${source?.id}, so it cannot be extended.`);
+    const extendedSize = extend && source && sourceSize ? outpaintOutputSize(source.width || sourceSize.width, source.height || sourceSize.height, extend) : null;
     const params: GenerationParams = {
       prompt: combinePrompt(prompt, style?.text),
       ...(style ? { styleName: style.name } : {}),
-      width: snap(optNumber(args, 'width', 64, 8192, true) ?? defaultWidth, 64, 256, 2048),
-      height: snap(optNumber(args, 'height', 64, 8192, true) ?? defaultHeight, 64, 256, 2048),
+      width: extendedSize ? extendedSize.width : snap(optNumber(args, 'width', 64, 8192, true) ?? defaultWidth, 64, 256, 2048),
+      height: extendedSize ? extendedSize.height : snap(optNumber(args, 'height', 64, 8192, true) ?? defaultHeight, 64, 256, 2048),
       seed: optNumber(args, 'seed', 0, 2 ** 32 - 1, true) ?? Math.floor(Math.random() * 2 ** 32),
       steps: model ? (optNumber(args, 'steps', SAMPLER_LIMITS.steps.min, SAMPLER_LIMITS.steps.max, true) ?? model.sampler.steps) : (optNumber(args, 'steps', 1, 20, true) ?? 8),
       cfg: model ? (optNumber(args, 'cfg', SAMPLER_LIMITS.cfg.min, SAMPLER_LIMITS.cfg.max) ?? model.sampler.cfg) : (optNumber(args, 'cfg', 0.5, 3) ?? 1),
       ...(model ? { modelName: model.name, modelSettings: profileSettings(model) } : {}),
-      ...(source ? { sourceImagePath: source.path, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max)) } : {}),
+      ...(source && extend ? { sourceImagePath: source.path, outpaint: extend } : {}),
+      ...(source && !extend ? { sourceImagePath: source.path, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max)) } : {}),
     };
-    return this.jobView(this.deps.queue.submit({ family: source ? I2I_FAMILY : family, params, source: 'mcp', batch: optBatch(args) }));
+    return this.jobView(this.deps.queue.submit({ family: extend ? OUTPAINT_FAMILY : source ? I2I_FAMILY : family, params, source: 'mcp', batch: optBatch(args) }));
   }
 
   /** The saved model named `name`, or null for the built-in one (no name, "default", or its own name). */
