@@ -34,17 +34,6 @@ const STARTUP_TIMEOUT_MS = 4 * 60 * 1000;
 
 type ConnectionStatus = 'checking' | 'connected' | 'unreachable' | 'starting';
 
-const QUEUE_COLLAPSED_KEY = 'kvgenius-queue-bar-collapsed';
-
-function loadQueueCollapsed(): boolean {
-  try {
-    // Folded to the slim bar unless it was last left open.
-    return localStorage.getItem(QUEUE_COLLAPSED_KEY) !== '0';
-  } catch {
-    return true;
-  }
-}
-
 export default function App() {
   const [recallRecord, setRecallRecord] = useState<GenerationRecord | null>(null);
   const [videoSource, setVideoSource] = useState<VideoSourceRequest | null>(null);
@@ -68,7 +57,7 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
   // The queue bar is part of the shell (along the bottom), so it is there on every page; open or folded is remembered.
-  const [queueCollapsed, setQueueCollapsedState] = useState(loadQueueCollapsed);
+  const [queueCollapsed, setQueueCollapsedState] = useState(true); // the queue always starts folded to the slim bar; opening it lasts until the app is closed
   // A short confirmation from an action in the queue bar (pinned, moved to the Trash).
   const [queueNotice, setQueueNotice] = useState<string | null>(null);
   // One queue for the whole app: Generate and the Library's Upscale both feed it.
@@ -113,11 +102,6 @@ export default function App() {
 
   function setQueueCollapsed(collapsed: boolean) {
     setQueueCollapsedState(collapsed);
-    try {
-      localStorage.setItem(QUEUE_COLLAPSED_KEY, collapsed ? '1' : '0');
-    } catch {
-      // Not remembered - the panel still works.
-    }
   }
 
   /** A completed result's ★ in the queue panel. Favoriting moves the file, so the queue's own jobs are
