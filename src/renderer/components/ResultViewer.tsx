@@ -130,11 +130,13 @@ export default function ResultViewer({
     );
   }
 
-  /** The status strip shown over the bottom of a still-in-progress job's fallback image. */
-  function renderStatusOverlay(job: Job) {
+  /** The status strip shown over a still-in-progress job's fallback picture: along its bottom edge, or - over a video, whose
+   * own play/volume bar sits at the bottom - along its top edge, so the two never print over each other. */
+  function renderStatusOverlay(job: Job, kind: 'image' | 'video') {
+    const place = kind === 'video' ? ' result-media__overlay--top' : '';
     if (job.status === 'running') {
       return (
-        <div className="result-media__overlay">
+        <div className={`result-media__overlay${place}`}>
           <RunProgress compact job={job} progressInfo={progressInfo} now={now} />
           <button type="button" onClick={() => onCancelJob(job.id)}>
             ✕ Cancel
@@ -144,7 +146,7 @@ export default function ResultViewer({
     }
     if (job.status === 'queued') {
       return (
-        <div className="result-media__overlay">
+        <div className={`result-media__overlay${place}`}>
           <span className="result-media__overlay-text">Waiting in the queue...</span>
           <button type="button" onClick={() => onCancelJob(job.id)}>
             ✕ Cancel
@@ -154,7 +156,7 @@ export default function ResultViewer({
     }
     if (job.status === 'failed') {
       return (
-        <div className="result-media__overlay result-media__overlay--failed">
+        <div className={`result-media__overlay result-media__overlay--failed${place}`}>
           <span className="result-media__overlay-text">⚠ This generation failed: {job.error}</span>
         </div>
       );
@@ -274,7 +276,7 @@ export default function ResultViewer({
           ) : (
             <img src={fallback.imageUrl} alt="Generated" />
           )}
-          {renderStatusOverlay(current)}
+          {renderStatusOverlay(current, fallback.kind)}
         </div>
         {renderActions(fallbackRecord, fallback.kind)}
       </div>
