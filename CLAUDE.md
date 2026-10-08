@@ -73,7 +73,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   `sourceImages.ts`). The original is only ever uploaded to ComfyUI and may be anywhere
   on disk or move/vanish inside the Library, so without the copy Re-rack could not re-run
   a video in place. The copy is deleted with the last result that uses it; videos made
-  before this have none and need a source chosen again.
+  before this have none and need a source chosen again. **The copy is made when the job is queued** (`keepJobSources`, via `JobQueue`'s `prepare` hook
+  in `main.ts`), and the job is pointed at the copy - so a job waiting in the queue never depends on where the original was, and an original that is
+  already gone is refused at once with a clear message instead of failing later. A job that ends without a result (failed or cancelled) lets go of
+  its copies (`onUnfinished`), and `releaseSourceImage` never deletes a file a waiting or running job still needs.
   **This is the pattern for anything made from a supplied picture**, not a video-only rule:
   `shared/sourceFamilies.ts` lists the families (`wan22-i2v`, `upscale-image`), and a new
   tool that works on a picture goes in that list. For every family in it: the generation

@@ -96,6 +96,8 @@ import { isModelFileName, ModelImportOutcome } from '../shared/modelCheck';
 import { saveMaskPng } from './maskStore';
 import { checkModelFile, importModelFile, ModelImportError } from './modelImport';
 import { readFolderTraits } from './modelTraitsReader';
+import { canonicalFamily } from '../shared/families';
+import { keepJobSources, keptFilesOfParams, releaseSourceImage } from './sourceImages';
 import { settingsFromPng } from './imageMetadata';
 import { runModelTest } from './modelTest';
 import { solidPng } from './solidPng';
@@ -1226,6 +1228,13 @@ app
     jobQueue = new JobQueue(db, createGenerationRunner(() => db), {
       cancelRunning: cancelCurrentGeneration,
       isCancellation: (err) => err instanceof GenerationCancelledError,
+      // A job made from a picture works from the app's own copy of it, made when it is queued - not from wherever the original is.
+      prepare: (request) => ({ ...request, params: keepJobSources(canonicalFamily(request.family), request.params, getSourcesDir()) }),
+      // A job that never produced a result lets go of the copies that only it was holding.
+      onUnfinished: (job) => {
+        if (!db) return;
+        for (const file of keptFilesOfParams(job.family, job.params)) releaseSourceImage(db, file, getSourcesDir());
+      },
     });
     jobQueue.onProgress((_jobId, progress) => {
       mainWindow?.webContents.send('generationProgress', progress);

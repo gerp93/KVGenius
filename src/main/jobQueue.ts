@@ -28,6 +28,11 @@ export interface JobQueueOptions {
   cancelRunning: () => Promise<void>;
   /** True for the error a runner throws when it was stopped by cancelRunning(). */
   isCancellation?: (err: unknown) => boolean;
+  /** Called with every request before it is queued; what it returns is what is queued. It may throw to refuse the request.
+   * Used to copy a job's source pictures into the app's own folder at once, so the job no longer depends on where they were. */
+  prepare?: (request: JobRequest) => JobRequest;
+  /** Called when a job ends without producing a result (failed or cancelled), so what was kept for it can be let go. */
+  onUnfinished?: (job: JobInfo) => void;
 }
 
 type JobListener = (job: JobInfo) => void;
@@ -64,7 +69,8 @@ export class JobQueue {
     if (countQueuedJobs(this.db) >= MAX_QUEUED_JOBS) {
       throw new Error(`The queue is full (${MAX_QUEUED_JOBS} jobs waiting). Wait for some to finish or cancel some.`);
     }
-    const job = insertJob(this.db, request);
+    const prepared = this.options.prepare ? this.options.prepare(request) : request;
+    const job = insertJob(this.db, prepared);
     this.estimates.set(job.id, request.estimate ?? null);
     this.emitJob(job);
     void this.pump();
@@ -190,6 +196,13 @@ export class JobQueue {
     finishJob(this.db, id, status, detail);
     this.estimates.delete(id);
     const job = getJob(this.db, id) as JobInfo;
+    if (status !== 'done') {
+      try {
+        this.options.onUnfinished?.(job);
+      } catch {
+        // Letting go of a kept file is housekeeping; it never changes how the job ended.
+      }
+    }
     this.emitJob(job);
     const waiting = this.waiters.get(id);
     if (waiting) {
