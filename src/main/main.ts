@@ -91,7 +91,7 @@ import { guessModelsDir, looksLikeModelsDir, scanModelsDir } from './modelsFolde
 import { emptyInstalled, ModelStatusReport } from '../shared/modelStatus';
 import { migrationBackups } from '../shared/dbBackups';
 import { ModelProfileInput } from '../shared/modelProfiles';
-import { profileFamily } from '../shared/modelFamilies';
+import { importSlot } from '../shared/modelFamilies';
 import { isModelFileName, ModelImportOutcome } from '../shared/modelCheck';
 import { checkModelFile, importModelFile, ModelImportError } from './modelImport';
 import { settingsFromPng } from './imageMetadata';
@@ -320,7 +320,7 @@ let modelImportAbort: AbortController | null = null;
 /** A picked file and the slot it is for; throws if the file was not picked by the user or the slot is unknown. */
 function pickedModelSlot(filePath: unknown, family: unknown, slotKey: unknown) {
   if (typeof filePath !== 'string' || !pickedModelFiles.has(path.resolve(filePath))) throw new Error('Choose the file again.');
-  const slot = typeof family === 'string' ? profileFamily(family)?.slots.find((s) => s.key === slotKey) : undefined;
+  const slot = importSlot(family, slotKey);
   if (!slot) throw new Error('That kind of model has no such file slot.');
   return { slot, resolved: path.resolve(filePath) };
 }

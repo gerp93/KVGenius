@@ -89,3 +89,14 @@ export const SAMPLER_LIMITS = {
   cfg: { min: 0, max: 30 },
   shift: { min: 0, max: 20 },
 } as const;
+
+/** Upscale models are not a profile kind (one file, chosen per run on the Upscale page), but a file can still be imported
+ * into `upscale_models` the same way as any model file: this is the pseudo family and its one slot. */
+export const UPSCALE_IMPORT_FAMILY = 'upscale';
+export const UPSCALE_IMPORT_SLOT: ModelSlot = { key: 'model', label: 'Upscale model', folder: 'upscale_models', defaultFile: '' };
+
+/** The loader slot a model file is being imported for: one of a profile family's, or the upscale model's. */
+export function importSlot(family: unknown, slotKey: unknown): ModelSlot | undefined {
+  if (family === UPSCALE_IMPORT_FAMILY) return slotKey === UPSCALE_IMPORT_SLOT.key ? UPSCALE_IMPORT_SLOT : undefined;
+  return typeof family === 'string' ? profileFamily(family)?.slots.find((s) => s.key === slotKey) : undefined;
+}

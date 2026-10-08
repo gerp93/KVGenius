@@ -200,7 +200,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   Upscaling). The shipped starter models (`PROFILE_FAMILIES`' `builtInName`: Z Image Turbo, Wan 2.2) are ordinary entries - read-only,
   showing their manifest files table, status and Download button - next to the user's own saved models (editable, with a
   per-slot file picker and import). Each entry shows a readiness word (`readinessLabel`, `summarizeSlots` in `shared/modelStatus.ts`).
-  Upscale models are chosen by the user, so that entry just lists what ComfyUI has. Do not describe any model as "the" built-in one
+  Upscale models are chosen by the user per run, so that entry lists what ComfyUI has and offers the same file import as any model
+  slot (`UPSCALE_IMPORT_FAMILY` / `importSlot` in `shared/modelFamilies.ts` - a pseudo family with one slot, not a profile kind). Do not describe any model as "the" built-in one
   in the UI - it is only the first one the app shipped with.
 - **A model file is looked over before it is used or copied** (`main/safetensors.ts`, `main/modelImport.ts`).
   Only the header of a `.safetensors` file is read: tensor names and shapes (never data types, so fp8 and bf16

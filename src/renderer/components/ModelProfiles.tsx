@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NO_SAMPLER, PROFILE_FAMILIES, SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
+import { NO_SAMPLER, PROFILE_FAMILIES, SAMPLER_LIMITS, UPSCALE_IMPORT_FAMILY, UPSCALE_IMPORT_SLOT, profileFamily } from '../../shared/modelFamilies';
 import { MAX_PROFILE_NAME_LENGTH, ModelProfile, SamplerSettings } from '../../shared/modelProfiles';
 import { MODEL_MANIFEST, manifestFeature } from '../../shared/modelManifest';
 import { ModelStatusReport, readinessLabel, summarize, summarizeSlots } from '../../shared/modelStatus';
@@ -373,11 +373,13 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
                   folder="upscale_models"
                   role="Upscale model"
                   names={upscaleModels}
-                  emptyText="No upscale models installed yet. Put one in upscale_models."
+                  emptyText="No upscale models installed yet. Add one below."
                 />
               ) : (
                 <p className="settings-hint">Can&apos;t tell which upscale models are installed until ComfyUI is reachable or its models folder is set.</p>
               )}
+              <h4 className="models-profile__heading">Add an upscale model</h4>
+              <ModelFileImport family={UPSCALE_IMPORT_FAMILY} slot={UPSCALE_IMPORT_SLOT} canImport={canImport} onImported={() => onFilesChanged()} />
             </>
           ) : (
             <>
