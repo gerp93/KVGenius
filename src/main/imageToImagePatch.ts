@@ -1,5 +1,5 @@
 import { GenerationParams } from '../shared/types';
-import { DEFAULT_DENOISE, I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_DENOISE, OUTPAINT_FAMILY, OutpaintPadding } from '../shared/imageToImage';
+import { DEFAULT_DENOISE, I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_DEFAULT_DENOISE, OUTPAINT_FAMILY, OutpaintPadding } from '../shared/imageToImage';
 import { applyModelSettings } from './modelPatch';
 
 type Workflow = Record<string, { inputs: Record<string, unknown> } | undefined>;
@@ -67,17 +67,19 @@ export function fillInpaint(workflow: Workflow, params: GenerationParams, imageN
 /**
  * Node IDs in src/main/templates/z-image-outpaint.json: the inpainting graph (same ids) with the mask coming from the padding
  * node instead of a painted file - load picture -> pad it on the chosen sides (the new area grey, with a mask of exactly that area)
- * -> everything after is the inpainting chain, scaled to the output size without cropping, since the output is the whole
- * extended canvas.
+ * -> scale to the output size without cropping. The sampler does not start from the grey: the new area is filled from a heavily blurred
+ * stretch of the whole picture (`bg`, `bgBlur`), composited under the original (`init`), so the model starts from the picture's own colours and
+ * layout at the edges and only partly re-draws them. Everything after is the inpainting chain.
  */
 export const Z_IMAGE_OUTPAINT_NODE_MAP = {
   ...Z_IMAGE_I2I_NODE_MAP,
   pad: 'op-pad',
   maskScale: 'ip-maskscale',
+  bg: 'op-bg',
 };
 
-/** Fills the outpainting template in place: everything image to image sets (its size is the whole extended canvas), the padding,
- * and a strength of 1 - the new area is drawn from scratch, and the noise mask keeps the original in place while it does. */
+/** Fills the outpainting template in place: everything image to image sets (its size is the whole extended canvas), the padding, and how
+ * much of the new area is re-drawn (the noise mask keeps the original in place while it is). */
 export function fillOutpaint(workflow: Workflow, params: GenerationParams, imageName: string, pad: OutpaintPadding): void {
   fillImageToImage(workflow, params, imageName, OUTPAINT_FAMILY);
   const nodes = Z_IMAGE_OUTPAINT_NODE_MAP;
@@ -86,8 +88,10 @@ export function fillOutpaint(workflow: Workflow, params: GenerationParams, image
   padInputs.top = pad.top;
   padInputs.right = pad.right;
   padInputs.bottom = pad.bottom;
-  inputs(workflow, nodes.sampler).denoise = OUTPAINT_DENOISE;
-  const maskScale = inputs(workflow, nodes.maskScale);
-  maskScale.width = params.width;
-  maskScale.height = params.height;
+  inputs(workflow, nodes.sampler).denoise = params.denoise ?? OUTPAINT_DEFAULT_DENOISE;
+  for (const id of [nodes.maskScale, nodes.bg]) {
+    const scale = inputs(workflow, id);
+    scale.width = params.width;
+    scale.height = params.height;
+  }
 }

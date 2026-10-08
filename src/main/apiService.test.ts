@@ -200,9 +200,14 @@ test('generate_image with source and extend is outpainting: the whole extended c
   const params = lastJobParams();
   assert.deepEqual(params.outpaint, { left: 400, top: 0, right: 400, bottom: 0 });
   assert.equal(params.sourceImagePath, src.path);
-  assert.equal(params.denoise, undefined, 'strength does not apply');
+  assert.equal(params.denoise, 0.2, 'strength is how much of the new area is re-drawn');
   released.shift()?.();
   await call('get_job', { job_id: job.job_id, wait_seconds: 5 });
+  // without a strength the outpainting default is used
+  const second = await call('generate_image', { prompt: 'a fox', source: src.id, extend: { right: 128 } });
+  assert.equal(lastJobParams().denoise, 0.8);
+  released.shift()?.();
+  await call('get_job', { job_id: second.job_id, wait_seconds: 5 });
 });
 
 test('extend needs a source and a side above 0; the outpainting family cannot be named', async () => {

@@ -103,7 +103,7 @@
       "cfg": 1,
       "sampler_name": "res_multistep",
       "scheduler": "simple",
-      "denoise": 1,
+      "denoise": 0.8,
       "model": [
         "57:11",
         0
@@ -154,7 +154,7 @@
   "i2i-encode": {
     "inputs": {
       "pixels": [
-        "i2i-scale",
+        "op-init",
         0
       ],
       "vae": [
@@ -241,7 +241,7 @@
   "ip-composite": {
     "inputs": {
       "destination": [
-        "i2i-scale",
+        "op-init",
         0
       ],
       "source": [
@@ -271,6 +271,59 @@
       "feathering": 40,
       "image": [
         "i2i-load",
+        0
+      ]
+    }
+  },
+  "op-bg": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "upscale_method": "bilinear",
+      "width": 1024,
+      "height": 1024,
+      "crop": "disabled",
+      "image": [
+        "i2i-load",
+        0
+      ]
+    }
+  },
+  "op-bgblur": {
+    "class_type": "ImageBlur",
+    "inputs": {
+      "blur_radius": 31,
+      "sigma": 12.0,
+      "image": [
+        "op-bg",
+        0
+      ]
+    }
+  },
+  "op-keepmask": {
+    "class_type": "InvertMask",
+    "inputs": {
+      "mask": [
+        "ip-img2mask",
+        0
+      ]
+    }
+  },
+  "op-init": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": [
+        "op-bgblur",
+        0
+      ],
+      "source": [
+        "i2i-scale",
+        0
+      ],
+      "x": 0,
+      "y": 0,
+      "resize_source": false,
+      "mask": [
+        "op-keepmask",
         0
       ]
     }

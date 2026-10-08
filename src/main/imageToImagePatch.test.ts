@@ -143,6 +143,15 @@ test('the outpainting template pads the picture and takes its mask from the padd
   assert.deepEqual(t['i2i-scale'].inputs.image, ['op-pad', 0]);
   assert.deepEqual(t['ip-mask2img'].inputs.mask, ['op-pad', 1]);
   assert.equal(t['i2i-scale'].inputs.crop, 'disabled', 'the output is the whole canvas, never cropped');
+  // the sampler starts from the picture with a blurred stretch of itself where the new area is, not from grey
+  assert.deepEqual(t['op-bg'].inputs.image, ['i2i-load', 0]);
+  assert.deepEqual(t['op-bgblur'].inputs.image, ['op-bg', 0]);
+  assert.equal(t['op-init'].class_type, 'ImageCompositeMasked');
+  assert.deepEqual(t['op-init'].inputs.destination, ['op-bgblur', 0]);
+  assert.deepEqual(t['op-init'].inputs.source, ['i2i-scale', 0]);
+  assert.deepEqual(t['op-keepmask'].inputs.mask, ['ip-img2mask', 0]);
+  assert.deepEqual(t['i2i-encode'].inputs.pixels, ['op-init', 0]);
+  assert.deepEqual(t['ip-composite'].inputs.destination, ['op-init', 0]);
   for (const [id, node] of Object.entries(t)) {
     for (const value of Object.values(node.inputs)) {
       if (Array.isArray(value) && typeof value[0] === 'string') assert.ok(t[value[0]], `${id} refers to ${value[0]}`);
@@ -157,6 +166,10 @@ test('filling the outpainting template sets the padding, the canvas size and a f
   assert.deepEqual([t['op-pad'].inputs.left, t['op-pad'].inputs.top, t['op-pad'].inputs.right, t['op-pad'].inputs.bottom], [512, 0, 0, 64]);
   assert.deepEqual([t['i2i-scale'].inputs.width, t['i2i-scale'].inputs.height], [1536, 1024]);
   assert.deepEqual([t['ip-maskscale'].inputs.width, t['ip-maskscale'].inputs.height], [1536, 1024]);
-  assert.equal(t['57:3'].inputs.denoise, 1, 'a stray strength never reaches the sampler');
+  assert.deepEqual([t['op-bg'].inputs.width, t['op-bg'].inputs.height], [1536, 1024]);
+  assert.equal(t['57:3'].inputs.denoise, 0.3, 'the chosen strength reaches the sampler');
+  const fresh = JSON.parse(JSON.stringify(outpaintTemplate)) as Template;
+  fillOutpaint(fresh, { ...params, width: 1536, height: 1024 }, 'up.png', { left: 512, top: 0, right: 0, bottom: 0 });
+  assert.equal(fresh['57:3'].inputs.denoise, 0.8, 'without one, the outpainting default');
   assert.equal(t['57:27'].inputs.text, 'a fox');
 });

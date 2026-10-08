@@ -6,7 +6,7 @@ import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/typ
 import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
 import { I2V_FAMILY, T2V_FAMILY, videoFamilyFor } from '../shared/textToVideo';
 import { PROFILE_FAMILIES, profileFamily, profileFamilyKey, SAMPLER_LIMITS } from '../shared/modelFamilies';
-import { clampDenoise, DEFAULT_DENOISE, DENOISE_LIMITS, I2I_FAMILY, INPAINT_FAMILY, normalizeOutpaint, OUTPAINT_FAMILY, outpaintOutputSize } from '../shared/imageToImage';
+import { clampDenoise, DEFAULT_DENOISE, DENOISE_LIMITS, I2I_FAMILY, INPAINT_FAMILY, normalizeOutpaint, OUTPAINT_DEFAULT_DENOISE, OUTPAINT_FAMILY, outpaintOutputSize } from '../shared/imageToImage';
 import { ModelProfile, profileSettings } from '../shared/modelProfiles';
 import { findModelProfileByName, listModelProfiles } from './modelProfiles';
 import { isUpscaleFamily } from '../shared/upscale';
@@ -342,7 +342,7 @@ export class ApiService {
       steps: model ? (optNumber(args, 'steps', SAMPLER_LIMITS.steps.min, SAMPLER_LIMITS.steps.max, true) ?? model.sampler.steps) : (optNumber(args, 'steps', 1, 20, true) ?? 8),
       cfg: model ? (optNumber(args, 'cfg', SAMPLER_LIMITS.cfg.min, SAMPLER_LIMITS.cfg.max) ?? model.sampler.cfg) : (optNumber(args, 'cfg', 0.5, 3) ?? 1),
       ...(model ? { modelName: model.name, modelSettings: profileSettings(model) } : {}),
-      ...(source && extend ? { sourceImagePath: source.path, outpaint: extend } : {}),
+      ...(source && extend ? { sourceImagePath: source.path, outpaint: extend, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max), OUTPAINT_DEFAULT_DENOISE) } : {}),
       ...(source && !extend ? { sourceImagePath: source.path, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max)) } : {}),
     };
     return this.jobView(this.deps.queue.submit({ family: extend ? OUTPAINT_FAMILY : source ? I2I_FAMILY : family, params, source: 'mcp', batch: optBatch(args) }));

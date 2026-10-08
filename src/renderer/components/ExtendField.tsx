@@ -62,8 +62,9 @@ export default function ExtendField({ value, sourceSize, onChange }: Props) {
       </div>
       {value && (
         <p className="style-picker__preview" style={{ maxHeight: 'none' }}>
-          {result ? `The result is ${result.width} × ${result.height}. ` : ''}The original stays exactly as it is; only the new area is drawn, from the
-          prompt and what is at the edge. This replaces any painted mask.
+          {result ? `The result is ${result.width} × ${result.height}. ` : ''}The original stays exactly as it is; only the new area is drawn.
+          In the prompt, describe what should continue beyond the edges - a prompt describing the whole picture tends to draw the whole picture
+          again in the new area. This replaces any painted mask.
         </p>
       )}
     </div>

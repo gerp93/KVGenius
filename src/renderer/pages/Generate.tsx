@@ -15,7 +15,7 @@ import type { PromptTabsModel } from '../utils/promptTabs';
 import { PromptStyle, combinePrompt } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
-import { DENOISE_LIMITS, INPAINT_FAMILY, clampDenoise, imageFamilyFor, isPictureStartFamily, normalizeOutpaint, outpaintOutputSize, serializeOutpaint } from '../../shared/imageToImage';
+import { DENOISE_LIMITS, INPAINT_FAMILY, OUTPAINT_DEFAULT_DENOISE, clampDenoise, imageFamilyFor, isPictureStartFamily, normalizeOutpaint, outpaintOutputSize, serializeOutpaint } from '../../shared/imageToImage';
 import { ModelProfile, ModelSettings, profileMatchesSettings, profileSettings, serializeModelSettings } from '../../shared/modelProfiles';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { useGenerationChanges } from '../utils/generationChanges';
@@ -336,7 +336,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture && !startPad ? denoise : null, startMask, padKey] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask, padKey] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -364,7 +364,7 @@ export default function Generate({
           steps: runSteps,
           cfg: runCfg,
           ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined } : {}),
-          ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
+          ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad, denoise } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
           ...(modelSettings ? { modelSettings } : {}),
         })
         .then((found) => {
@@ -696,7 +696,7 @@ export default function Generate({
       steps: runSteps,
       cfg: runCfg,
       ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined, ...(activeExtendId !== null ? { extendVideoId: activeExtendId } : {}) } : {}),
-      ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
+      ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad, denoise } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
     };
     const added = queue.enqueue(
       seeds.map((jobSeed) => ({ family: runFamily, kind: mode, params: { ...base, seed: jobSeed } })),
@@ -893,16 +893,21 @@ export default function Generate({
                   value={startPad}
                   sourceSize={sourceDims}
                   onChange={(next) => {
+                    // Extending replaces a painted mask, and wants its own starting strength (the new area is only partly re-drawn).
+                    if (next && !startPad) {
+                      setMaskPath(null);
+                      setDenoise(OUTPAINT_DEFAULT_DENOISE);
+                    } else if (next) {
+                      setMaskPath(null);
+                    }
                     setOutpaint(next);
-                    // Extending replaces a painted mask.
-                    if (next) setMaskPath(null);
                   }}
                 />
               )}
-              {imageSourcePath && !startPad && (
+              {imageSourcePath && (
                 <>
                   <label className="field-label" htmlFor="denoise" style={{ marginTop: 10 }}>
-                    {maskPath ? 'How much to change the painted spots' : 'How much to change it'}: {denoise.toFixed(2)}
+                    {startPad ? 'How much to invent in the new area' : maskPath ? 'How much to change the painted spots' : 'How much to change it'}: {denoise.toFixed(2)}
                   </label>
                   <input
                     id="denoise"
@@ -915,8 +920,11 @@ export default function Generate({
                     style={{ width: '100%' }}
                   />
                   <p className="style-picker__preview">
-                    Low keeps most of the picture; 1 ignores it.{maskPath ? ' Outside the painted spots the original is kept exactly.' : ''} The result is made at the size chosen below,
-                    so a different shape is cropped from the centre.
+                    {startPad
+                      ? 'The new area starts as a blurred stretch of your picture and is re-drawn this much. Lower follows the picture more closely; 1 draws it from the prompt alone.'
+                      : 'Low keeps most of the picture; 1 ignores it.'}
+                    {maskPath ? ' Outside the painted spots the original is kept exactly.' : ''}
+                    {startPad ? '' : ' The result is made at the size chosen below, so a different shape is cropped from the centre.'}
                   </p>
                 </>
               )}
