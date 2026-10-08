@@ -970,18 +970,21 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   background: var(--color-surface);
 }
 
-/* Settings: a readable column of titled cards under the tab strip. */
-/* Settings use the whole page: the cards of a tab flow into as many columns as fit (each at least 520px wide), and
-   the setup callout spans them all. The Models tab is one wide editor instead, so it is not a grid. */
+/* Settings: the cards of a tab flow into as many columns as fit, each 520-640px wide, packed from the left, and the whole group
+   stops at three columns (3 x 640 + gaps) - so on a huge screen the spare room is plain background on the right, not stretched cards.
+   The setup callout's two cards (Settings > ComfyUI) sit on a row of their own with the same column widths. The Models tab is one wide
+   editor instead, so it is not a grid. */
 .settings-page {
   max-width: none;
 }
 
 .settings-panel--cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(520px, 640px));
+  justify-content: start;
   gap: 20px;
   align-items: start;
+  max-width: 1960px;
 }
 
 .settings-panel--cards > .settings-section {
@@ -991,6 +994,9 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 .settings-panel--cards > .setup-callout {
   grid-column: 1 / -1;
   margin-bottom: 0;
+  /* Its own row, on the same column widths as the cards below, so the two line up with them. */
+  grid-template-columns: repeat(auto-fill, minmax(520px, 640px));
+  gap: 20px;
 }
 
 .settings-section {
