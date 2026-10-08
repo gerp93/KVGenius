@@ -110,6 +110,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   text is never re-derived from it. Re-rack / a prompt from Library > Prompts load that full prompt with no
   style picked (else the style would be added twice). Editing or deleting a style never touches past
   generations.
+- **The Library's card size is one slider** (`CardSizeSlider.tsx`, `hooks/useCardScale.ts`) in the toolbar of Output, Prompts and the Trash. It is a
+  multiplier (0.75-2, default 1, remembered in `localStorage`) on each page's own target row height that `justifyRows` packs to, so bigger cards mean
+  fewer to a row and each page keeps its own default size. A card's action buttons wrap onto a second line when the card is narrow
+  (`.library-card__actions`), so a small size does not crush them; below about 0.75 a tall, thin card's overlay buttons start to collide.
 - **Group by prompt is an opt-in filter, not the default view** (`listPromptStacks` in
   `db.ts`). A stack card must take exactly the width `justifyRows` gave it (its stacked edges are box-shadow, no margin): a
   row even a few pixels too wide made the page grow, which fitted more cards per row, until everything sat in one row. Only *exactly* equal prompts stack. The cover is pinned > favorite > newest;

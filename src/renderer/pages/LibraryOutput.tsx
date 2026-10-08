@@ -14,6 +14,8 @@ import { useCycleIndex } from '../hooks/useCycleIndex';
 import GalleryLightbox from '../components/GalleryLightbox';
 import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
 import { justifyRows } from '../utils/justifiedRows';
+import CardSizeSlider from '../components/CardSizeSlider';
+import { useCardScale } from '../hooks/useCardScale';
 import { pinNotice } from '../utils/library';
 
 const PAGE_SIZE = 60;
@@ -55,6 +57,7 @@ function CardMedia({ record, isVideo, height, children }: { record: GenerationRe
 
 export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHidden, onShowQueue }: Props) {
   const [tab, setTab] = useState<GenerationKind>('image');
+  const [cardScale, setCardScale] = useCardScale();
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   // Optional: collapse items with exactly the same prompt into one stack. Off, the list is every item as ever.
   const [grouped, setGrouped] = useState(false);
@@ -263,7 +266,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const rows = justifyRows(
     records.map((r) => ({ aspect: r.width / Math.max(r.height, 1) })),
     gridWidth,
-    TARGET_ROW_HEIGHT,
+    TARGET_ROW_HEIGHT * cardScale,
     GRID_GAP
   );
   const infoRecord = records.find((r) => r.id === infoId) ?? null;
@@ -864,6 +867,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                   ))}
                 </select>
               )}
+              <CardSizeSlider scale={cardScale} onChange={setCardScale} />
               <button
                 type="button"
                 onClick={() => setSelecting(true)}
