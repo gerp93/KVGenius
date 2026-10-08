@@ -2891,3 +2891,20 @@ button.button-danger--armed:hover:not(:disabled) {
   font-size: 12px;
   color: var(--color-text-muted);
 }
+
+/* Video: length and quality on one line (their explanations are tooltips). */
+.video-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.video-row__length {
+  flex: 0 0 130px;
+  min-width: 0;
+}
+
+.video-row__quality {
+  flex: 1;
+  min-width: 0;
+}
