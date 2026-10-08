@@ -63,6 +63,22 @@ function describe(job: Job): string {
   return parts.join(' · ');
 }
 
+/** The picture a queued job works from, small, in the bottom corner of its card. It hides itself if the file can no longer be loaded. */
+function ReferenceThumb({ path }: { path: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+  return (
+    <img
+      className="queue-job__reference"
+      src={window.kvgenius.imageUrlFor(path)}
+      alt="Reference image"
+      title="The reference image this is made from"
+      draggable={false}
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
 /** The queue bar along the bottom of the window: a slim status strip while folded, and a drawer of
  * horizontal cards (generating, waiting, finished, failed) with cancel controls while open. */
 export default function QueuePanel({
@@ -152,8 +168,10 @@ export default function QueuePanel({
 
   function renderJob(job: Job, extra: React.ReactNode, below?: React.ReactNode) {
     const label = batchLabel(job);
+    // Anything made from a picture (a video, image to image, inpainting, outpainting, a picture upscale) shows it in the corner.
+    const reference = job.params.sourceImagePath;
     return (
-      <div key={job.id} className={`queue-job queue-job--${job.status}`}>
+      <div key={job.id} className={`queue-job queue-job--${job.status}${reference ? ' queue-job--has-reference' : ''}`}>
         <div className="queue-job__top">
           <span className="queue-job__kind">{job.kind === 'video' ? '🎬' : '🖼️'}</span>
           <span className="queue-job__prompt" title={job.params.prompt}>
@@ -171,6 +189,7 @@ export default function QueuePanel({
         )}
         {job.status === 'failed' && job.error && <div className="queue-job__error">{job.error}</div>}
         {below}
+        {reference && <ReferenceThumb path={reference} />}
       </div>
     );
   }
