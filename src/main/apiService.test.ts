@@ -192,6 +192,7 @@ test('generate_image with a library picture as source is image to image: its sha
 
 test('image to image is asked for with a source, not by naming its family; the source must be a picture', async () => {
   await assert.rejects(() => call('generate_image', { prompt: 'x', family: 'z-image-i2i' }), /pass `source`/);
+  await assert.rejects(() => call('generate_image', { prompt: 'x', family: 'z-image-inpaint' }), /Inpainting is not available/);
   await assert.rejects(() => call('generate_image', { prompt: 'x', source: 'imp-9999' }), /no library item/);
   const song = (await call('list_library', { kind: 'audio' })).items[0];
   await assert.rejects(() => call('generate_image', { prompt: 'x', source: song.id }), /image/i);

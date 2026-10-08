@@ -36,6 +36,8 @@ export interface PromptSlotData {
   imageFromPicture?: boolean;
   /** Image to image only: how much of the start picture is re-drawn (0.05-1). Absent in older configs - the default. */
   denoise?: number;
+  /** Image to image only: the painted mask (a kept picture file) that makes it inpainting, or null for none. Absent in older configs - null. */
+  maskImagePath?: string | null;
   /** The "would repeat the last run" guard - kept per slot so switching away and back doesn't
    * forget it, and it doesn't wrongly carry over between unrelated tabs. */
   lastRunSignature: string | null;
@@ -74,6 +76,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     imageSourcePath: null,
     imageFromPicture: false,
     denoise: DEFAULT_DENOISE,
+    maskImagePath: null,
     lastRunSignature: null,
   };
 }
@@ -121,6 +124,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     (d.imageSourcePath === undefined || d.imageSourcePath === null || typeof d.imageSourcePath === 'string') &&
     (d.imageFromPicture === undefined || typeof d.imageFromPicture === 'boolean') &&
     (d.denoise === undefined || typeof d.denoise === 'number') &&
+    (d.maskImagePath === undefined || d.maskImagePath === null || typeof d.maskImagePath === 'string') &&
     (d.lastRunSignature === undefined || d.lastRunSignature === null || typeof d.lastRunSignature === 'string')
   );
 }

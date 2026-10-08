@@ -9,6 +9,12 @@ export function sourcePathOf(record: GenerationRecord | null | undefined): strin
   return record.sourceImagePath ?? null;
 }
 
+/** Every kept file a result needs in order to be re-run: its source image and, for inpainting, its mask. */
+export function keptFilesOf(record: GenerationRecord | null | undefined): string[] {
+  const source = sourcePathOf(record);
+  return [source, record?.maskImagePath ?? null].filter((p): p is string => !!p);
+}
+
 /**
  * Which of the given source-image paths are no longer on disk. The answer arrives a moment after the
  * paths do; until then nothing counts as missing, so a Re-rack button is not flickered off first.
@@ -45,6 +51,7 @@ export function useMissingSources(paths: readonly (string | null | undefined)[])
 
 /** Whether this one result has lost the source image it was made from. */
 export function useSourceMissing(record: GenerationRecord | null | undefined): boolean {
-  const path = sourcePathOf(record);
-  return useMissingSources([path]).has(path ?? '');
+  const files = keptFilesOf(record);
+  const missing = useMissingSources(files);
+  return files.some((file) => missing.has(file));
 }

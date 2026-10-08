@@ -42,7 +42,8 @@ export function keepSourceImage(sourcePath: string, sourcesDir: string): string 
  * alone. Returns whether a file was deleted. */
 export function releaseSourceImage(db: DatabaseSync, sourcePath: string | null, sourcesDir: string): boolean {
   if (!sourcePath || !isInside(sourcePath, sourcesDir)) return false;
-  const stillUsed = db.prepare('SELECT 1 FROM generations WHERE source_image_path = ? LIMIT 1').get(sourcePath);
+  // A kept mask lives in the same folder, so a file is still wanted while it is any result's source image or mask.
+  const stillUsed = db.prepare('SELECT 1 FROM generations WHERE source_image_path = ? OR mask_image_path = ? LIMIT 1').get(sourcePath, sourcePath);
   if (stillUsed) return false;
   try {
     fs.unlinkSync(sourcePath);

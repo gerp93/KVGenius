@@ -38,6 +38,7 @@ export function usePromptSlots() {
   const [imageSourcePath, setImageSourcePath] = useState<string | null>(null);
   const [imageFromPicture, setImageFromPicture] = useState(false);
   const [denoise, setDenoise] = useState(DEFAULT_DENOISE);
+  const [maskPath, setMaskPath] = useState<string | null>(null);
   const [lastRunSignature, setLastRunSignature] = useState<string | null>(null);
 
   function applySnapshot(data: PromptSlotData) {
@@ -60,6 +61,7 @@ export function usePromptSlots() {
     setImageSourcePath(data.imageSourcePath ?? null);
     setImageFromPicture(data.imageFromPicture ?? (data.imageSourcePath ?? null) !== null);
     setDenoise(clampDenoise(data.denoise));
+    setMaskPath(data.maskImagePath ?? null);
     setLastRunSignature(data.lastRunSignature ?? null);
   }
 
@@ -112,6 +114,7 @@ export function usePromptSlots() {
       imageSourcePath,
       imageFromPicture,
       denoise,
+      maskImagePath: maskPath,
       lastRunSignature,
     };
   }
@@ -152,6 +155,7 @@ export function usePromptSlots() {
     imageSourcePath,
     imageFromPicture,
     denoise,
+    maskPath,
     lastRunSignature,
   ]);
 
@@ -255,6 +259,8 @@ export function usePromptSlots() {
     setImageFromPicture,
     denoise,
     setDenoise,
+    maskPath,
+    setMaskPath,
     lastRunSignature,
     setLastRunSignature,
   };

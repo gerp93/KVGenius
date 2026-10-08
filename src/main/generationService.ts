@@ -6,6 +6,7 @@ import { generate as comfyGenerate } from './comfyui';
 import { getHiddenWords, getImagesDir, getSourcesDir, getVideosDir } from './dbLocation';
 import { keepSourceImage } from './sourceImages';
 import { needsSourceImage } from '../shared/sourceFamilies';
+import { INPAINT_FAMILY } from '../shared/imageToImage';
 import { compileHiddenMatcher } from '../shared/hiddenWords';
 import { insertGeneration } from './db';
 import { insertTiming } from './timingStats';
@@ -80,7 +81,9 @@ export function createGenerationRunner(getDb: () => DatabaseSync | null): JobRun
     // re-run in place and shown as its original - see shared/sourceFamilies.ts.
     const keptSource =
       needsSourceImage(family) && params.sourceImagePath ? keepSourceImage(params.sourceImagePath, getSourcesDir()) : null;
-    const record = insertGeneration(db, params, family, imagePath, timingId, hidden, keptSource);
+    // Inpainting also keeps the mask it was painted with (in the same folder), so Re-rack can run it again.
+    const keptMask = family === INPAINT_FAMILY && params.maskImagePath ? keepSourceImage(params.maskImagePath, getSourcesDir()) : null;
+    const record = insertGeneration(db, params, family, imagePath, timingId, hidden, keptSource, keptMask);
     return { generationId: record.id };
   };
 }

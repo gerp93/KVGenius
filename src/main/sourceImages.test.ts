@@ -109,3 +109,24 @@ test('listKeptSources counts what each kept source was used for, newest use firs
   );
   assert.deepEqual(sources[1].families.sort(), ['upscale-image', 'wan22-i2v']);
 });
+
+test('an inpainting result remembers its mask, which is kept as long as any result uses it as a mask or a source', () => {
+  const dir = temp();
+  const sources = path.join(dir, 'sources');
+  fs.mkdirSync(sources, { recursive: true });
+  const picture = path.join(sources, 'pic.png');
+  const mask = path.join(sources, 'mask.png');
+  fs.writeFileSync(picture, 'p');
+  fs.writeFileSync(mask, 'm');
+
+  const db = initDatabase(':memory:');
+  const result = insertGeneration(db, { ...params(1), denoise: 0.8 }, 'z-image-inpaint', '/out/1.png', null, false, picture, mask);
+  assert.equal(result.maskImagePath, mask);
+  assert.equal(getGenerationById(db, result.id)?.maskImagePath, mask);
+  assert.equal(getGenerationById(db, insertGeneration(db, params(2), 'z-image', '/out/2.png').id)?.maskImagePath, null);
+
+  assert.equal(releaseSourceImage(db, mask, sources), false, 'still the mask of a result');
+  db.prepare('DELETE FROM generations WHERE id = ?').run(result.id);
+  assert.equal(releaseSourceImage(db, mask, sources), true);
+  assert.equal(releaseSourceImage(db, picture, sources), true);
+});

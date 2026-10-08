@@ -162,7 +162,7 @@ export function restoreFromTrash(db: DatabaseSync, ids: number[]): { restored: n
 /** Sends each item's file to the Recycle Bin, then deletes its record. An item the Recycle Bin will not
  * take stays in the Trash, whole, and is counted as failed. */
 async function emptyRows(db: DatabaseSync, rows: Row[], sourcesDir: string, recycle: Recycle): Promise<TrashEmptyResult> {
-  const sources = db.prepare('SELECT source_image_path FROM generations WHERE id = ?');
+  const sources = db.prepare('SELECT source_image_path, mask_image_path FROM generations WHERE id = ?');
   const remove = db.prepare('DELETE FROM generations WHERE id = ?');
   const result: TrashEmptyResult = { deleted: 0, failed: 0 };
   for (const row of rows) {
@@ -174,10 +174,11 @@ async function emptyRows(db: DatabaseSync, rows: Row[], sourcesDir: string, recy
         continue;
       }
     }
-    const source = (sources.get(row.id) as unknown as { source_image_path: string | null } | undefined)?.source_image_path ?? null;
+    const kept = sources.get(row.id) as unknown as { source_image_path: string | null; mask_image_path: string | null } | undefined;
     remove.run(row.id);
-    // The kept copy of a video's source image is the app's own duplicate, not something to recycle.
-    releaseSourceImage(db, source, sourcesDir);
+    // The kept copy of a video's source image (and an inpainting result's mask) is the app's own duplicate, not something to recycle.
+    releaseSourceImage(db, kept?.source_image_path ?? null, sourcesDir);
+    releaseSourceImage(db, kept?.mask_image_path ?? null, sourcesDir);
     result.deleted++;
   }
   return result;

@@ -9,7 +9,7 @@ import { migrateFamilyKeys } from './familyMigration';
 import { IMPORTS_SCHEMA } from './library';
 import { ASSEMBLIES_SCHEMA } from './assembly';
 import { STYLES_SCHEMA } from './styles';
-import { I2I_FAMILY } from '../shared/imageToImage';
+import { I2I_FAMILY, INPAINT_FAMILY } from '../shared/imageToImage';
 import { MODEL_PROFILES_SCHEMA } from './modelProfiles';
 import { ModelSettings, parseModelSettings, serializeModelSettings } from '../shared/modelProfiles';
 
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS generations (
   model_name TEXT,
   model_settings TEXT,
   denoise REAL,
+  mask_image_path TEXT,
   timing_id INTEGER,
   created_at TEXT NOT NULL
 );
@@ -84,6 +85,10 @@ function migrateSchema(db: DatabaseSync): void {
   // Image to image: how much of the start picture was re-drawn (ComfyUI's denoise); null for everything else.
   if (!columns.some((c) => c.name === 'denoise')) {
     db.exec('ALTER TABLE generations ADD COLUMN denoise REAL;');
+  }
+  // Inpainting: the app's kept copy of the mask the result was made with; null for everything else.
+  if (!columns.some((c) => c.name === 'mask_image_path')) {
+    db.exec('ALTER TABLE generations ADD COLUMN mask_image_path TEXT;');
   }
   if (!columns.some((c) => c.name === 'model_settings')) {
     db.exec('ALTER TABLE generations ADD COLUMN model_settings TEXT;');
@@ -205,6 +210,7 @@ interface GenerationRow {
   model_name?: string | null;
   model_settings?: string | null;
   denoise?: number | null;
+  mask_image_path?: string | null;
   created_at: string;
   // Only in a listing grouped by prompt.
   group_count?: number;
@@ -244,6 +250,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     trashedAt: row.trashed_at,
     styleName: row.style_name ?? null,
     denoise: row.denoise ?? null,
+    maskImagePath: row.mask_image_path ?? null,
     modelName: row.model_name ?? null,
     modelSettings: parseModelSettings(row.model_settings),
     createdAt: row.created_at,
@@ -269,7 +276,9 @@ export function insertGeneration(
   timingId: number | null = null,
   hidden = false,
   /** A video's kept copy of its source image (see sourceImages.ts), so it can be re-run in place. */
-  sourceImagePath: string | null = null
+  sourceImagePath: string | null = null,
+  /** An inpainting result's kept copy of its mask. */
+  maskImagePath: string | null = null
 ): GenerationRecord {
   const createdAt = new Date().toISOString();
   const length = params.length ?? null;
@@ -278,8 +287,8 @@ export function insertGeneration(
   const modelSettings = serializeModelSettings(params.modelSettings);
   const denoise = params.denoise ?? null;
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, model_name, model_settings, denoise, timing_id, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, timing_id, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -297,6 +306,7 @@ export function insertGeneration(
     modelName,
     modelSettings,
     denoise,
+    maskImagePath,
     timingId,
     createdAt
   );
@@ -319,6 +329,7 @@ export function insertGeneration(
     trashedAt: null,
     styleName,
     denoise,
+    maskImagePath,
     modelName,
     modelSettings: params.modelSettings ?? null,
     createdAt,
@@ -616,6 +627,8 @@ export interface DuplicateQuery {
   sourceImagePath?: string | null;
   /** Image to image only: how much of the start picture is re-drawn. A different strength is a different picture. */
   denoise?: number | null;
+  /** Inpainting only: the kept copy of the mask. A different mask is a different picture. */
+  maskImagePath?: string | null;
   /** Image only: the model settings the run would use (none: the shipped template). A different model makes a different picture. */
   modelSettings?: ModelSettings | null;
 }
@@ -628,14 +641,16 @@ export interface DuplicateQuery {
 export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, query: DuplicateQuery): GenerationRecord | null {
   const isVideo = query.length !== undefined && query.length !== null;
   // A video's (or an image to image result's) picture depends on its source image, which is only comparable once there is one.
-  const needsSource = isVideo || modelFamily === I2I_FAMILY;
+  const needsSource = isVideo || modelFamily === I2I_FAMILY || modelFamily === INPAINT_FAMILY;
   if (needsSource && !query.sourceImagePath) return null;
+  const needsMask = modelFamily === INPAINT_FAMILY;
+  if (needsMask && !query.maskImagePath) return null;
   const row = db
     .prepare(
       `${GENERATION_SELECT}
        WHERE g.model_family = ? AND g.trashed_at IS NULL AND TRIM(g.prompt) = ? AND g.width = ? AND g.height = ?
          AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ? AND g.model_settings IS ? AND g.denoise IS ?
-         ${needsSource ? 'AND g.source_image_path = ?' : ''}
+         ${needsSource ? 'AND g.source_image_path = ?' : ''} ${needsMask ? 'AND g.mask_image_path = ?' : ''}
        ORDER BY g.id DESC LIMIT 1`
     )
     .get(
@@ -649,7 +664,8 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
       isVideo ? (query.length as number) : null,
       serializeModelSettings(query.modelSettings),
       query.denoise ?? null,
-      ...(needsSource ? [query.sourceImagePath as string] : [])
+      ...(needsSource ? [query.sourceImagePath as string] : []),
+      ...(needsMask ? [query.maskImagePath as string] : [])
     ) as unknown as GenerationRow | undefined;
   return row ? rowToRecord(row) : null;
 }

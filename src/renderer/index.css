@@ -2922,3 +2922,32 @@ button.button-danger--armed:hover:not(:disabled) {
   flex: 1;
   min-width: 0;
 }
+
+/* Generate > Image -> Image: the optional inpainting mask under the source image. */
+.mask-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.mask-field__thumb {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: #000;
+}
+
+.mask-field__text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.library-card__origin-badge--inpaint {
+  background: rgba(120, 60, 160, 0.9);
+}
