@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { GenerationRecord } from '../../shared/types';
 import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
 import { UPSCALE_FAMILY, isUpscaleFamily } from '../../shared/upscale';
-import { sourcePathOf, useMissingSources } from '../hooks/useMissingSources';
+import { keptFilesOf, useMissingSources } from '../hooks/useMissingSources';
 import { videoQualityFromCfg } from '../../shared/videoQuality';
 import { Job, JobKind, ProgressInfo } from '../hooks/useGenerationQueue';
 import { formatDuration } from '../utils/format';
@@ -58,7 +58,7 @@ function describe(job: Job): string {
   if (job.kind === 'video') parts.push(`${framesToSeconds(length ?? 81)}s`, `${videoQualityFromCfg(cfg)} quality`);
   parts.push(`seed ${seed}`);
   if (job.kind === 'image') parts.push(`${steps} steps`, `CFG ${cfg}`);
-  if (job.params.denoise !== undefined) parts.push(`image to image ${job.params.denoise.toFixed(2)}`);
+  if (job.params.denoise !== undefined) parts.push(`${job.params.maskImagePath ? 'inpaint' : 'image to image'} ${job.params.denoise.toFixed(2)}`);
   return parts.join(' · ');
 }
 
@@ -103,7 +103,7 @@ export default function QueuePanel({
   const allDone = jobs.filter(isDone);
   const done = allDone.slice(-MAX_COMPLETED_SHOWN).reverse();
   // Results made from a picture can only be re-racked while their kept copy of it still exists.
-  const missingSources = useMissingSources(done.map((job) => sourcePathOf(job.record)));
+  const missingSources = useMissingSources(done.flatMap((job) => keptFilesOf(job.record)));
   const olderDoneCount = allDone.length - done.length;
 
   const runningDisplay = running
@@ -345,9 +345,9 @@ export default function QueuePanel({
                           type="button"
                           className="queue-done__rerack"
                           onClick={() => onRerack(job.record)}
-                          disabled={missingSources.has(sourcePathOf(job.record) ?? '')}
+                          disabled={keptFilesOf(job.record).some((file) => missingSources.has(file))}
                           title={
-                            missingSources.has(sourcePathOf(job.record) ?? '')
+                            keptFilesOf(job.record).some((file) => missingSources.has(file))
                               ? SOURCE_MISSING_MESSAGE
                               : job.family === UPSCALE_FAMILY
                                 ? 'Open the original in Tools > Upscale'

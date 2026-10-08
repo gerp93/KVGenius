@@ -96,3 +96,13 @@ test('a stack previews no more than a dozen pictures', () => {
   assert.equal(stack.groupCount, 20);
   assert.equal(stack.groupPreviewPaths?.length, 12);
 });
+
+test('an inpainting run is a duplicate only of the same picture with the same mask', () => {
+  const db = initDatabase(':memory:');
+  const query = { ...base, denoise: 0.8, sourceImagePath: '/s/pic.png', maskImagePath: '/s/mask-a.png' };
+  const made = insertGeneration(db, { ...base, denoise: 0.8 }, 'z-image-inpaint', '/out/x.png', null, false, '/s/pic.png', '/s/mask-a.png');
+  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', query)?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { ...query, maskImagePath: '/s/mask-b.png' }), null, 'a different mask');
+  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { ...query, sourceImagePath: '/s/other.png' }), null, 'a different picture');
+  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { ...query, maskImagePath: null }), null, 'no mask yet means nothing to compare');
+});

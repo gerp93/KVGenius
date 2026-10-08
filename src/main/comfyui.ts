@@ -9,12 +9,13 @@ import { getEffectiveComfyUIHost } from './dbLocation';
 import zImageTurboTemplate from './templates/z-image.json';
 import wan22I2vTemplate from './templates/wan22-i2v.json';
 import zImageI2iTemplate from './templates/z-image-i2i.json';
+import zImageInpaintTemplate from './templates/z-image-inpaint.json';
 import upscaleImageTemplate from './templates/upscale-image.json';
 import upscaleVideoTemplate from './templates/upscale-video.json';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../shared/upscale';
 import { canonicalFamily } from '../shared/families';
-import { I2I_FAMILY } from '../shared/imageToImage';
-import { fillImageToImage } from './imageToImagePatch';
+import { I2I_FAMILY, INPAINT_FAMILY } from '../shared/imageToImage';
+import { fillImageToImage, fillInpaint } from './imageToImagePatch';
 import { applyModelSettings } from './modelPatch';
 import { FOLDER_LOADERS, MODEL_FOLDERS } from '../shared/modelManifest';
 import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/modelStatus';
@@ -28,6 +29,7 @@ import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/mode
 const TEMPLATES: Record<string, Record<string, unknown>> = {
   'z-image': zImageTurboTemplate,
   [I2I_FAMILY]: zImageI2iTemplate,
+  [INPAINT_FAMILY]: zImageInpaintTemplate,
   'wan22-i2v': wan22I2vTemplate,
   [UPSCALE_FAMILY]: upscaleImageTemplate,
   [UPSCALE_VIDEO_FAMILY]: upscaleVideoTemplate,
@@ -239,6 +241,15 @@ async function patchTemplate(
     const resize = workflow[UPSCALE_VIDEO_NODE_MAP.resize] as { inputs: Record<string, unknown> };
     resize.inputs.width = params.width;
     resize.inputs.height = params.height;
+    return workflow;
+  }
+
+  if (canonicalFamily(family) === INPAINT_FAMILY) {
+    if (!params.sourceImagePath) throw new Error('Inpainting needs a source image.');
+    if (!params.maskImagePath) throw new Error('Inpainting needs a mask - paint the spots to change first.');
+    const imageName = await uploadSourceImage(params.sourceImagePath, signal);
+    const maskName = await uploadSourceImage(params.maskImagePath, signal);
+    fillInpaint(workflow, params, imageName, maskName);
     return workflow;
   }
 

@@ -79,3 +79,57 @@ test('a template that drifts from the patch fails loudly', () => {
   delete (t as Record<string, unknown>)['i2i-scale'];
   assert.throws(() => fillImageToImage(t, params, 'u.png'), /no node i2i-scale/);
 });
+
+import inpaintTemplate from './templates/z-image-inpaint.json';
+import { fillInpaint, Z_IMAGE_INPAINT_NODE_MAP } from './imageToImagePatch';
+
+const freshInpaint = () => JSON.parse(JSON.stringify(inpaintTemplate)) as Template;
+
+test('the inpainting template is image to image plus the mask steps, and every reference resolves', () => {
+  const t = freshInpaint();
+  const i2i = fresh();
+  const added = Object.keys(t).filter((id) => !(id in i2i));
+  assert.deepEqual(added.sort(), ['ip-composite', 'ip-img2mask', 'ip-maskblur', 'ip-maskload', 'ip-mask2img', 'ip-maskscale', 'ip-setmask'].sort());
+  for (const [id, node] of Object.entries(t)) {
+    for (const value of Object.values(node.inputs)) {
+      if (Array.isArray(value) && typeof value[0] === 'string') assert.ok(t[value[0]], `${id} refers to ${value[0]}`);
+    }
+  }
+  // the sampler works on the masked latent; the saved picture is the result pasted back over the (scaled) original
+  assert.deepEqual(t[Z_IMAGE_INPAINT_NODE_MAP.sampler].inputs.latent_image, ['ip-setmask', 0]);
+  assert.deepEqual(t['ip-setmask'].inputs.samples, [Z_IMAGE_INPAINT_NODE_MAP.encode, 0]);
+  assert.equal(t['ip-composite'].class_type, 'ImageCompositeMasked');
+  assert.deepEqual(t['ip-composite'].inputs.destination, [Z_IMAGE_INPAINT_NODE_MAP.scale, 0]);
+  assert.deepEqual(t['ip-composite'].inputs.source, ['57:8', 0]);
+  assert.deepEqual(t['9'].inputs.images, ['ip-composite', 0]);
+  // the same mask limits the sampler and blends the paste, and it is the picture's own fit (centre crop) at the output size
+  assert.deepEqual(t['ip-setmask'].inputs.mask, ['ip-img2mask', 0]);
+  assert.deepEqual(t['ip-composite'].inputs.mask, ['ip-img2mask', 0]);
+  assert.equal(t[Z_IMAGE_INPAINT_NODE_MAP.maskScale].inputs.crop, 'center');
+  // every model node is the text-to-image one, so profiles and the manifest still describe it
+  const text = textTemplate as unknown as Template;
+  for (const id of ['57:30', '57:29', '57:28', '57:27', '57:11']) assert.deepEqual(t[id].inputs, text[id].inputs, `node ${id}`);
+});
+
+test('filling the inpainting template sets the picture, the mask, the size and the sampler', () => {
+  const t = freshInpaint();
+  fillInpaint(t, { ...params, denoise: 0.8 }, 'photo.png', 'mask.png');
+  assert.equal(t[Z_IMAGE_INPAINT_NODE_MAP.loadImage].inputs.image, 'photo.png');
+  assert.equal(t[Z_IMAGE_INPAINT_NODE_MAP.loadMask].inputs.image, 'mask.png');
+  assert.equal(t[Z_IMAGE_INPAINT_NODE_MAP.scale].inputs.width, 832);
+  assert.equal(t[Z_IMAGE_INPAINT_NODE_MAP.maskScale].inputs.width, 832);
+  assert.equal(t[Z_IMAGE_INPAINT_NODE_MAP.maskScale].inputs.height, 1216);
+  assert.equal(t[Z_IMAGE_INPAINT_NODE_MAP.sampler].inputs.denoise, 0.8);
+  assert.equal(t[Z_IMAGE_INPAINT_NODE_MAP.prompt].inputs.text, 'a fox');
+});
+
+test('a model profile applies to inpainting as to the other Z-Image graphs', () => {
+  const t = freshInpaint();
+  fillInpaint(
+    t,
+    { ...params, modelSettings: { files: { diffusionModel: 'other.safetensors', textEncoder: 'qwen_3_4b.safetensors', vae: 'ae.safetensors' }, sampler: 'euler', scheduler: 'karras', shift: 5 } },
+    'p.png',
+    'm.png',
+  );
+  assert.equal(t['57:28'].inputs.unet_name, 'other.safetensors');
+});

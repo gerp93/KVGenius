@@ -3,6 +3,7 @@ import CopyButton from '../components/CopyButton';
 import ImageDropZone from '../components/ImageDropZone';
 import LibraryPicker from '../components/LibraryPicker';
 import SourceImageField from '../components/SourceImageField';
+import MaskEditor from '../components/MaskEditor';
 import ResultViewer from '../components/ResultViewer';
 import GalleryLightbox from '../components/GalleryLightbox';
 import { isUpscale, pinNotice } from '../utils/library';
@@ -13,7 +14,7 @@ import type { PromptTabsModel } from '../utils/promptTabs';
 import { PromptStyle, combinePrompt } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
-import { DENOISE_LIMITS, I2I_FAMILY, clampDenoise, imageFamilyFor } from '../../shared/imageToImage';
+import { DENOISE_LIMITS, INPAINT_FAMILY, clampDenoise, imageFamilyFor, isPictureStartFamily } from '../../shared/imageToImage';
 import { ModelProfile, ModelSettings, profileMatchesSettings, profileSettings, serializeModelSettings } from '../../shared/modelProfiles';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { useGenerationChanges } from '../utils/generationChanges';
@@ -156,6 +157,8 @@ export default function Generate({
     setImageFromPicture,
     denoise,
     setDenoise,
+    maskPath,
+    setMaskPath,
     lastRunSignature,
     setLastRunSignature,
   } = slotState;
@@ -256,7 +259,9 @@ export default function Generate({
   const startPicture = mode === 'image' && imageFromPicture ? imageSourcePath : null;
   // Image -> Image chosen but no picture yet: nothing to run until one is picked.
   const needsStartPicture = mode === 'image' && imageFromPicture && !imageSourcePath;
-  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null) : FAMILY_FOR_MODE.video;
+  // A mask painted on that source image makes it inpainting: only the painted spots are re-drawn.
+  const startMask = startPicture && maskPath ? maskPath : null;
+  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null, startMask !== null) : FAMILY_FOR_MODE.video;
   const modelFamily = profileFamily(FAMILY_FOR_MODE[mode]);
   const familyModels = models.filter((m) => m.family === FAMILY_FOR_MODE[mode]);
   const activeModel = familyModels.find((m) => m.id === profileId) ?? null;
@@ -286,7 +291,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -314,7 +319,7 @@ export default function Generate({
           steps: runSteps,
           cfg: runCfg,
           ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
-          ...(startPicture ? { sourceImagePath: startPicture, denoise } : {}),
+          ...(startPicture ? { sourceImagePath: startPicture, denoise, ...(startMask ? { maskImagePath: startMask } : {}) } : {}),
           ...(modelSettings ? { modelSettings } : {}),
         })
         .then((found) => {
@@ -328,7 +333,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, startPicture, denoise, finishedRuns, libraryChanges, needsStartPicture, modelSettings && serializeModelSettings(modelSettings)]);
+  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, startPicture, startMask, denoise, finishedRuns, libraryChanges, needsStartPicture, modelSettings && serializeModelSettings(modelSettings)]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -361,6 +366,7 @@ export default function Generate({
   function setUpImageToImage(request: VideoSourceRequest) {
     setMode('image');
     setImageSourcePath(request.imagePath);
+    setMaskPath(null);
     setImageFromPicture(true);
     setSizeToPicture(request.width, request.height);
     setError(null);
@@ -379,6 +385,8 @@ export default function Generate({
   /** A picture the user chose or dropped as the start of an image to image run. */
   async function useStartPicture(path: string | null) {
     setImageSourcePath(path);
+    // A mask belongs to the picture it was painted on.
+    setMaskPath(null);
     setError(null);
     if (!path) return;
     setImageFromPicture(true);
@@ -400,6 +408,35 @@ export default function Generate({
   async function handleChooseSourceImage() {
     const path = await window.kvgenius.chooseSourceImage();
     if (path) setSourceImagePath(path);
+  }
+
+  // The mask editor, open over the source image (carrying on from the mask already painted, if any).
+  const [maskEditor, setMaskEditor] = useState<{ existing: string | null } | null>(null);
+
+  async function openMaskEditor() {
+    let existing: string | null = null;
+    if (maskPath) {
+      try {
+        existing = await window.kvgenius.readMaskImage(maskPath);
+      } catch {
+        // The kept mask is gone: start a fresh one.
+      }
+    }
+    setMaskEditor({ existing });
+  }
+
+  async function handleMaskDone(dataUrl: string | null) {
+    setMaskEditor(null);
+    if (dataUrl === null) {
+      setMaskPath(null);
+      return;
+    }
+    try {
+      setMaskPath(await window.kvgenius.saveMaskImage(dataUrl));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err));
+    }
   }
 
   // The Library picture chooser, open for a source image (image to image) or a video's source image.
@@ -450,8 +487,9 @@ export default function Generate({
       // before that was kept have none: a new one has to be chosen before they can be re-run.
       setSourceImagePath(recalledMode === 'video' ? record.sourceImagePath : null);
       // An image to image result is re-run from the copy of its source image the Library kept, at its strength.
-      const fromPicture = record.modelFamily === I2I_FAMILY;
+      const fromPicture = isPictureStartFamily(record.modelFamily);
       setImageSourcePath(fromPicture ? record.sourceImagePath : null);
+      setMaskPath(record.modelFamily === INPAINT_FAMILY ? record.maskImagePath : null);
       setImageFromPicture(fromPicture);
       if (fromPicture) setDenoise(clampDenoise(record.denoise));
       showRecord(record, recalledMode, window.kvgenius.imageUrlFor(record.imagePath), slotId);
@@ -574,7 +612,7 @@ export default function Generate({
       steps: runSteps,
       cfg: runCfg,
       ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
-      ...(startPicture ? { sourceImagePath: startPicture, denoise } : {}),
+      ...(startPicture ? { sourceImagePath: startPicture, denoise, ...(startMask ? { maskImagePath: startMask } : {}) } : {}),
     };
     const added = queue.enqueue(
       seeds.map((jobSeed) => ({ family: runFamily, kind: mode, params: { ...base, seed: jobSeed } })),
@@ -670,6 +708,15 @@ export default function Generate({
             </button>
           </div>
 
+          {maskEditor && imageSourcePath && (
+            <MaskEditor
+              imageUrl={window.kvgenius.imageUrlFor(imageSourcePath)}
+              existingMask={maskEditor.existing}
+              onDone={(url) => void handleMaskDone(url)}
+              onCancel={() => setMaskEditor(null)}
+            />
+          )}
+
           {picker && (
             <LibraryPicker
               title="Choose the source image"
@@ -710,9 +757,36 @@ export default function Generate({
             >
               <SourceImageField path={imageSourcePath} onChooseFile={() => void handleChooseStartPicture()} onChooseFromLibrary={() => setPicker('start')} />
               {imageSourcePath && (
+                <div className="mask-field">
+                  {maskPath ? (
+                    <>
+                      <img className="mask-field__thumb" src={window.kvgenius.imageUrlFor(maskPath)} alt="The mask" title="White is re-drawn; black stays as it was" />
+                      <div className="mask-field__text">
+                        <strong>Only the painted spots change</strong>
+                        <div className="button-row">
+                          <button type="button" onClick={() => void openMaskEditor()}>
+                            Edit mask...
+                          </button>
+                          <button type="button" onClick={() => setMaskPath(null)}>
+                            Remove mask
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="button-row">
+                      <button type="button" onClick={() => void openMaskEditor()} title="Paint the spots to re-draw; everything else stays exactly as it is (inpainting)">
+                        🖌️ Paint a mask...
+                      </button>
+                      <span className="settings-hint" style={{ margin: 0 }}>Optional: change only some spots.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {imageSourcePath && (
                 <>
                   <label className="field-label" htmlFor="denoise" style={{ marginTop: 10 }}>
-                    How much to change it: {denoise.toFixed(2)}
+                    {maskPath ? 'How much to change the painted spots' : 'How much to change it'}: {denoise.toFixed(2)}
                   </label>
                   <input
                     id="denoise"
@@ -725,8 +799,8 @@ export default function Generate({
                     style={{ width: '100%' }}
                   />
                   <p className="style-picker__preview">
-                    Low keeps most of the picture; 1 ignores it. The result is made at the size chosen below, so a different shape is cropped
-                    from the centre.
+                    Low keeps most of the picture; 1 ignores it.{maskPath ? ' Outside the painted spots the original is kept exactly.' : ''} The result is made at the size chosen below,
+                    so a different shape is cropped from the centre.
                   </p>
                 </>
               )}

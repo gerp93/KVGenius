@@ -93,6 +93,7 @@ import { migrationBackups } from '../shared/dbBackups';
 import { ModelProfileInput } from '../shared/modelProfiles';
 import { importSlot } from '../shared/modelFamilies';
 import { isModelFileName, ModelImportOutcome } from '../shared/modelCheck';
+import { saveMaskPng } from './maskStore';
 import { checkModelFile, importModelFile, ModelImportError } from './modelImport';
 import { settingsFromPng } from './imageMetadata';
 import { runModelTest } from './modelTest';
@@ -686,6 +687,18 @@ function registerIpcHandlers(): void {
     return accepted;
   });
 
+  // Reads a kept mask back as a PNG data URL, to carry on painting it. Only files in the sources folder.
+  ipcMain.handle('readMaskImage', (_event, filePath: unknown) => {
+    if (typeof filePath !== 'string') throw new Error('Not a mask file.');
+    const resolved = path.resolve(filePath);
+    const dir = path.resolve(getSourcesDir());
+    if (!resolved.startsWith(dir + path.sep) || path.extname(resolved).toLowerCase() !== '.png') throw new Error('Not a mask file.');
+    return `data:image/png;base64,${fs.readFileSync(resolved).toString('base64')}`;
+  });
+
+  // A mask painted in the editor (a PNG data URL) becomes a file in the sources folder - the only way a mask gets on disk.
+  ipcMain.handle('saveMaskImage', (_event, dataUrl: unknown) => saveMaskPng(dataUrl, getSourcesDir()));
+
   // Which of a result's kept source images are gone from disk (deleted by hand, a moved data folder...),
   // so Re-rack can be switched off for them. Only files the app itself serves are looked at.
   ipcMain.handle('sourceImagesMissing', (_event, paths: unknown) => {
@@ -761,6 +774,7 @@ function registerIpcHandlers(): void {
       sourceImagePath: params.sourceImagePath ?? null,
       modelSettings: params.modelSettings ?? null,
       denoise: params.denoise ?? null,
+      maskImagePath: params.maskImagePath ?? null,
     });
   });
 

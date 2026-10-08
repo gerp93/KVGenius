@@ -33,3 +33,28 @@ test('image to image is made from a supplied picture, produces an image, and has
   assert.ok(originsForKind('image').includes('image-to-image'));
   assert.ok(!originsForKind('video').includes('image-to-image'));
 });
+
+import { INPAINT_FAMILY, isPictureStartFamily } from './imageToImage';
+import { profileFamilyKey } from './modelFamilies';
+
+test('a mask on a source image makes it inpainting; a mask alone means nothing', () => {
+  assert.equal(imageFamilyFor('z-image', true, true), INPAINT_FAMILY);
+  assert.equal(imageFamilyFor('z-image', true, false), I2I_FAMILY);
+  assert.equal(imageFamilyFor('z-image', false, true), 'z-image');
+  assert.equal(isPictureStartFamily(INPAINT_FAMILY), true);
+  assert.equal(isPictureStartFamily(I2I_FAMILY), true);
+  assert.equal(isPictureStartFamily('z-image'), false);
+});
+
+test('inpainting is made from a supplied picture, makes an image, has its own tag and uses Z-Image\'s profiles', () => {
+  assert.equal(needsSourceImage(INPAINT_FAMILY), true);
+  assert.equal(FAMILY_KIND[INPAINT_FAMILY], 'image');
+  assert.equal(generationOrigin(INPAINT_FAMILY)?.kind, 'inpaint');
+  assert.equal(generationOrigin(INPAINT_FAMILY)?.label, 'Inpainted');
+  assert.deepEqual(FAMILIES_BY_ORIGIN.inpaint, [INPAINT_FAMILY]);
+  assert.equal(passesOriginFilter(INPAINT_FAMILY, ['inpaint']), true);
+  assert.equal(passesOriginFilter(I2I_FAMILY, ['inpaint']), false);
+  assert.equal(profileFamilyKey(INPAINT_FAMILY), 'z-image');
+  assert.ok(originsForKind('image').includes('inpaint'));
+  assert.ok(!originsForKind('video').includes('inpaint'));
+});

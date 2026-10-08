@@ -5,7 +5,7 @@ import * as path from 'path';
 import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/types';
 import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
 import { PROFILE_FAMILIES, profileFamily, profileFamilyKey, SAMPLER_LIMITS } from '../shared/modelFamilies';
-import { clampDenoise, DEFAULT_DENOISE, DENOISE_LIMITS, I2I_FAMILY } from '../shared/imageToImage';
+import { clampDenoise, DEFAULT_DENOISE, DENOISE_LIMITS, I2I_FAMILY, INPAINT_FAMILY } from '../shared/imageToImage';
 import { ModelProfile, profileSettings } from '../shared/modelProfiles';
 import { findModelProfileByName, listModelProfiles } from './modelProfiles';
 import { isUpscaleFamily } from '../shared/upscale';
@@ -286,6 +286,7 @@ export class ApiService {
   private generateImage(args: Args) {
     const prompt = reqString(args, 'prompt');
     const family = canonicalFamily(optString(args, 'family', 64) ?? Z_IMAGE_FAMILY);
+    if (family === INPAINT_FAMILY) fail('Inpainting is not available here yet - it needs a painted mask, which only the app can make.');
     if (family === I2I_FAMILY) fail('Image to image is not a family of its own here: use family "z-image" and pass `source` (a library picture to start from).');
     if (FAMILY_KIND[family] !== 'image') fail(`"${family}" is not an image family. Image families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'image').join(', ')}.`);
     // A style's words are added here, so the job (and the Library record) holds the full prompt that is

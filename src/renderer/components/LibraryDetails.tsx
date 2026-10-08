@@ -467,6 +467,16 @@ export default function LibraryDetails({
               <img src={window.kvgenius.imageUrlFor(record.sourceImagePath)} alt="Original picture this was made from" />
             </div>
           )}
+          {record.maskImagePath && !sourceMissing && (
+            <>
+              <span className="field-label" style={{ margin: '10px 0 0', display: 'block' }}>
+                Mask (white was re-drawn)
+              </span>
+              <div className="library-panel__original-media">
+                <img src={window.kvgenius.imageUrlFor(record.maskImagePath)} alt="The mask this was made with" />
+              </div>
+            </>
+          )}
         </div>
       )}
     </>

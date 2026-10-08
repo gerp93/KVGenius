@@ -30,6 +30,8 @@ export interface GenerationParams {
   styleName?: string;
   /** Image to image only: how much of the start picture is re-drawn, 0.05 to 1 (ComfyUI's denoise). 1 ignores it. */
   denoise?: number;
+  /** Inpainting only: a black and white picture the size of the source image - white is where it is re-drawn, black stays as it was. */
+  maskImagePath?: string;
   /** Image families only: the name of the model profile the files and sampler below came from (a label for
    * the Library). Absent for the shipped template. */
   modelName?: string;
@@ -64,6 +66,8 @@ export interface GenerationRecord {
   styleName: string | null;
   /** Image to image only: how much of the start picture was re-drawn (see GenerationParams.denoise), else null. */
   denoise: number | null;
+  /** Inpainting only: the app's kept copy of the mask the result was made with (see GenerationParams.maskImagePath), else null. */
+  maskImagePath: string | null;
   /** The model profile this was made with (display only), or null for the shipped model. */
   modelName: string | null;
   /** The exact files and sampler it was made with, or null for the shipped template. */
@@ -217,6 +221,7 @@ export interface VideoSourceRequest {
 export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'z-image': 'image',
   'z-image-i2i': 'image',
+  'z-image-inpaint': 'image',
   'wan22-i2v': 'video',
   'upscale-video': 'video',
 };
@@ -362,6 +367,10 @@ export interface KVGeniusAPI {
   /** Of the given source-image paths (a result's kept copy), the ones no longer on disk. */
   /** A picture's own size (null if it cannot be read or is not one the app may show). */
   getImageSize: (filePath: string) => Promise<{ width: number; height: number } | null>;
+  /** Stores a mask painted in the app (a PNG data URL) and returns the file's path. Rejects anything that is not a PNG. */
+  saveMaskImage: (dataUrl: string) => Promise<string>;
+  /** A kept mask as a PNG data URL (only files in the app's sources folder), to carry on painting it. */
+  readMaskImage: (filePath: string) => Promise<string>;
   sourceImagesMissing: (paths: string[]) => Promise<string[]>;
   /** Every kept source image with what was made from it (Library > Sources). */
   listSourceImages: () => Promise<SourceImageEntry[]>;
