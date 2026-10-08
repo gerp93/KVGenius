@@ -63,14 +63,26 @@ function describe(job: Job): string {
   return parts.join(' · ');
 }
 
-/** The picture a queued job works from, small, in the bottom corner of its card. It hides itself if the file can no longer be loaded. */
-function ReferenceThumb({ path }: { path: string }) {
+/** The picture (or, for a video upscale, the video's first frame) a queued job works from, small, in the bottom corner of its card.
+ * It hides itself if the file can no longer be loaded. */
+function ReferenceThumb({ path, video }: { path: string; video: boolean }) {
   const [broken, setBroken] = useState(false);
   if (broken) return null;
-  return (
+  const url = window.kvgenius.imageUrlFor(path);
+  return video ? (
+    <video
+      className="queue-job__reference"
+      src={`${url}#t=0.1`}
+      muted
+      preload="metadata"
+      playsInline
+      title="The video this is made from"
+      onError={() => setBroken(true)}
+    />
+  ) : (
     <img
       className="queue-job__reference"
-      src={window.kvgenius.imageUrlFor(path)}
+      src={url}
       alt="Reference image"
       title="The reference image this is made from"
       draggable={false}
@@ -168,8 +180,10 @@ export default function QueuePanel({
 
   function renderJob(job: Job, extra: React.ReactNode, below?: React.ReactNode) {
     const label = batchLabel(job);
-    // Anything made from a picture (a video, image to image, inpainting, outpainting, a picture upscale) shows it in the corner.
-    const reference = job.params.sourceImagePath;
+    // Anything made from a picture (a video, image to image, inpainting, outpainting, a picture upscale) shows it in the corner;
+    // a video upscale shows the first frame of the video it enlarges.
+    const reference = job.params.sourceImagePath ?? job.params.sourceVideoPath;
+    const referenceIsVideo = !job.params.sourceImagePath && !!job.params.sourceVideoPath;
     return (
       <div key={job.id} className={`queue-job queue-job--${job.status}${reference ? ' queue-job--has-reference' : ''}`}>
         <div className="queue-job__top">
@@ -189,7 +203,7 @@ export default function QueuePanel({
         )}
         {job.status === 'failed' && job.error && <div className="queue-job__error">{job.error}</div>}
         {below}
-        {reference && <ReferenceThumb path={reference} />}
+        {reference && <ReferenceThumb path={reference} video={referenceIsVideo} />}
       </div>
     );
   }
