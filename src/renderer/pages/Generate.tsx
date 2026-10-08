@@ -394,14 +394,35 @@ export default function Generate({
    * the image's aspect ratio (long side VIDEO_LONG_SIDE, both sides a multiple of 16 as Wan
    * needs) rather than the square default handleModeChange would set. */
   function setUpVideoFromImage(request: VideoSourceRequest) {
-    const scale = VIDEO_LONG_SIDE / Math.max(request.width, request.height);
-    const snap = (n: number) => Math.max(256, Math.round((n * scale) / 16) * 16);
     setMode('video');
-    setWidth(snap(request.width));
-    setHeight(snap(request.height));
+    setVideoSizeToPicture(request.width, request.height);
     setSourceImagePath(request.imagePath);
     setVideoFromPicture(true);
     setError(null);
+  }
+
+  /** The video takes the picture's shape - long side VIDEO_LONG_SIDE, both sides a multiple of 16 - so nothing is cropped off it. */
+  function setVideoSizeToPicture(pictureWidth: number, pictureHeight: number) {
+    if (pictureWidth <= 0 || pictureHeight <= 0) return;
+    const scale = VIDEO_LONG_SIDE / Math.max(pictureWidth, pictureHeight);
+    const snap = (n: number) => Math.max(256, Math.round((n * scale) / 16) * 16);
+    setWidth(snap(pictureWidth));
+    setHeight(snap(pictureHeight));
+    setCustomSize(false);
+  }
+
+  /** A picture the user chose or dropped as the start of an image to video run: the video is sized to its shape (a portrait
+   * picture no longer ends up cropped to the square default). */
+  async function useVideoSourcePicture(path: string | null) {
+    setSourceImagePath(path);
+    setError(null);
+    if (!path) return;
+    try {
+      const size = await window.kvgenius.getImageSize(path);
+      if (size) setVideoSizeToPicture(size.width, size.height);
+    } catch {
+      // The size stays as it was; the picture is still used.
+    }
   }
 
   /** Switch to image mode with `request.imagePath` as the source image (image to image), sized to its shape. */
@@ -449,7 +470,7 @@ export default function Generate({
 
   async function handleChooseSourceImage() {
     const path = await window.kvgenius.chooseSourceImage();
-    if (path) setSourceImagePath(path);
+    if (path) await useVideoSourcePicture(path);
   }
 
   // The mask editor, open over the source image (carrying on from the mask already painted, if any).
@@ -794,10 +815,7 @@ export default function Generate({
           {mode === 'video' && videoFromPicture && (
             <ImageDropZone
               style={{ marginBottom: 12 }}
-              onPaths={(paths) => {
-                setError(null);
-                setSourceImagePath(paths[0] ?? null);
-              }}
+              onPaths={(paths) => void useVideoSourcePicture(paths[0] ?? null)}
               onReject={setError}
             >
               <SourceImageField path={sourceImagePath} onChooseFile={handleChooseSourceImage} onChooseFromLibrary={() => setPicker('video')} />
