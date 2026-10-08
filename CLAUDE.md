@@ -200,6 +200,9 @@ implementation here is exactly the kind of drift it exists to prevent.
   Upscaling). The shipped starter models (`PROFILE_FAMILIES`' `builtInName`: Z Image Turbo, Wan 2.2) are ordinary entries - read-only,
   showing their manifest files table, status and Download button - next to the user's own saved models (editable, with a
   per-slot file picker and import). Each entry shows a readiness word (`readinessLabel`, `summarizeSlots` in `shared/modelStatus.ts`).
+  **+ New is a wizard** (type: Image / Video / Upscaling -> family, only when the type has several -> name and files -> settings,
+  image families only -> test and save; Upscaling is just type -> the file). Steps are computed in `ModelProfiles.tsx`
+  (`stepIds`), so a new family under a type needs only an entry in `PROFILE_FAMILIES`. A saved model is edited on one page.
   Upscale models are chosen by the user per run, so that entry lists what ComfyUI has and offers the same file import as any model
   slot (`UPSCALE_IMPORT_FAMILY` / `importSlot` in `shared/modelFamilies.ts` - a pseudo family with one slot, not a profile kind). Do not describe any model as "the" built-in one
   in the UI - it is only the first one the app shipped with.
