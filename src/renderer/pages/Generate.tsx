@@ -682,6 +682,10 @@ export default function Generate({
     }
   }
 
+  function handleConvertToImage(record: GenerationRecord) {
+    setUpImageToImage({ imagePath: record.imagePath, width: record.width, height: record.height });
+  }
+
   function handleConvertToVideo(record: GenerationRecord) {
     setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
   }
@@ -1123,6 +1127,7 @@ export default function Generate({
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}
             onConvertToVideo={handleConvertToVideo}
+            onConvertToImage={handleConvertToImage}
             onCancelJob={queue.cancelJob}
           />
         </div>

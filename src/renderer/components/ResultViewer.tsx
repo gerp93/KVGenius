@@ -20,13 +20,15 @@ interface Props {
   onToggleFavorite: (record: GenerationRecord) => void;
   onTogglePinned: (record: GenerationRecord) => void;
   onConvertToVideo: (record: GenerationRecord) => void;
+  /** Start a new picture from this one (image to image). */
+  onConvertToImage: (record: GenerationRecord) => void;
   onCancelJob: (id: number) => void;
 }
 
 const GRID_GAP = 12;
 // Padding of .result-viewer__body, and room left under the picture for its action buttons.
 const BODY_PADDING = 12;
-const ACTIONS_HEIGHT = 78;
+const ACTIONS_HEIGHT = 112;
 
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -56,6 +58,7 @@ export default function ResultViewer({
   onToggleFavorite,
   onTogglePinned,
   onConvertToVideo,
+  onConvertToImage,
   onCancelJob,
 }: Props) {
   const [mode, setMode] = useState<'single' | 'grid'>('single');
@@ -211,6 +214,15 @@ export default function ResultViewer({
             title="Set up video mode with this image as the source"
           >
             🎬 Convert to Video
+          </button>
+        )}
+        {kind === 'image' && !record.imagePath.toLowerCase().endsWith('.gif') && (
+          <button
+            type="button"
+            onClick={() => onConvertToImage(record)}
+            title="Start a new picture from this one (image to image)"
+          >
+            🎨 Image to Image
           </button>
         )}
         <button type="button" onClick={() => handleDelete(record)} title="Move this generation to the Trash">
