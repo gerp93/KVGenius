@@ -196,6 +196,12 @@ export default function App() {
     navigate('/');
   }
 
+  /** Extending a video: Generate opens with its last frame as the source image. */
+  function handleQueueExtendVideo(request: VideoSourceRequest) {
+    setVideoSource(request);
+    navigate('/');
+  }
+
   function handleQueueImageToImage(record: GenerationRecord) {
     setVideoSource({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height });
     navigate('/');
@@ -383,7 +389,7 @@ export default function App() {
               onRerack={handleRerack}
               onImageToVideo={handleQueueImageToVideo}
               onImageToImage={handleQueueImageToImage}
-              onExtendVideo={setVideoSource}
+              onExtendVideo={handleQueueExtendVideo}
               onSaveAs={(r) => void runFileAction(() => window.kvgenius.saveGenerationAs(r.imagePath))}
               onReveal={(r) => void runFileAction(() => window.kvgenius.revealGenerationInFileManager(r.imagePath))}
               onUpscaleQueued={() => setQueueCollapsed(false)}

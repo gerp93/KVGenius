@@ -269,6 +269,12 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     navigate('/');
   }
 
+  /** Extending a video: Generate opens with its last frame as the source image. */
+  function handleExtendVideo(request: VideoSourceRequest) {
+    onImageToVideo(request);
+    navigate('/');
+  }
+
   function handleImageToImage(record: GenerationRecord) {
     onImageToVideo({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height });
     navigate('/');
@@ -447,7 +453,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             onRerack={handleRerack}
             onImageToVideo={handleImageToVideo}
             onImageToImage={handleImageToImage}
-            onExtendVideo={onImageToVideo}
+            onExtendVideo={handleExtendVideo}
             onSaveAs={handleSaveAs}
             onReveal={handleReveal}
             onUpscaleQueued={onShowQueue}
