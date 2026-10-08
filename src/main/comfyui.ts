@@ -8,6 +8,7 @@ import { ComfyMessage, ProgressTracker, RunTimings } from './progressTracker';
 import { getEffectiveComfyUIHost } from './dbLocation';
 import zImageTurboTemplate from './templates/z-image.json';
 import wan22I2vTemplate from './templates/wan22-i2v.json';
+import wan22T2vTemplate from './templates/wan22-t2v.json';
 import zImageI2iTemplate from './templates/z-image-i2i.json';
 import zImageInpaintTemplate from './templates/z-image-inpaint.json';
 import upscaleImageTemplate from './templates/upscale-image.json';
@@ -15,6 +16,7 @@ import upscaleVideoTemplate from './templates/upscale-video.json';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../shared/upscale';
 import { canonicalFamily } from '../shared/families';
 import { I2I_FAMILY, INPAINT_FAMILY } from '../shared/imageToImage';
+import { I2V_FAMILY, T2V_FAMILY } from '../shared/textToVideo';
 import { fillImageToImage, fillInpaint } from './imageToImagePatch';
 import { applyModelSettings } from './modelPatch';
 import { FOLDER_LOADERS, MODEL_FOLDERS } from '../shared/modelManifest';
@@ -31,6 +33,7 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
   [I2I_FAMILY]: zImageI2iTemplate,
   [INPAINT_FAMILY]: zImageInpaintTemplate,
   'wan22-i2v': wan22I2vTemplate,
+  [T2V_FAMILY]: wan22T2vTemplate,
   [UPSCALE_FAMILY]: upscaleImageTemplate,
   [UPSCALE_VIDEO_FAMILY]: upscaleVideoTemplate,
 };
@@ -260,14 +263,16 @@ async function patchTemplate(
     return workflow;
   }
 
-  if (family === 'wan22-i2v') {
-    if (!params.sourceImagePath) {
-      throw new Error('Video mode requires a source image.');
+  if (family === I2V_FAMILY || family === T2V_FAMILY) {
+    // Text to video is the same graph with the start picture replaced by an empty latent (same node ids).
+    if (family === I2V_FAMILY) {
+      if (!params.sourceImagePath) {
+        throw new Error('Image to video requires a source image.');
+      }
+      const uploadedName = await uploadSourceImage(params.sourceImagePath, signal);
+      const loadImageNode = workflow[WAN22_I2V_NODE_MAP.loadImage] as { inputs: Record<string, unknown> };
+      loadImageNode.inputs.image = uploadedName;
     }
-    const uploadedName = await uploadSourceImage(params.sourceImagePath, signal);
-
-    const loadImageNode = workflow[WAN22_I2V_NODE_MAP.loadImage] as { inputs: Record<string, unknown> };
-    loadImageNode.inputs.image = uploadedName;
 
     const promptNode = workflow[WAN22_I2V_NODE_MAP.positivePrompt] as { inputs: Record<string, unknown> };
     promptNode.inputs.text = params.prompt;

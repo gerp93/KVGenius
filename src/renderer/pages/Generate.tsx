@@ -20,6 +20,7 @@ import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
 import { useGenerationChanges } from '../utils/generationChanges';
 import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
 import { FAMILY_KIND, GenerationRecord, TimeEstimate, VideoSourceRequest } from '../../shared/types';
+import { T2V_FAMILY, videoFamilyFor } from '../../shared/textToVideo';
 import { VIDEO_QUALITY_SETTINGS, VideoQuality, videoQualityFromCfg } from '../../shared/videoQuality';
 
 type Mode = 'image' | 'video';
@@ -141,6 +142,8 @@ export default function Generate({
     setVideoQuality,
     sourceImagePath,
     setSourceImagePath,
+    videoFromPicture,
+    setVideoFromPicture,
     advancedOpen,
     setAdvancedOpen,
     customSize,
@@ -261,9 +264,14 @@ export default function Generate({
   const needsStartPicture = mode === 'image' && imageFromPicture && !imageSourcePath;
   // A mask painted on that source image makes it inpainting: only the painted spots are re-drawn.
   const startMask = startPicture && maskPath ? maskPath : null;
-  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null, startMask !== null) : FAMILY_FOR_MODE.video;
-  const modelFamily = profileFamily(FAMILY_FOR_MODE[mode]);
-  const familyModels = models.filter((m) => m.family === FAMILY_FOR_MODE[mode]);
+  // Video mode is image to video with a source image, or text to video without one - two graphs with their own model files.
+  const videoStartPicture = mode === 'video' && videoFromPicture ? sourceImagePath : null;
+  const needsVideoPicture = mode === 'video' && videoFromPicture && !sourceImagePath;
+  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null, startMask !== null) : videoFamilyFor(videoFromPicture);
+  // The family whose saved models apply (image to image and inpainting share text to image's).
+  const modelBase = mode === 'image' ? FAMILY_FOR_MODE.image : runFamily;
+  const modelFamily = profileFamily(modelBase);
+  const familyModels = models.filter((m) => m.family === modelBase);
   const activeModel = familyModels.find((m) => m.id === profileId) ?? null;
   const modelSettings: ModelSettings | undefined = activeModel ? profileSettings(activeModel) : undefined;
 
@@ -291,7 +299,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask] : [secondsToFrames(lengthSeconds), videoQuality, sourceImagePath, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -304,7 +312,7 @@ export default function Generate({
   // Bumped when something leaves the Library, which can turn a match into no match.
   const [libraryChanges, setLibraryChanges] = useState(0);
   useEffect(() => {
-    if (!seedLocked || !prompt.trim() || (mode === 'video' && !sourceImagePath) || needsStartPicture) {
+    if (!seedLocked || !prompt.trim() || needsVideoPicture || needsStartPicture) {
       setDuplicate(null);
       return;
     }
@@ -318,7 +326,7 @@ export default function Generate({
           seed,
           steps: runSteps,
           cfg: runCfg,
-          ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
+          ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined } : {}),
           ...(startPicture ? { sourceImagePath: startPicture, denoise, ...(startMask ? { maskImagePath: startMask } : {}) } : {}),
           ...(modelSettings ? { modelSettings } : {}),
         })
@@ -333,7 +341,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, sourceImagePath, startPicture, startMask, denoise, finishedRuns, libraryChanges, needsStartPicture, modelSettings && serializeModelSettings(modelSettings)]);
+  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, startPicture, startMask, denoise, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, modelSettings && serializeModelSettings(modelSettings)]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -359,6 +367,7 @@ export default function Generate({
     setWidth(snap(request.width));
     setHeight(snap(request.height));
     setSourceImagePath(request.imagePath);
+    setVideoFromPicture(true);
     setError(null);
   }
 
@@ -485,7 +494,9 @@ export default function Generate({
       setVideoQuality(videoQualityFromCfg(record.cfg));
       // A video keeps a copy of the image it was made from, so it can be re-run in place. Videos made
       // before that was kept have none: a new one has to be chosen before they can be re-run.
-      setSourceImagePath(recalledMode === 'video' ? record.sourceImagePath : null);
+      const videoFromPic = recalledMode === 'video' && record.modelFamily !== T2V_FAMILY;
+      setVideoFromPicture(recalledMode === 'video' ? videoFromPic : true);
+      setSourceImagePath(videoFromPic ? record.sourceImagePath : null);
       // An image to image result is re-run from the copy of its source image the Library kept, at its strength.
       const fromPicture = isPictureStartFamily(record.modelFamily);
       setImageSourcePath(fromPicture ? record.sourceImagePath : null);
@@ -551,7 +562,7 @@ export default function Generate({
     const timer = setTimeout(() => {
       window.kvgenius
         .estimateGeneration(
-          FAMILY_FOR_MODE[mode],
+          mode === 'video' ? runFamily : FAMILY_FOR_MODE.image,
           {
             prompt: '',
             width,
@@ -567,7 +578,7 @@ export default function Generate({
         .catch(() => setCurrentEstimate(null));
     }, 250);
     return () => clearTimeout(timer);
-  }, [mode, width, height, runSteps, runCfg, lengthSeconds, lastActiveFamily, finishedRuns]);
+  }, [mode, runFamily === T2V_FAMILY, width, height, runSteps, runCfg, lengthSeconds, lastActiveFamily, finishedRuns]);
 
   const sizePresets = mode === 'image' ? IMAGE_SIZE_PRESETS : VIDEO_SIZE_PRESETS;
   const presetIndex = sizePresets.findIndex((preset) => preset.width === width && preset.height === height);
@@ -590,8 +601,8 @@ export default function Generate({
       setError('Enter a prompt first.');
       return;
     }
-    if (mode === 'video' && !sourceImagePath) {
-      setError('Choose a source image first.');
+    if (needsVideoPicture) {
+      setError('Choose a source image first, or switch to Text → Video.');
       return;
     }
     if (needsStartPicture) {
@@ -611,7 +622,7 @@ export default function Generate({
       height,
       steps: runSteps,
       cfg: runCfg,
-      ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: sourceImagePath ?? undefined } : {}),
+      ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined } : {}),
       ...(startPicture ? { sourceImagePath: startPicture, denoise, ...(startMask ? { maskImagePath: startMask } : {}) } : {}),
     };
     const added = queue.enqueue(
@@ -730,6 +741,17 @@ export default function Generate({
           )}
 
           {mode === 'video' && (
+            <div role="radiogroup" aria-label="Video type" className="radio-row" style={{ marginBottom: 12 }}>
+              <label>
+                <input type="radio" name="video-type" checked={!videoFromPicture} onChange={() => setVideoFromPicture(false)} /> Text → Video
+              </label>
+              <label>
+                <input type="radio" name="video-type" checked={videoFromPicture} onChange={() => setVideoFromPicture(true)} /> Image → Video
+              </label>
+            </div>
+          )}
+
+          {mode === 'video' && videoFromPicture && (
             <ImageDropZone
               style={{ marginBottom: 12 }}
               onPaths={(paths) => {
@@ -1072,7 +1094,7 @@ export default function Generate({
               type="button"
               className="primary generate-actions__go"
               onClick={handleGenerate}
-              disabled={(mode === 'video' && !sourceImagePath) || needsStartPicture || blocked}
+              disabled={needsVideoPicture || needsStartPicture || blocked}
               title={
                 duplicate
                   ? 'This exact result is already in your Library'

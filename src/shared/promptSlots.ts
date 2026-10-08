@@ -18,6 +18,8 @@ export interface PromptSlotData {
   /** Video mode only: the Fast (4-step LoRA) / High (20-step) choice. */
   videoQuality: VideoQuality;
   sourceImagePath: string | null;
+  /** Video mode only: the Text -> Video / Image -> Video choice. Absent in older configs - image to video (the only kind then). */
+  videoFromPicture?: boolean;
   advancedOpen: boolean;
   customSize: boolean;
   batchSize: number;
@@ -68,6 +70,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     lengthSeconds: 5,
     videoQuality: 'fast',
     sourceImagePath: null,
+    videoFromPicture: true,
     advancedOpen: false,
     customSize: false,
     batchSize: 1,
@@ -116,6 +119,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     // Absent in configs saved before the option existed - applySnapshot falls back to 'fast'.
     (d.videoQuality === undefined || d.videoQuality === 'fast' || d.videoQuality === 'high') &&
     (d.sourceImagePath === null || typeof d.sourceImagePath === 'string') &&
+    (d.videoFromPicture === undefined || typeof d.videoFromPicture === 'boolean') &&
     typeof d.advancedOpen === 'boolean' &&
     typeof d.customSize === 'boolean' &&
     typeof d.batchSize === 'number' &&

@@ -50,6 +50,7 @@ export default function Setup() {
   }, []);
   const zImage = manifestFeature('z-image')!;
   const wan = manifestFeature('wan22-i2v')!;
+  const wanText = manifestFeature('wan22-t2v')!;
   const upscaleModels = report && report.source !== 'none' ? report.installed.upscale_models : null;
   // How many of the picture files are still missing, for the connect step (null when nothing is known).
   const missingPictureFiles = report && report.source !== 'none' ? zImage.files.length - summarize(zImage.files, report).present : null;
@@ -144,6 +145,11 @@ export default function Setup() {
             LoRAs, so install all six even if you only plan to use High. They are all in the Wan 2.2 repackaged
             repository, under its <code>split_files</code> folder.
           </p>
+          <p>
+            <strong>Text to video</strong> (a video from a prompt alone, no picture) is a separate pair of models. It reuses the
+            text encoder and VAE above, so only the four files that differ are new - install them too if you want it:
+          </p>
+          <ModelFilesTable feature={wanText} report={report} modelsDir={modelsDir} />
           <Callout>
             Video is much heavier than pictures: expect large downloads, a lot of graphics memory, and slow runs.
             ComfyUI's Wan 2.2 page lists the requirements.

@@ -52,6 +52,21 @@ export const WAN_FAMILY = {
   sampler: null,
 } satisfies ProfileFamily;
 
+export const WAN_T2V_FAMILY = {
+  family: 'wan22-t2v',
+  label: 'Wan 2.2 (text to video)',
+  builtInName: 'Wan 2.2 text to video',
+  slots: [
+    { key: 'highNoiseModel', label: 'Video model, high noise', folder: 'diffusion_models', defaultFile: 'wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors' },
+    { key: 'lowNoiseModel', label: 'Video model, low noise', folder: 'diffusion_models', defaultFile: 'wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors' },
+    { key: 'textEncoder', label: 'Text encoder', folder: 'text_encoders', defaultFile: 'umt5_xxl_fp8_e4m3fn_scaled.safetensors' },
+    { key: 'vae', label: 'VAE', folder: 'vae', defaultFile: 'wan_2.1_vae.safetensors' },
+    { key: 'highNoiseLora', label: '4-step LoRA, high noise (Fast quality)', folder: 'loras', defaultFile: 'wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors' },
+    { key: 'lowNoiseLora', label: '4-step LoRA, low noise (Fast quality)', folder: 'loras', defaultFile: 'wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors' },
+  ],
+  sampler: null,
+} satisfies ProfileFamily;
+
 /** What a profile of a family with no app-driven sampler stores in its (never used) sampler columns. */
 export const NO_SAMPLER: SamplerDefaults = { steps: 1, cfg: 0, sampler: '', scheduler: '', shift: 0 };
 
@@ -68,6 +83,7 @@ export const PROFILE_FAMILIES: ProfileFamily[] = [
     sampler: { steps: 8, cfg: 1, sampler: 'res_multistep', scheduler: 'simple', shift: 3 },
   },
   WAN_FAMILY,
+  WAN_T2V_FAMILY,
 ];
 
 /** Families that run another family's model files, and so use that family's model profiles (image to image

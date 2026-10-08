@@ -1,5 +1,6 @@
 import type { ModelTestResult } from '../shared/modelCheck';
 import { GenerationParams } from '../shared/types';
+import { T2V_FAMILY } from '../shared/textToVideo';
 import { profileFamily } from '../shared/modelFamilies';
 import { ModelProfileInput, profileSettings, validateProfileInput } from '../shared/modelProfiles';
 
@@ -60,7 +61,8 @@ export async function runModelTest(input: ModelProfileInput, deps: ModelTestDeps
     modelName: checked.value.name,
     modelSettings: profileSettings(checked.value),
   };
-  if (isVideo) {
+  // Text to video starts from no picture; image to video animates a generated one.
+  if (isVideo && checked.value.family !== T2V_FAMILY) {
     if (!deps.sourceImage) return { ok: false, message: 'A video model cannot be tested here.' };
     params.sourceImagePath = deps.sourceImage();
   }

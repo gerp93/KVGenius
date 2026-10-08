@@ -26,7 +26,7 @@ const fakeRunner: JobRunner = (job) =>
   new Promise((resolve) => {
     runnerCalls.push(job.family);
     released.push(() => {
-      const file = path.join(dir, `out-${job.id}.${job.family === 'wan22-i2v' ? 'mp4' : 'png'}`);
+      const file = path.join(dir, `out-${job.id}.${job.family.startsWith('wan22') ? 'mp4' : 'png'}`);
       fs.writeFileSync(file, 'x');
       resolve({ generationId: insertGeneration(db, job.params, job.family, file, null).id });
     });
@@ -64,7 +64,7 @@ test('unknown tools and non-object arguments are rejected', async () => {
 test('list_capabilities describes both families', async () => {
   const caps = await call('list_capabilities');
   assert.equal(caps.comfyui_reachable, true);
-  assert.deepEqual(caps.families.map((f: any) => f.family), ['z-image', 'wan22-i2v']);
+  assert.deepEqual(caps.families.map((f: any) => f.family), ['z-image', 'wan22-i2v', 'wan22-t2v']);
 });
 
 test('import_folder imports media in natural filename order, ignores the rest, and labels the batch', async () => {
@@ -165,7 +165,7 @@ test('generate_image without a model, or with the built-in one, sends the templa
 test('an unknown model is refused with the saved names, and list_models shows what there is', async () => {
   await assert.rejects(() => call('generate_image', { prompt: 'a red fox', model: 'Nope' }), /No model named "Nope".*"Photoreal"/);
   const listed = await call('list_models', {});
-  assert.deepEqual(listed.models.map((m: { name: string }) => m.name), ['Z Image Turbo', 'Wan 2.2 image to video', 'Photoreal']);
+  assert.deepEqual(listed.models.map((m: { name: string }) => m.name), ['Z Image Turbo', 'Wan 2.2 image to video', 'Wan 2.2 text to video', 'Photoreal']);
   assert.equal(listed.models[0].built_in, true);
   assert.equal(listed.models[1].tool, 'generate_video');
 });
@@ -246,6 +246,19 @@ test('generate_video takes the source image path and keeps its aspect ratio', as
   released.shift()?.();
 });
 
+test('generate_video without a source is text to video (640 square by default); the two kinds cannot be mixed up', async () => {
+  const job = await call('generate_video', { prompt: 'a fox running through snow', seconds: 5 });
+  assert.equal(job.kind, 'video');
+  assert.equal(job.family, 'wan22-t2v');
+  assert.equal(job.width, 640);
+  assert.equal(job.height, 640);
+  assert.equal(job.source_image ?? null, null);
+  released.shift()?.();
+  const src = (await call('list_library', { origin: 'imported', kind: 'image' })).items.find((i: any) => i.name === 'img1.jpg');
+  await rejects(service.callTool('generate_video', { prompt: 'x', source: src.id, family: 'wan22-t2v' }), 'invalid_argument');
+  await rejects(service.callTool('generate_video', { prompt: 'x', family: 'wan22-i2v' }), 'invalid_argument');
+});
+
 test('generate_video with a saved video model sends its files; a model of the other family is refused', async () => {
   const files = { highNoiseModel: 'hi.safetensors', lowNoiseModel: 'lo.safetensors', textEncoder: 'umt5.safetensors', vae: 'v.safetensors', highNoiseLora: 'lh.safetensors', lowNoiseLora: 'll.safetensors' };
   saveModelProfile(db, { family: 'wan22-i2v', name: 'Wan custom', files, sampler: { steps: 1, cfg: 0, sampler: '', scheduler: '', shift: 0 } });
@@ -266,7 +279,6 @@ test('generate_video validates the source item', async () => {
   await rejects(service.callTool('generate_video', { prompt: 'x', source: 'garbage' }), 'not_found');
   const song = (await call('list_library', { kind: 'audio' })).items[0];
   await rejects(service.callTool('generate_video', { prompt: 'x', source: song.id }), 'invalid_argument');
-  await rejects(service.callTool('generate_video', { prompt: 'x' }), 'invalid_argument');
 });
 
 test('jobs run one at a time; list_jobs filters and counts; cancel works on waiting jobs and batches', async () => {

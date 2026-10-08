@@ -253,6 +253,16 @@ implementation here is exactly the kind of drift it exists to prevent.
   shown under "Original" in the details panel, needed for Re-rack (`keptFilesOf` / `useSourceMissing` check both), part of the duplicate
   guard, and `generate_image` over MCP refuses the family (a mask can only be painted in the app). Z-Image Turbo is not an inpainting
   model: how cleanly it handles a partial mask is unverified.
+- **Text to video is Generate's video mode without a source image, and its own family** (`wan22-t2v`, `shared/textToVideo.ts`,
+  `templates/wan22-t2v.json`). Video mode has a Text → Video / Image → Video radio (the tab's `videoFromPicture`, default image to video, as
+  every config saved before it was); the source image field shows only for Image → Video, which cannot run until a picture is set, and
+  `videoFamilyFor` picks the family. The template is the image-to-video graph with the load-picture node removed and `WanImageToVideo`
+  replaced by an empty video latent (`EmptyHunyuanLatentVideo`), **keeping every node id**, so `WAN22_I2V_NODE_MAP` patches both and the
+  Fast / High switch, length and size work unchanged. It uses Wan's separate text-to-video models and LoRAs (own `WAN_T2V_FAMILY` profile
+  family, `SLOT_NODES['wan22-t2v']`, manifest feature `wan22-t2v`; the text encoder and VAE are shared files, which is why the manifest test
+  only forbids repeats *within* a feature). It makes no use of a picture, so it is **not** in `SOURCE_IMAGE_FAMILIES`. Its origin tag is
+  Text → Video. MCP: `generate_video` without `source` is text to video (with `source`, image to video; naming the wrong family for the
+  arguments is refused). The T2V file names are unverified against the Hugging Face repo.
 - **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and
   `main/modelManifest.test.ts` pins it to the template JSON - change a template's loader file and that test fails
   until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,
