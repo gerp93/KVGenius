@@ -273,6 +273,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   only forbids repeats *within* a feature). It makes no use of a picture, so it is **not** in `SOURCE_IMAGE_FAMILIES`. Its origin tag is
   Text → Video. MCP: `generate_video` without `source` is text to video (with `source`, image to video; naming the wrong family for the
   arguments is refused). The T2V file names are unverified against the Hugging Face repo.
+  Whenever a source image is set for image to video - chosen from a file, dropped, or picked from the Library - the video size follows its shape (`setVideoSizeToPicture`: long side 640, sides in 16s) so a portrait picture is not cropped into the square default.
 - **Outpainting is image to image with the picture extended beyond its frame, and its own family** (`z-image-outpaint`, `OUTPAINT_FAMILY` and
   the padding helpers in `shared/imageToImage.ts`, `templates/z-image-outpaint.json`, `fillOutpaint` in `main/imageToImagePatch.ts`,
   `ExtendField.tsx`). Under the source image on Generate, "Extend beyond the frame" sets pixels to add per side (left/top/right/bottom,
