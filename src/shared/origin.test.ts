@@ -8,6 +8,7 @@ test('each known family has an origin', () => {
   assert.equal(generationOrigin('z-image')?.kind, 'text-to-image');
   assert.equal(generationOrigin('wan22-i2v')?.kind, 'image-to-video');
   assert.equal(generationOrigin('wan22-t2v')?.kind, 'text-to-video');
+  assert.equal(generationOrigin('z-image-outpaint')?.kind, 'outpaint');
   assert.equal(generationOrigin(GIF_FAMILY)?.kind, 'gif');
 });
 
@@ -41,6 +42,6 @@ test('an origin filter passes the chosen origins; none chosen passes everything'
 });
 
 test('each tab offers only the origins that can occur on it', () => {
-  assert.deepEqual(originsForKind('image'), ['text-to-image', 'image-to-image', 'inpaint', 'upscale', 'gif']);
+  assert.deepEqual(originsForKind('image'), ['text-to-image', 'image-to-image', 'inpaint', 'outpaint', 'upscale', 'gif']);
   assert.deepEqual(originsForKind('video'), ['image-to-video', 'text-to-video', 'upscale']);
 });

@@ -14,6 +14,65 @@ export const I2I_FAMILY = 'z-image-i2i';
  */
 export const INPAINT_FAMILY = 'z-image-inpaint';
 
+/**
+ * Outpainting: expands a picture beyond its frame. The source image is padded on any side (grey, with a mask marking the new
+ * area), only the new area is drawn - from the prompt, continuing what is at the edge - and the result is pasted back over the
+ * original, so the original's pixels are untouched. Its own family (its workflow adds the padding), made from one supplied
+ * picture, using the same Z-Image model files, so profiles still apply.
+ */
+export const OUTPAINT_FAMILY = 'z-image-outpaint';
+
+/** How far a side can be extended, in pixels of the source picture. */
+export const OUTPAINT_MAX_PAD = 2048;
+
+/** The padding is drawn from scratch, so it always starts from full noise (the noise mask keeps the original in place). */
+export const OUTPAINT_DENOISE = 1;
+
+export interface OutpaintPadding {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+export const OUTPAINT_SIDES = ['left', 'top', 'right', 'bottom'] as const;
+
+/** A padding from outside (a form, a config, a client): whole pixels within limits, or null if nothing is extended. */
+export function normalizeOutpaint(value: unknown): OutpaintPadding | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  const out = { left: 0, top: 0, right: 0, bottom: 0 };
+  for (const side of OUTPAINT_SIDES) {
+    const n = Number(v[side]);
+    out[side] = Number.isFinite(n) ? Math.min(OUTPAINT_MAX_PAD, Math.max(0, Math.round(n))) : 0;
+  }
+  return OUTPAINT_SIDES.some((side) => out[side] > 0) ? out : null;
+}
+
+/** The padding as one stable string (the database column and the duplicate guard compare it), or null for none. */
+export function serializeOutpaint(value: OutpaintPadding | null | undefined): string | null {
+  const pad = normalizeOutpaint(value);
+  return pad ? `${pad.left},${pad.top},${pad.right},${pad.bottom}` : null;
+}
+
+/** Reads `serializeOutpaint`'s string back; anything unreadable is no padding. */
+export function parseOutpaint(text: string | null | undefined): OutpaintPadding | null {
+  if (!text) return null;
+  const [left, top, right, bottom] = text.split(',').map(Number);
+  return normalizeOutpaint({ left, top, right, bottom });
+}
+
+/** The size the extended picture is drawn at: its whole canvas (source plus padding), the long side kept between 1024 and
+ * 1536 (so a small picture is not drawn tiny and a big one not enormous), both sides a multiple of 64. */
+export function outpaintOutputSize(sourceWidth: number, sourceHeight: number, pad: OutpaintPadding): { width: number; height: number } {
+  const totalWidth = sourceWidth + pad.left + pad.right;
+  const totalHeight = sourceHeight + pad.top + pad.bottom;
+  const longSide = Math.min(1536, Math.max(1024, Math.max(totalWidth, totalHeight)));
+  const scale = longSide / Math.max(totalWidth, totalHeight);
+  const snap = (n: number) => Math.min(2048, Math.max(256, Math.round((n * scale) / 64) * 64));
+  return { width: snap(totalWidth), height: snap(totalHeight) };
+}
+
 export const DENOISE_LIMITS = { min: 0.05, max: 1 } as const;
 
 /** A starting point that visibly changes a picture without throwing it away; the user sets what suits. */
@@ -26,14 +85,16 @@ export function clampDenoise(value: unknown): number {
   return Math.min(DENOISE_LIMITS.max, Math.max(DENOISE_LIMITS.min, Math.round(n * 100) / 100));
 }
 
-/** The workflow family a Generate run uses: inpainting once a mask is painted on the source image, image to image with
- * just a source image, else text to image. A mask without a source image means nothing, so it is ignored. */
-export function imageFamilyFor(textFamily: string, hasStartPicture: boolean, hasMask = false): string {
+/** The workflow family a Generate run uses: outpainting once the picture is extended, inpainting once a mask is painted on
+ * the source image, image to image with just a source image, else text to image. A mask or an extension without a source
+ * image means nothing, so it is ignored. */
+export function imageFamilyFor(textFamily: string, hasStartPicture: boolean, hasMask = false, hasOutpaint = false): string {
   if (!hasStartPicture) return textFamily;
+  if (hasOutpaint) return OUTPAINT_FAMILY;
   return hasMask ? INPAINT_FAMILY : I2I_FAMILY;
 }
 
-/** Whether a record's family is one of the two that start from a supplied picture (with or without a mask). */
+/** Whether a record's family is one of those that start from a supplied picture (with or without a mask or padding). */
 export function isPictureStartFamily(family: string): boolean {
-  return family === I2I_FAMILY || family === INPAINT_FAMILY;
+  return family === I2I_FAMILY || family === INPAINT_FAMILY || family === OUTPAINT_FAMILY;
 }

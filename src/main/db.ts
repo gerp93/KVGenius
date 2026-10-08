@@ -9,7 +9,8 @@ import { migrateFamilyKeys } from './familyMigration';
 import { IMPORTS_SCHEMA } from './library';
 import { ASSEMBLIES_SCHEMA } from './assembly';
 import { STYLES_SCHEMA } from './styles';
-import { I2I_FAMILY, INPAINT_FAMILY } from '../shared/imageToImage';
+import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, parseOutpaint, serializeOutpaint, OutpaintPadding } from '../shared/imageToImage';
+import { T2V_FAMILY } from '../shared/textToVideo';
 import { MODEL_PROFILES_SCHEMA } from './modelProfiles';
 import { ModelSettings, parseModelSettings, serializeModelSettings } from '../shared/modelProfiles';
 
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS generations (
   model_settings TEXT,
   denoise REAL,
   mask_image_path TEXT,
+  outpaint TEXT,
   timing_id INTEGER,
   created_at TEXT NOT NULL
 );
@@ -89,6 +91,10 @@ function migrateSchema(db: DatabaseSync): void {
   // Inpainting: the app's kept copy of the mask the result was made with; null for everything else.
   if (!columns.some((c) => c.name === 'mask_image_path')) {
     db.exec('ALTER TABLE generations ADD COLUMN mask_image_path TEXT;');
+  }
+  // Outpainting: how far the source image was extended on each side, as "left,top,right,bottom" (see shared/imageToImage.ts); null for everything else.
+  if (!columns.some((c) => c.name === 'outpaint')) {
+    db.exec('ALTER TABLE generations ADD COLUMN outpaint TEXT;');
   }
   if (!columns.some((c) => c.name === 'model_settings')) {
     db.exec('ALTER TABLE generations ADD COLUMN model_settings TEXT;');
@@ -211,6 +217,7 @@ interface GenerationRow {
   model_settings?: string | null;
   denoise?: number | null;
   mask_image_path?: string | null;
+  outpaint?: string | null;
   created_at: string;
   // Only in a listing grouped by prompt.
   group_count?: number;
@@ -251,6 +258,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     styleName: row.style_name ?? null,
     denoise: row.denoise ?? null,
     maskImagePath: row.mask_image_path ?? null,
+    outpaint: parseOutpaint(row.outpaint),
     modelName: row.model_name ?? null,
     modelSettings: parseModelSettings(row.model_settings),
     createdAt: row.created_at,
@@ -286,9 +294,10 @@ export function insertGeneration(
   const modelName = params.modelSettings ? params.modelName?.trim() || null : null;
   const modelSettings = serializeModelSettings(params.modelSettings);
   const denoise = params.denoise ?? null;
+  const outpaint = serializeOutpaint(params.outpaint);
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, timing_id, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, outpaint, timing_id, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -307,6 +316,7 @@ export function insertGeneration(
     modelSettings,
     denoise,
     maskImagePath,
+    outpaint,
     timingId,
     createdAt
   );
@@ -330,6 +340,7 @@ export function insertGeneration(
     styleName,
     denoise,
     maskImagePath,
+    outpaint: parseOutpaint(outpaint),
     modelName,
     modelSettings: params.modelSettings ?? null,
     createdAt,
@@ -629,6 +640,8 @@ export interface DuplicateQuery {
   denoise?: number | null;
   /** Inpainting only: the kept copy of the mask. A different mask is a different picture. */
   maskImagePath?: string | null;
+  /** Outpainting only: how far the source was extended. A different extension is a different picture. */
+  outpaint?: OutpaintPadding | null;
   /** Image only: the model settings the run would use (none: the shipped template). A different model makes a different picture. */
   modelSettings?: ModelSettings | null;
 }
@@ -641,15 +654,16 @@ export interface DuplicateQuery {
 export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, query: DuplicateQuery): GenerationRecord | null {
   const isVideo = query.length !== undefined && query.length !== null;
   // A video's (or an image to image result's) picture depends on its source image, which is only comparable once there is one.
-  const needsSource = isVideo || modelFamily === I2I_FAMILY || modelFamily === INPAINT_FAMILY;
+  const needsSource = (isVideo && modelFamily !== T2V_FAMILY) || modelFamily === I2I_FAMILY || modelFamily === INPAINT_FAMILY || modelFamily === OUTPAINT_FAMILY;
   if (needsSource && !query.sourceImagePath) return null;
   const needsMask = modelFamily === INPAINT_FAMILY;
   if (needsMask && !query.maskImagePath) return null;
+  if (modelFamily === OUTPAINT_FAMILY && !serializeOutpaint(query.outpaint)) return null;
   const row = db
     .prepare(
       `${GENERATION_SELECT}
        WHERE g.model_family = ? AND g.trashed_at IS NULL AND TRIM(g.prompt) = ? AND g.width = ? AND g.height = ?
-         AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ? AND g.model_settings IS ? AND g.denoise IS ?
+         AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ? AND g.model_settings IS ? AND g.denoise IS ? AND g.outpaint IS ?
          ${needsSource ? 'AND g.source_image_path = ?' : ''} ${needsMask ? 'AND g.mask_image_path = ?' : ''}
        ORDER BY g.id DESC LIMIT 1`
     )
@@ -664,6 +678,7 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
       isVideo ? (query.length as number) : null,
       serializeModelSettings(query.modelSettings),
       query.denoise ?? null,
+      serializeOutpaint(query.outpaint),
       ...(needsSource ? [query.sourceImagePath as string] : []),
       ...(needsMask ? [query.maskImagePath as string] : [])
     ) as unknown as GenerationRow | undefined;

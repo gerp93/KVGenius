@@ -1,4 +1,5 @@
 import { DEFAULT_DENOISE } from './imageToImage';
+import type { OutpaintPadding } from './imageToImage';
 import type { GenerationKind } from './types';
 import type { VideoQuality } from './videoQuality';
 
@@ -40,6 +41,8 @@ export interface PromptSlotData {
   denoise?: number;
   /** Image to image only: the painted mask (a kept picture file) that makes it inpainting, or null for none. Absent in older configs - null. */
   maskImagePath?: string | null;
+  /** Image to image only: how far the source image is extended on each side (outpainting), or null for none. Absent in older configs - null. */
+  outpaint?: OutpaintPadding | null;
   /** The "would repeat the last run" guard - kept per slot so switching away and back doesn't
    * forget it, and it doesn't wrongly carry over between unrelated tabs. */
   lastRunSignature: string | null;
@@ -80,6 +83,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     imageFromPicture: false,
     denoise: DEFAULT_DENOISE,
     maskImagePath: null,
+    outpaint: null,
     lastRunSignature: null,
   };
 }
@@ -129,6 +133,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     (d.imageFromPicture === undefined || typeof d.imageFromPicture === 'boolean') &&
     (d.denoise === undefined || typeof d.denoise === 'number') &&
     (d.maskImagePath === undefined || d.maskImagePath === null || typeof d.maskImagePath === 'string') &&
+    (d.outpaint === undefined || d.outpaint === null || typeof d.outpaint === 'object') &&
     (d.lastRunSignature === undefined || d.lastRunSignature === null || typeof d.lastRunSignature === 'string')
   );
 }

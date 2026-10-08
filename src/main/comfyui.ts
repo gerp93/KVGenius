@@ -11,13 +11,14 @@ import wan22I2vTemplate from './templates/wan22-i2v.json';
 import wan22T2vTemplate from './templates/wan22-t2v.json';
 import zImageI2iTemplate from './templates/z-image-i2i.json';
 import zImageInpaintTemplate from './templates/z-image-inpaint.json';
+import zImageOutpaintTemplate from './templates/z-image-outpaint.json';
 import upscaleImageTemplate from './templates/upscale-image.json';
 import upscaleVideoTemplate from './templates/upscale-video.json';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../shared/upscale';
 import { canonicalFamily } from '../shared/families';
-import { I2I_FAMILY, INPAINT_FAMILY } from '../shared/imageToImage';
+import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, normalizeOutpaint } from '../shared/imageToImage';
 import { I2V_FAMILY, T2V_FAMILY } from '../shared/textToVideo';
-import { fillImageToImage, fillInpaint } from './imageToImagePatch';
+import { fillImageToImage, fillInpaint, fillOutpaint } from './imageToImagePatch';
 import { applyModelSettings } from './modelPatch';
 import { FOLDER_LOADERS, MODEL_FOLDERS } from '../shared/modelManifest';
 import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/modelStatus';
@@ -32,6 +33,7 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
   'z-image': zImageTurboTemplate,
   [I2I_FAMILY]: zImageI2iTemplate,
   [INPAINT_FAMILY]: zImageInpaintTemplate,
+  [OUTPAINT_FAMILY]: zImageOutpaintTemplate,
   'wan22-i2v': wan22I2vTemplate,
   [T2V_FAMILY]: wan22T2vTemplate,
   [UPSCALE_FAMILY]: upscaleImageTemplate,
@@ -244,6 +246,15 @@ async function patchTemplate(
     const resize = workflow[UPSCALE_VIDEO_NODE_MAP.resize] as { inputs: Record<string, unknown> };
     resize.inputs.width = params.width;
     resize.inputs.height = params.height;
+    return workflow;
+  }
+
+  if (canonicalFamily(family) === OUTPAINT_FAMILY) {
+    if (!params.sourceImagePath) throw new Error('Outpainting needs a source image.');
+    const pad = normalizeOutpaint(params.outpaint);
+    if (!pad) throw new Error('Outpainting needs to extend at least one side of the picture.');
+    const imageName = await uploadSourceImage(params.sourceImagePath, signal);
+    fillOutpaint(workflow, params, imageName, pad);
     return workflow;
   }
 

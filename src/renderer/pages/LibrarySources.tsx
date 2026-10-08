@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import ExpandButton from '../components/Lightbox';
 import type { GenerationQueue } from '../hooks/useGenerationQueue';
 import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
-import { I2I_FAMILY, INPAINT_FAMILY } from '../../shared/imageToImage';
+import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY } from '../../shared/imageToImage';
 import { UPSCALE_FAMILY } from '../../shared/upscale';
 import type { SourceImageEntry, VideoSourceRequest } from '../../shared/types';
 
@@ -10,6 +10,7 @@ const FAMILY_LABEL: Record<string, string> = {
   'wan22-i2v': 'video',
   [I2I_FAMILY]: 'image to image',
   [INPAINT_FAMILY]: 'inpainting',
+  [OUTPAINT_FAMILY]: 'outpainting',
   [UPSCALE_FAMILY]: 'upscale',
 };
 

@@ -58,7 +58,8 @@ function describe(job: Job): string {
   if (job.kind === 'video') parts.push(`${framesToSeconds(length ?? 81)}s`, `${videoQualityFromCfg(cfg)} quality`);
   parts.push(`seed ${seed}`);
   if (job.kind === 'image') parts.push(`${steps} steps`, `CFG ${cfg}`);
-  if (job.params.denoise !== undefined) parts.push(`${job.params.maskImagePath ? 'inpaint' : 'image to image'} ${job.params.denoise.toFixed(2)}`);
+  if (job.params.outpaint) parts.push('outpaint');
+  else if (job.params.denoise !== undefined) parts.push(`${job.params.maskImagePath ? 'inpaint' : 'image to image'} ${job.params.denoise.toFixed(2)}`);
   return parts.join(' · ');
 }
 

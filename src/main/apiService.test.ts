@@ -190,6 +190,28 @@ test('generate_image with a library picture as source is image to image: its sha
   await call('get_job', { job_id: second.job_id, wait_seconds: 5 });
 });
 
+test('generate_image with source and extend is outpainting: the whole extended canvas is the size, the padding and picture are sent', async () => {
+  const src = (await call('list_library', { origin: 'imported', kind: 'image' })).items.find((i: any) => i.name === 'img1.jpg');
+  const job = await call('generate_image', { prompt: 'a fox', source: src.id, extend: { left: 400, right: 400 }, width: 64, strength: 0.2 });
+  assert.equal(job.family, 'z-image-outpaint');
+  // 1600x900 + 800 wide = 2400x900 -> long side 1536 -> 1536 x 576
+  assert.equal(job.width, 1536);
+  assert.equal(job.height, 576);
+  const params = lastJobParams();
+  assert.deepEqual(params.outpaint, { left: 400, top: 0, right: 400, bottom: 0 });
+  assert.equal(params.sourceImagePath, src.path);
+  assert.equal(params.denoise, undefined, 'strength does not apply');
+  released.shift()?.();
+  await call('get_job', { job_id: job.job_id, wait_seconds: 5 });
+});
+
+test('extend needs a source and a side above 0; the outpainting family cannot be named', async () => {
+  const src = (await call('list_library', { origin: 'imported', kind: 'image' })).items.find((i: any) => i.name === 'img1.jpg');
+  await assert.rejects(() => call('generate_image', { prompt: 'x', extend: { left: 64 } }), /needs a "source"/);
+  await assert.rejects(() => call('generate_image', { prompt: 'x', source: src.id, extend: { left: 0 } }), /above 0/);
+  await assert.rejects(() => call('generate_image', { prompt: 'x', family: 'z-image-outpaint' }), /Outpainting is not a family/);
+});
+
 test('image to image is asked for with a source, not by naming its family; the source must be a picture', async () => {
   await assert.rejects(() => call('generate_image', { prompt: 'x', family: 'z-image-i2i' }), /pass `source`/);
   await assert.rejects(() => call('generate_image', { prompt: 'x', family: 'z-image-inpaint' }), /Inpainting is not available/);

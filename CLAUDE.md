@@ -263,6 +263,19 @@ implementation here is exactly the kind of drift it exists to prevent.
   only forbids repeats *within* a feature). It makes no use of a picture, so it is **not** in `SOURCE_IMAGE_FAMILIES`. Its origin tag is
   Text → Video. MCP: `generate_video` without `source` is text to video (with `source`, image to video; naming the wrong family for the
   arguments is refused). The T2V file names are unverified against the Hugging Face repo.
+- **Outpainting is image to image with the picture extended beyond its frame, and its own family** (`z-image-outpaint`, `OUTPAINT_FAMILY` and
+  the padding helpers in `shared/imageToImage.ts`, `templates/z-image-outpaint.json`, `fillOutpaint` in `main/imageToImagePatch.ts`,
+  `ExtendField.tsx`). Under the source image on Generate, "Extend beyond the frame" sets pixels to add per side (left/top/right/bottom,
+  `GenerationParams.outpaint`, stored on `generations.outpaint` as `"l,t,r,b"`); any side above 0 makes the run outpainting
+  (`imageFamilyFor`'s fourth argument, which wins over a mask - setting one clears the other). The workflow is the inpainting graph with the
+  painted-mask loader replaced by `ImagePadForOutpaint` (grey padding plus a mask of exactly the new area, feathered 40 px into the original),
+  both scaled to the output size **without cropping** and the result pasted back over the padded original, so the original is untouched.
+  The output size is the *whole extended canvas* (`outpaintOutputSize`: long side kept within 1024-1536, sides in 64s), set by Generate from the
+  source's size - the Size menu is replaced by a note - and strength is fixed at 1 (the noise mask keeps the original in place while the new
+  area is drawn). It follows the supplied-picture pattern (`SOURCE_IMAGE_FAMILIES`: kept copy, "Original", Library > Sources, Re-rack disabled once
+  the copy is gone; the details panel says how far it was extended), has its own origin tag (Outpainted), uses Z-Image's profiles, and the duplicate
+  guard compares the padding. MCP: `generate_image` with `source` and `extend` ({left,top,right,bottom}); naming the family directly is refused.
+  Unverified against a real ComfyUI: that the graph is accepted and how well Z-Image Turbo continues a picture at the edge.
 - **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and
   `main/modelManifest.test.ts` pins it to the template JSON - change a template's loader file and that test fails
   until the manifest matches. Which files exist comes from ComfyUI's own loader lists (`/object_info`,
