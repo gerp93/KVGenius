@@ -237,7 +237,8 @@ export default function SideNav({ connection, gpus, promptTabs, launchError, onL
             <div
               key={section.id}
               className={`side-nav__section side-nav__section--${section.id}`}
-              style={section.id === 'create' && promptTabs ? { minHeight: CREATE_FIXED_HEIGHT + tabsMinHeight(promptTabs.tabs.length) } : undefined}
+              // Folded, the section is just its head: the floor that keeps the tab list usable must not hold the space open.
+              style={section.id === 'create' && promptTabs && !isFolded ? { minHeight: CREATE_FIXED_HEIGHT + tabsMinHeight(promptTabs.tabs.length) } : undefined}
             >
               <button
                 type="button"

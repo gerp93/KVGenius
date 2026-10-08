@@ -4,7 +4,7 @@ interface Props {
   src: string;
   /** Local file behind `src`, used to diagnose/repair it and by the "open in default player" fallback. */
   filePath: string;
-  /** Muted looping preview for a grid card: no controls, clicks pass through. It plays only while
+  /** Muted preview for a grid card: no controls, clicks pass through. It plays only while
    * it is on screen, so a long list of videos does not all decode at once. */
   thumbnail?: boolean;
   style?: CSSProperties;
@@ -83,7 +83,10 @@ export default function GeneratedVideo({ src, filePath, thumbnail, style }: Prop
       preload="metadata"
       controls={!thumbnail}
       muted={thumbnail}
-      loop={thumbnail}
+      // Every video loops. A full-size one (the result, the lightbox, the details panel) also starts by itself when it
+      // appears; a grid thumbnail is started and stopped by the observer above instead.
+      loop
+      autoPlay={!thumbnail}
       playsInline
       style={style}
       onError={handleError}
