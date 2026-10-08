@@ -8,6 +8,12 @@
 export const I2V_FAMILY = 'wan22-i2v';
 export const T2V_FAMILY = 'wan22-t2v';
 
+/** Whether a video of this family can be extended: only what the app made from a prompt or a picture (not an upscale, whose size is not the
+ * clip's, nor a GIF). */
+export function isExtendableFamily(family: string): boolean {
+  return family === I2V_FAMILY || family === T2V_FAMILY;
+}
+
 /** The video workflow family a Generate run uses: image to video once the run starts from a picture, else text to video. */
 export function videoFamilyFor(fromPicture: boolean): string {
   return fromPicture ? I2V_FAMILY : T2V_FAMILY;

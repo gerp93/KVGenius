@@ -304,6 +304,53 @@ export function planGif({ input, output, fps, width }: GifInput): string[] {
   return ['-y', '-v', 'error', '-progress', 'pipe:1', '-nostats', '-i', input, '-an', '-vf', filter, '-loop', '0', '-f', 'gif', output];
 }
 
+// ---------------------------------------------------------------------------------------------
+// Extending a video: its last frame, and joining a continuation onto its end
+
+/** Builds the ffmpeg command that writes a video's last frame as a picture. Pure, so it can be tested. It decodes the final second and keeps
+ * overwriting one image, so the file left behind is the last frame (seeking straight to the end can land past it). */
+export function planLastFrame(input: string, output: string): string[] {
+  return ['-y', '-v', 'error', '-sseof', '-1', '-i', input, '-an', '-update', '1', '-frames:v', '1000', '-f', 'image2', output];
+}
+
+export interface JoinInput {
+  first: string;
+  second: string;
+  output: string;
+  /** The size and frame rate everything is joined at: the first video's. */
+  width: number;
+  height: number;
+  fps: number;
+}
+
+/**
+ * Builds the ffmpeg command that joins `second` onto the end of `first` as one video. The second clip was made from the first's last frame, so its
+ * own first frame repeats that frame and is dropped - without that the seam stutters. Both are brought to the same size and frame rate and
+ * re-encoded (a straight copy only works when two files share every encoding detail); the sound, if any, is left out - these clips have none.
+ * Pure, so it can be tested.
+ */
+export function planJoin({ first, second, output, width, height, fps }: JoinInput): string[] {
+  // The frame rate is set last in each chain: with it earlier, ffmpeg 7's concat misjudges how long a trimmed clip is and repeats frames.
+  const size = `scale=${Math.round(width)}:${Math.round(height)}:flags=lanczos,setsar=1`;
+  const filter =
+    `[0:v]${size},setpts=PTS-STARTPTS,fps=${num(fps)}[a];` +
+    `[1:v]${size},trim=start_frame=1,setpts=PTS-STARTPTS,fps=${num(fps)}[b];` +
+    '[a][b]concat=n=2:v=1:a=0[v]';
+  return [
+    '-y', '-v', 'error', '-progress', 'pipe:1', '-nostats',
+    '-i', first,
+    '-i', second,
+    '-filter_complex', filter,
+    '-map', '[v]',
+    '-an',
+    '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    // The caller writes to a temporary name ("....part"), which ffmpeg cannot tell the format from.
+    '-f', 'mp4',
+    output,
+  ];
+}
+
 export interface RunningFfmpeg {
   done: Promise<void>;
   cancel: () => void;

@@ -61,7 +61,7 @@ export default function ExtendField({ value, sourceSize, onChange }: Props) {
         </button>
       </div>
       {value && (
-        <p className="style-picker__preview">
+        <p className="style-picker__preview" style={{ maxHeight: 'none' }}>
           {result ? `The result is ${result.width} × ${result.height}. ` : ''}The original stays exactly as it is; only the new area is drawn, from the
           prompt and what is at the edge. This replaces any painted mask.
         </p>

@@ -32,6 +32,7 @@ export function usePromptSlots() {
   const [videoQuality, setVideoQuality] = useState<VideoQuality>('fast');
   const [sourceImagePath, setSourceImagePath] = useState<string | null>(null);
   const [videoFromPicture, setVideoFromPicture] = useState(true);
+  const [extendFromId, setExtendFromId] = useState<number | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customSize, setCustomSize] = useState(false);
   const [batchSize, setBatchSize] = useState(1);
@@ -57,6 +58,7 @@ export function usePromptSlots() {
     setVideoQuality(data.videoQuality ?? 'fast');
     setSourceImagePath(data.sourceImagePath);
     setVideoFromPicture(data.videoFromPicture ?? true);
+    setExtendFromId(data.extendFromId ?? null);
     setAdvancedOpen(data.advancedOpen);
     setCustomSize(data.customSize);
     setBatchSize(data.batchSize);
@@ -112,6 +114,7 @@ export function usePromptSlots() {
       videoQuality,
       sourceImagePath,
       videoFromPicture,
+      extendFromId,
       advancedOpen,
       customSize,
       batchSize,
@@ -155,6 +158,7 @@ export function usePromptSlots() {
     videoQuality,
     sourceImagePath,
     videoFromPicture,
+    extendFromId,
     advancedOpen,
     customSize,
     batchSize,
@@ -254,6 +258,8 @@ export function usePromptSlots() {
     setSourceImagePath,
     videoFromPicture,
     setVideoFromPicture,
+    extendFromId,
+    setExtendFromId,
     advancedOpen,
     setAdvancedOpen,
     customSize,

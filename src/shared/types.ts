@@ -36,6 +36,9 @@ export interface GenerationParams {
   maskImagePath?: string;
   /** Outpainting only: how far the source image is extended on each side, in its own pixels. `width`/`height` are the size of the whole extended picture. */
   outpaint?: OutpaintPadding;
+  /** Image to video only: the id of an existing video this clip continues. Its source image is that video's last frame, and when the clip is done it is
+   * joined onto the end of that video, so the result is one longer video. */
+  extendVideoId?: number;
   /** Image families only: the name of the model profile the files and sampler below came from (a label for
    * the Library). Absent for the shipped template. */
   modelName?: string;
@@ -74,6 +77,8 @@ export interface GenerationRecord {
   maskImagePath: string | null;
   /** Outpainting only: how far the source image was extended (see GenerationParams.outpaint), else null. */
   outpaint: OutpaintPadding | null;
+  /** A video made by extending another: how many frames of the earlier video it starts with (those before the clip `length` counts), else null. */
+  extendedFrames: number | null;
   /** The model profile this was made with (display only), or null for the shipped model. */
   modelName: string | null;
   /** The exact files and sampler it was made with, or null for the shipped template. */
@@ -220,6 +225,8 @@ export interface VideoSourceRequest {
   /** The image's own dimensions, used to pick a video size that keeps its aspect ratio. */
   width: number;
   height: number;
+  /** Extending a video: `imagePath` is its last frame, and the new clip will be joined onto the end of video `fromId`. */
+  extend?: { fromId: number; prompt: string };
 }
 
 /** Which model families produce a video vs a still image - drives whether the
@@ -454,6 +461,8 @@ export interface KVGeniusAPI {
   /** Looks a chosen file over for the slot (see shared/modelCheck.ts) without copying anything. */
   checkModelFile: (path: string, family: string, slotKey: string) => Promise<ModelFileCheck>;
   /** What the installed files of one models folder are (null: not readable), keyed by the names ComfyUI lists. Empty when the models folder cannot be read from this computer. */
+  /** Extending a video: saves its last frame as a kept picture and says its size. Throws if ffmpeg is missing or the video cannot be read. */
+  prepareVideoExtension: (id: number) => Promise<{ path: string; width: number; height: number }>;
   getModelFileTraits: (folder: string, files: string[]) => Promise<Record<string, ModelTraits | null>>;
   /** Copies (or moves) a checked file into the slot's folder under ComfyUI's models folder. Resolves, never rejects. */
   importModelFile: (path: string, family: string, slotKey: string, options: { move: boolean; overwrite: boolean }) => Promise<ModelImportOutcome>;

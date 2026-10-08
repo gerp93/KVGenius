@@ -383,6 +383,7 @@ export default function App() {
               onRerack={handleRerack}
               onImageToVideo={handleQueueImageToVideo}
               onImageToImage={handleQueueImageToImage}
+              onExtendVideo={setVideoSource}
               onSaveAs={(r) => void runFileAction(() => window.kvgenius.saveGenerationAs(r.imagePath))}
               onReveal={(r) => void runFileAction(() => window.kvgenius.revealGenerationInFileManager(r.imagePath))}
               onUpscaleQueued={() => setQueueCollapsed(false)}

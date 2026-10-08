@@ -21,6 +21,8 @@ export interface PromptSlotData {
   sourceImagePath: string | null;
   /** Video mode only: the Text -> Video / Image -> Video choice. Absent in older configs - image to video (the only kind then). */
   videoFromPicture?: boolean;
+  /** Image to video only: the id of the video this run extends (its last frame is the source image and the new clip is joined onto it), or null. Absent in older configs - null. */
+  extendFromId?: number | null;
   advancedOpen: boolean;
   customSize: boolean;
   batchSize: number;
@@ -74,6 +76,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     videoQuality: 'fast',
     sourceImagePath: null,
     videoFromPicture: true,
+    extendFromId: null,
     advancedOpen: false,
     customSize: false,
     batchSize: 1,
@@ -124,6 +127,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     (d.videoQuality === undefined || d.videoQuality === 'fast' || d.videoQuality === 'high') &&
     (d.sourceImagePath === null || typeof d.sourceImagePath === 'string') &&
     (d.videoFromPicture === undefined || typeof d.videoFromPicture === 'boolean') &&
+    (d.extendFromId === undefined || d.extendFromId === null || typeof d.extendFromId === 'number') &&
     typeof d.advancedOpen === 'boolean' &&
     typeof d.customSize === 'boolean' &&
     typeof d.batchSize === 'number' &&

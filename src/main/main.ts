@@ -1,5 +1,6 @@
 import { app, BrowserWindow, clipboard, ClipboardItem, ipcMain, dialog, nativeImage, protocol, shell } from 'electron';
 import { DatabaseSync } from 'node:sqlite';
+import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { autoUpdater } from 'electron-updater';
@@ -83,7 +84,7 @@ import { createGenerationRunner, getLastRunFamily } from './generationService';
 import { AssemblyManager } from './assembly';
 import { ApiService } from './apiService';
 import { LocalApi, removeDiscoveryFile, startLocalApi, writeDiscoveryFile } from './localApi';
-import { FfmpegPaths, findFfmpeg, planGif, probeMedia, runFfmpeg } from './mediaTools';
+import { FfmpegPaths, findFfmpeg, planGif, planLastFrame, probeMedia, runFfmpeg } from './mediaTools';
 import { GIF_FAMILY } from '../shared/gif';
 import { cleanOrigins } from '../shared/origin';
 import { detectComfyUIProgram, launchComfyUIProgram } from './comfyLauncher';
@@ -97,7 +98,8 @@ import { saveMaskPng } from './maskStore';
 import { checkModelFile, importModelFile, ModelImportError } from './modelImport';
 import { readFolderTraits } from './modelTraitsReader';
 import { canonicalFamily } from '../shared/families';
-import { keepJobSources, keptFilesOfParams, releaseSourceImage } from './sourceImages';
+import { keepJobSources, keepSourceImage, keptFilesOfParams, releaseSourceImage } from './sourceImages';
+import { isExtendableFamily } from '../shared/textToVideo';
 import { settingsFromPng } from './imageMetadata';
 import { runModelTest } from './modelTest';
 import { solidPng } from './solidPng';
@@ -593,6 +595,29 @@ function registerIpcHandlers(): void {
       hidden
     );
     return { record, imageUrl: imageUrlFor(record.imagePath) };
+  });
+
+  // Extending a video: its last frame, kept as a picture, to start the continuation from.
+  ipcMain.handle('prepareVideoExtension', async (_event, id: number) => {
+    if (!db) throw new Error('Database not initialized');
+    const ff = getFfmpeg();
+    if (!ff) throw new Error('Extending a video needs ffmpeg. Install it or choose it in Settings.');
+    const source = getGenerationById(db, id);
+    if (!source || FAMILY_KIND[source.modelFamily] !== 'video' || !isExtendableFamily(source.modelFamily)) throw new Error('Only a video made here can be extended.');
+    if (!fs.existsSync(source.imagePath)) throw new Error('The video file could not be found.');
+    // Written to a temporary folder first, then kept like any source picture (named by its contents, in the sources folder).
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-frame-'));
+    const png = path.join(tempDir, 'last-frame.png');
+    try {
+      await runFfmpeg(ff, planLastFrame(source.imagePath, png), 1, () => {}).done;
+      if (!fs.existsSync(png) || fs.statSync(png).size === 0) throw new Error('Could not read the last frame of the video.');
+      const kept = keepSourceImage(png, getSourcesDir());
+      if (!kept) throw new Error('Could not keep the last frame of the video.');
+      const info = await probeMedia(ff, source.imagePath);
+      return { path: kept, width: info.width ?? source.width, height: info.height ?? source.height };
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   ipcMain.handle('getHiddenWords', () => getHiddenWords());
@@ -1225,7 +1250,7 @@ app
     migrateLegacyDefaultDbLocation();
     enforceDevDatabaseIsolation();
     db = initDatabase(getEffectiveDbPath());
-    jobQueue = new JobQueue(db, createGenerationRunner(() => db), {
+    jobQueue = new JobQueue(db, createGenerationRunner(() => db, getFfmpeg), {
       cancelRunning: cancelCurrentGeneration,
       isCancellation: (err) => err instanceof GenerationCancelledError,
       // A job made from a picture works from the app's own copy of it, made when it is queued - not from wherever the original is.

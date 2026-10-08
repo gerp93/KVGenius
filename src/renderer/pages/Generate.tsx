@@ -145,6 +145,8 @@ export default function Generate({
     setSourceImagePath,
     videoFromPicture,
     setVideoFromPicture,
+    extendFromId,
+    setExtendFromId,
     advancedOpen,
     setAdvancedOpen,
     customSize,
@@ -300,6 +302,8 @@ export default function Generate({
   // Video mode is image to video with a source image, or text to video without one - two graphs with their own model files.
   const videoStartPicture = mode === 'video' && videoFromPicture ? sourceImagePath : null;
   const needsVideoPicture = mode === 'video' && videoFromPicture && !sourceImagePath;
+  // Extending a video: the source image is its last frame and the finished clip is joined onto it (only while that picture is still the source).
+  const activeExtendId = videoStartPicture !== null ? extendFromId : null;
   const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null, startMask !== null, startPad !== null) : videoFamilyFor(videoFromPicture);
   // The family whose saved models apply (image to image and inpainting share text to image's).
   const modelBase = mode === 'image' ? FAMILY_FOR_MODE.image : runFamily;
@@ -332,7 +336,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture && !startPad ? denoise : null, startMask, padKey] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture && !startPad ? denoise : null, startMask, padKey] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -379,6 +383,7 @@ export default function Generate({
 
   function handleModeChange(newMode: Mode) {
     setMode(newMode);
+    setExtendFromId(null);
     setCustomSize(false);
     setSourceImagePath(null);
     if (newMode === 'video') {
@@ -398,6 +403,9 @@ export default function Generate({
     setVideoSizeToPicture(request.width, request.height);
     setSourceImagePath(request.imagePath);
     setVideoFromPicture(true);
+    // Extending a video: carry on from its last frame with its own prompt, to be joined onto it when done.
+    setExtendFromId(request.extend?.fromId ?? null);
+    if (request.extend) setPrompt(request.extend.prompt);
     setError(null);
   }
 
@@ -415,6 +423,8 @@ export default function Generate({
    * picture no longer ends up cropped to the square default). */
   async function useVideoSourcePicture(path: string | null) {
     setSourceImagePath(path);
+    // Another picture is no longer the last frame of the video being extended.
+    setExtendFromId(null);
     setError(null);
     if (!path) return;
     try {
@@ -552,6 +562,8 @@ export default function Generate({
       // before that was kept have none: a new one has to be chosen before they can be re-run.
       const videoFromPic = recalledMode === 'video' && record.modelFamily !== T2V_FAMILY;
       setVideoFromPicture(recalledMode === 'video' ? videoFromPic : true);
+      // A re-run makes the clip again from its source frame; it is not joined onto anything.
+      setExtendFromId(null);
       setSourceImagePath(videoFromPic ? record.sourceImagePath : null);
       // An image to image result is re-run from the copy of its source image the Library kept, at its strength.
       const fromPicture = isPictureStartFamily(record.modelFamily);
@@ -683,7 +695,7 @@ export default function Generate({
       height,
       steps: runSteps,
       cfg: runCfg,
-      ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined } : {}),
+      ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined, ...(activeExtendId !== null ? { extendVideoId: activeExtendId } : {}) } : {}),
       ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
     };
     const added = queue.enqueue(
@@ -819,6 +831,15 @@ export default function Generate({
               onReject={setError}
             >
               <SourceImageField path={sourceImagePath} onChooseFile={handleChooseSourceImage} onChooseFromLibrary={() => setPicker('video')} />
+              {activeExtendId !== null && (
+                <p className="style-picker__preview" style={{ maxHeight: 'none' }}>
+                  <strong>Extending a video.</strong> This starts from its last frame, and the new clip is joined onto the end of it, so you get one longer video
+                  (the original stays as it is). Describe what happens next in the prompt.{' '}
+                  <button type="button" className="link-button" onClick={() => setExtendFromId(null)}>
+                    Make a separate clip instead
+                  </button>
+                </p>
+              )}
             </ImageDropZone>
           )}
 
