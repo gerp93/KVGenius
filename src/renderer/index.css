@@ -814,6 +814,32 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   background: var(--color-bg-hover);
 }
 
+.queue-job {
+  position: relative;
+}
+
+/* A job made from a picture shows it small in the bottom-right corner; the text keeps clear of it. */
+.queue-job--has-reference {
+  min-height: 72px;
+}
+
+.queue-job--has-reference .queue-job__meta,
+.queue-job--has-reference .queue-job__error {
+  padding-right: 58px;
+}
+
+.queue-job__reference {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: #000;
+}
+
 .queue-job--running {
   border-color: var(--color-accent-blue);
 }

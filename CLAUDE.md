@@ -145,7 +145,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   (its width scales with the screen) - which is why `.library-page` has no padding of its own and
   `.library-output__main` carries it. Likewise Generate has no page padding: the prompt-tab rail
   (`.prompt-slots-rail`, tabs share its height up to a cap and shrink as more open) and the preview
-  run edge to edge and the form carries the padding. A finished card in the queue can be favorited,
+  run edge to edge and the form carries the padding. A card for a job made from a picture (a video, image to image, inpainting, outpainting, a picture upscale) shows that reference picture small in its bottom-right corner (`ReferenceThumb`). A finished card in the queue can be favorited,
   pinned or deleted (to the Trash, no confirmation); those handlers live in `App.tsx` and announce
   the change with `utils/generationChanges.ts` so a mounted Library list or Generate form follows
   (a favorite also moves the file, so the new path comes along). Clicking a finished card opens the
