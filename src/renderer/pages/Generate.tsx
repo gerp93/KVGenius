@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import CopyButton from '../components/CopyButton';
 import ImageDropZone from '../components/ImageDropZone';
 import LibraryPicker from '../components/LibraryPicker';
+import SourceImageField from '../components/SourceImageField';
 import ResultViewer from '../components/ResultViewer';
-import ExpandButton from '../components/Lightbox';
 import GalleryLightbox from '../components/GalleryLightbox';
 import { isUpscale, pinNotice } from '../utils/library';
 import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
@@ -687,30 +687,7 @@ export default function Generate({
               }}
               onReject={setError}
             >
-              <label className="field-label">Source Image</label>
-              <button
-                type="button"
-                className="source-image-button"
-                onClick={handleChooseSourceImage}
-                title={sourceImagePath ?? undefined}
-              >
-                <span className="source-image-button__name">
-                  {sourceImagePath ? sourceImagePath.split(/[\\/]/).pop() : 'Choose Source Image... (or drop one here)'}
-                </span>
-              </button>
-              <button type="button" className="source-image-button" style={{ marginTop: 6 }} onClick={() => setPicker('video')}>
-                Choose from the Library...
-              </button>
-              {sourceImagePath && (
-                <div className="source-image-preview-wrap">
-                  <ExpandButton src={window.kvgenius.imageUrlFor(sourceImagePath)} kind="image" filePath={sourceImagePath} alt="Source image" />
-                  <img
-                    className="source-image-preview"
-                    src={window.kvgenius.imageUrlFor(sourceImagePath)}
-                    alt="Source image"
-                  />
-                </div>
-              )}
+              <SourceImageField path={sourceImagePath} onChooseFile={handleChooseSourceImage} onChooseFromLibrary={() => setPicker('video')} />
             </ImageDropZone>
           )}
 
@@ -731,21 +708,7 @@ export default function Generate({
               onPaths={(paths) => void useStartPicture(paths[0] ?? null)}
               onReject={setError}
             >
-              <label className="field-label">Source Image</label>
-              <button type="button" className="source-image-button" onClick={() => void handleChooseStartPicture()} title={imageSourcePath ?? undefined}>
-                <span className="source-image-button__name">
-                  {imageSourcePath ? imageSourcePath.split(/[\\/]/).pop() : 'Choose Source Image... (or drop one here)'}
-                </span>
-              </button>
-              <button type="button" className="source-image-button" style={{ marginTop: 6 }} onClick={() => setPicker('start')}>
-                Choose from the Library...
-              </button>
-              {imageSourcePath && (
-                <div className="source-image-preview-wrap">
-                  <ExpandButton src={window.kvgenius.imageUrlFor(imageSourcePath)} kind="image" filePath={imageSourcePath} alt="Source image" />
-                  <img className="source-image-preview" src={window.kvgenius.imageUrlFor(imageSourcePath)} alt="Source image" />
-                </div>
-              )}
+              <SourceImageField path={imageSourcePath} onChooseFile={() => void handleChooseStartPicture()} onChooseFromLibrary={() => setPicker('start')} />
               {imageSourcePath && (
                 <>
                   <label className="field-label" htmlFor="denoise" style={{ marginTop: 10 }}>
