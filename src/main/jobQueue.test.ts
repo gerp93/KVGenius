@@ -190,3 +190,40 @@ test('a job submitted or stored under the retired family key reads back under th
   assert.equal((db.prepare('SELECT family FROM jobs').get() as { family: string }).family, 'z-image-turbo');
   assert.equal(getJob(db, stored.id)?.family, 'z-image');
 });
+
+test('prepare rewrites what is queued, and may refuse a request before anything is stored', async () => {
+  const db = newDb();
+  const { runner, calls } = controlledRunner();
+  const queue = new JobQueue(db, runner, {
+    cancelRunning: async () => undefined,
+    prepare: (req) => {
+      if (req.params.prompt === 'refuse') throw new Error('The source image could not be found any more.');
+      return { ...req, params: { ...req.params, sourceImagePath: '/kept/copy.png' } };
+    },
+  });
+  const job = queue.submit(request({ params: { prompt: 'ok', width: 64, height: 64, seed: 1, steps: 4, cfg: 1, sourceImagePath: '/somewhere/original.png' } }));
+  assert.equal(getJob(db, job.id)?.params.sourceImagePath, '/kept/copy.png');
+  assert.throws(() => queue.submit(request({ params: { prompt: 'refuse', width: 64, height: 64, seed: 1, steps: 4, cfg: 1 } })), /could not be found/);
+  assert.equal(queue.list().length, 1, 'a refused request leaves no job behind');
+  await tick();
+  calls[0].release();
+  await queue.wait(job.id);
+});
+
+test('onUnfinished hears of failed and cancelled jobs, not finished ones', async () => {
+  const db = newDb();
+  const { runner, calls } = controlledRunner();
+  const heard: string[] = [];
+  const queue = new JobQueue(db, runner, { cancelRunning: async () => undefined, onUnfinished: (job) => void heard.push(job.status) });
+  const done = queue.submit(request());
+  const failing = queue.submit(request());
+  const waiting = queue.submit(request());
+  await tick();
+  calls[0].release();
+  await queue.wait(done.id);
+  await tick();
+  calls[1].fail(new Error('boom'));
+  await queue.wait(failing.id);
+  await queue.cancel(waiting.id);
+  assert.deepEqual(heard, ['failed', 'cancelled']);
+});

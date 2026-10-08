@@ -130,3 +130,58 @@ test('an inpainting result remembers its mask, which is kept as long as any resu
   assert.equal(releaseSourceImage(db, mask, sources), true);
   assert.equal(releaseSourceImage(db, picture, sources), true);
 });
+
+import { keepJobSources, keptFilesOfParams } from './sourceImages';
+import { insertJob } from './jobStore';
+
+test('a job is pointed at the app\'s copy of its source picture when it is queued, so the original can vanish', () => {
+  const dir = temp();
+  const sources = path.join(dir, 'sources');
+  const original = path.join(dir, 'photo.png');
+  fs.writeFileSync(original, 'pixels');
+  const params = { prompt: 'p', width: 64, height: 64, seed: 1, steps: 4, cfg: 1, sourceImagePath: original };
+
+  const kept = keepJobSources('wan22-i2v', params, sources);
+  assert.notEqual(kept.sourceImagePath, original);
+  assert.equal(path.dirname(kept.sourceImagePath as string), sources);
+  fs.rmSync(original);
+  assert.equal(fs.readFileSync(kept.sourceImagePath as string, 'utf8'), 'pixels');
+  assert.equal(params.sourceImagePath, original, 'the caller\'s params are not changed');
+
+  // a family that works from no picture is left alone, and a picture already gone is refused up front
+  assert.equal(keepJobSources('z-image', params, sources).sourceImagePath, original);
+  assert.throws(() => keepJobSources('wan22-i2v', params, sources), /could not be found/);
+  // text to video has no source picture to keep
+  assert.equal(keepJobSources('wan22-t2v', { ...params, sourceImagePath: undefined }, sources).sourceImagePath, undefined);
+});
+
+test('an inpainting job keeps its mask too; keptFilesOfParams lists what a job holds', () => {
+  const dir = temp();
+  const sources = path.join(dir, 'sources');
+  const pic = path.join(dir, 'pic.png');
+  const mask = path.join(dir, 'mask.png');
+  fs.writeFileSync(pic, 'pic');
+  fs.writeFileSync(mask, 'mask');
+  const kept = keepJobSources('z-image-inpaint', { sourceImagePath: pic, maskImagePath: mask }, sources);
+  assert.deepEqual(keptFilesOfParams('z-image-inpaint', kept).length, 2);
+  assert.deepEqual(keptFilesOfParams('z-image-i2i', { sourceImagePath: pic, maskImagePath: mask }), [pic], 'only inpainting uses a mask');
+  assert.deepEqual(keptFilesOfParams('z-image', { sourceImagePath: pic }), []);
+});
+
+test('a kept copy is not deleted while a waiting or running job still needs it, and is once nothing does', () => {
+  const dir = temp();
+  const sources = path.join(dir, 'sources');
+  const original = path.join(dir, 'a.png');
+  fs.writeFileSync(original, 'x');
+  const db = initDatabase(':memory:');
+  const kept = keepSourceImage(original, sources) as string;
+  const job = insertJob(db, { family: 'wan22-i2v', source: 'ui', params: { prompt: 'p', width: 64, height: 64, seed: 1, steps: 4, cfg: 1, sourceImagePath: kept } });
+
+  assert.equal(releaseSourceImage(db, kept, sources), false, 'a queued job needs it');
+  assert.ok(fs.existsSync(kept));
+  db.prepare("UPDATE jobs SET status = 'running' WHERE id = ?").run(job.id);
+  assert.equal(releaseSourceImage(db, kept, sources), false, 'a running job needs it');
+  db.prepare("UPDATE jobs SET status = 'failed' WHERE id = ?").run(job.id);
+  assert.equal(releaseSourceImage(db, kept, sources), true, 'a failed job no longer does');
+  assert.ok(!fs.existsSync(kept));
+});
