@@ -4,6 +4,7 @@ import type { DownloadPlanInfo, DownloadStartResult } from './modelDownloads';
 import type { ImageSettingsResult, ModelFileCheck, ModelImportOutcome, ModelImportProgress, ModelTestResult, PickedModelFile } from './modelCheck';
 import type { ModelProfile, ModelProfileInput, ModelSettings } from './modelProfiles';
 import type { ModelStatusReport } from './modelStatus';
+import type { ModelTraits } from './modelTraits';
 import type { OutpaintPadding } from './imageToImage';
 import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
@@ -452,6 +453,8 @@ export interface KVGeniusAPI {
   droppedModelFilePaths: (files: unknown[]) => Promise<string[]>;
   /** Looks a chosen file over for the slot (see shared/modelCheck.ts) without copying anything. */
   checkModelFile: (path: string, family: string, slotKey: string) => Promise<ModelFileCheck>;
+  /** What the installed files of one models folder are (null: not readable), keyed by the names ComfyUI lists. Empty when the models folder cannot be read from this computer. */
+  getModelFileTraits: (folder: string, files: string[]) => Promise<Record<string, ModelTraits | null>>;
   /** Copies (or moves) a checked file into the slot's folder under ComfyUI's models folder. Resolves, never rejects. */
   importModelFile: (path: string, family: string, slotKey: string, options: { move: boolean; overwrite: boolean }) => Promise<ModelImportOutcome>;
   cancelModelImport: () => Promise<void>;

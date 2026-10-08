@@ -4,6 +4,7 @@ import { MAX_PROFILE_NAME_LENGTH, ModelProfile, SamplerSettings } from '../../sh
 import { MODEL_MANIFEST, manifestFeature } from '../../shared/modelManifest';
 import { ModelStatusReport, readinessLabel, summarize, summarizeSlots } from '../../shared/modelStatus';
 import { FAMILY_KIND } from '../../shared/types';
+import { ChosenTraits, ModelTraits, SlotRole, checkFit, slotRole } from '../../shared/modelTraits';
 import { ImageSettingsResult, ModelTestResult } from '../../shared/modelCheck';
 import './Stepper.css';
 import ModelFileImport from './ModelFileImport';
@@ -109,6 +110,10 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ModelTestResult | null>(null);
   const [imageNote, setImageNote] = useState<string | null>(null);
+  // What the installed files are (shared/modelTraits.ts), by models folder and file name - read from their headers when the
+  // list of installed files changes. Empty when this computer cannot read the models folder; nothing is then filtered.
+  const [traits, setTraits] = useState<Record<string, Record<string, ModelTraits | null>>>({});
+  const [showAllFiles, setShowAllFiles] = useState(false);
 
   // A test result describes the settings as they were; once anything changes it no longer applies.
   const draftKey = JSON.stringify(draft);
@@ -137,6 +142,38 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
   const installed = report && report.source !== 'none' ? report.installed : null;
   const builtInFile = def.slots[0].defaultFile;
   const diffusionFile = draft.files[def.slots[0].key] ?? '';
+
+  // Read the headers of what is installed in the folders this model uses.
+  const installedKey = installed ? JSON.stringify([installed.diffusion_models, installed.text_encoders, installed.vae]) : '';
+  useEffect(() => {
+    if (!installed) {
+      setTraits({});
+      return;
+    }
+    let cancelled = false;
+    const folders = ['diffusion_models', 'text_encoders', 'vae'] as const;
+    Promise.all(folders.map((folder) => window.kvgenius.getModelFileTraits(folder, installed[folder]).then((found) => [folder, found] as const)))
+      .then((entries) => !cancelled && setTraits(Object.fromEntries(entries)))
+      .catch(() => !cancelled && setTraits({}));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [installedKey]);
+
+  /** What the file picked in `slotKey` is, if known. */
+  const traitsOf = (slot: { key: string; folder: string }): ModelTraits | null => traits[slot.folder]?.[draft.files[slot.key] ?? ''] ?? null;
+  /** What the other slots of this model have picked, by role - what a file offered in `slotKey` has to fit with. */
+  function pickedBesides(slotKey: string): ChosenTraits {
+    const chosen: ChosenTraits = {};
+    for (const other of def.slots) {
+      const role: SlotRole | null = slotRole(other.key);
+      const found = traitsOf(other);
+      if (other.key === slotKey || !role || !found) continue;
+      (chosen[role] ??= []).push(found);
+    }
+    return chosen;
+  }
 
   function selectStarter(family: string) {
     const next = newDraft(family);
@@ -374,6 +411,18 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
         const options = installed ? installed[slot.folder] : null;
         const value = draft.files[slot.key] ?? '';
         const missing = options !== null && value !== '' && !options.includes(value);
+        // Which installed files fit this slot and what is picked in the others (files that cannot be told stay on offer).
+        const fits = new Map<string, string | null>();
+        if (options && slotRole(slot.key)) {
+          const others = pickedBesides(slot.key);
+          for (const file of options) {
+            const fit = checkFit(def.family, slot.key, traits[slot.folder]?.[file] ?? null, others);
+            fits.set(file, fit.status === 'conflict' ? fit.reason : null);
+          }
+        }
+        const hidden = options ? options.filter((file) => fits.get(file) && file !== value) : [];
+        const shown = options ? options.filter((file) => showAllFiles || !hidden.includes(file)) : [];
+        const valueProblem = fits.get(value) ?? null;
         return (
           <div className="styles-page__field" key={slot.key}>
             <label className="field-label" htmlFor={`slot-${slot.key}`}>
@@ -384,13 +433,23 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
             ) : (
               <select id={`slot-${slot.key}`} value={value} onChange={(e) => setFile(slot.key, e.target.value)} style={{ width: '100%' }}>
                 {missing && <option value={value}>{value} (not found in ComfyUI)</option>}
-                {options.map((file) => (
-                  <option key={file} value={file}>
-                    {file}
+                {shown.map((file) => (
+                  <option key={file} value={file} title={fits.get(file) ?? undefined}>
+                    {fits.get(file) ? `⚠ ${file}` : file}
                   </option>
                 ))}
                 {options.length === 0 && !missing && <option value="">No files found in {slot.folder}</option>}
+                {options.length > 0 && shown.length === 0 && !missing && <option value="">No file here fits what is picked</option>}
               </select>
+            )}
+            {valueProblem && <p className="models-profile__warn">⚠ {valueProblem}</p>}
+            {hidden.length > 0 && !showAllFiles && (
+              <p className="settings-hint" style={{ margin: '4px 0 0' }}>
+                {hidden.length} file{hidden.length === 1 ? '' : 's'} hidden because {hidden.length === 1 ? 'it does' : 'they do'} not fit what is picked.{' '}
+                <button type="button" className="link-button" onClick={() => setShowAllFiles(true)}>
+                  Show every file
+                </button>
+              </p>
             )}
             {missing && <p className="models-profile__warn">ComfyUI does not list this file. Put it in {slot.folder} and use Check Again above.</p>}
             <ModelFileImport
@@ -405,6 +464,14 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
           </div>
         );
       })}
+      {showAllFiles && (
+        <p className="settings-hint">
+          Showing every file; ⚠ marks the ones that do not fit what is picked.{' '}
+          <button type="button" className="link-button" onClick={() => setShowAllFiles(false)}>
+            Hide those
+          </button>
+        </p>
+      )}
       <FilesNote installed={installed} />
     </>
   );
