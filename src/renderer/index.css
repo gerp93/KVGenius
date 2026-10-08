@@ -24,6 +24,9 @@ body {
    panel column, full height, so the bar only spans the page. */
 .app-body {
   flex: 1;
+  /* Next to the sidebar this is a flex item: without it, any content wider than the window made the whole body wider
+     than the window and pushed the details panel off the right edge, where it could not be seen. */
+  min-width: 0;
   min-height: 0;
   display: flex;
 }

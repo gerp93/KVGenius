@@ -127,6 +127,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   double-click renames, ✕ closes, ＋ New tab). Only that list scrolls when the window is short - the rest of the rail keeps
   its place - down to a floor of three tabs, below which the whole rail scrolls as a last resort. Thin shows each tab as
   its IMG/VID tag. Footer groups are separated by rules.
+  Every flex ancestor between the shell and a page needs `min-width: 0` (`.app-body`, `.app-main`, `.app-content`): otherwise a
+  page wider than the window widens the whole body and pushes the details panel (`.details-slot`) off the right edge.
   Pages use the whole width (no max-width columns): Settings tabs flow their cards into as many 520px+ columns as fit
   (`.settings-panel--cards`; the Models tab is one wide editor), and Styles, Upscale and the setup guide fill the page.
   The rail is full (labels; a section's head folds it) or thin (**icons only, no hover flyouts**: each page keeps its own
