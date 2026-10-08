@@ -865,39 +865,43 @@ export default function Generate({
           )}
 
           {mode === 'video' && (
-            <div style={{ marginTop: 12 }}>
-              <label className="field-label" htmlFor="length">
-                Length (seconds)
-              </label>
-              <input
-                id="length"
-                type="number"
-                value={lengthSeconds}
-                min={1}
-                max={12}
-                step={0.5}
-                onChange={(e) => setLengthSeconds(Number(e.target.value))}
-                style={{ width: 160 }}
-              />
-              <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
-                {secondsToFrames(lengthSeconds)} frames @ {VIDEO_FPS}fps. Default is 5s; longer clips take much longer to render.
-              </p>
-
-              <label className="field-label" htmlFor="video-quality" style={{ marginTop: 12 }}>
-                Quality
-              </label>
-              <select
-                id="video-quality"
-                value={videoQuality}
-                onChange={(e) => setVideoQuality(e.target.value as VideoQuality)}
-                style={{ width: 260 }}
+            // Length and quality share a line; what each means is in its tooltip rather than a paragraph under it.
+            <div className="video-row">
+              <div
+                className="video-row__length"
+                title={`${secondsToFrames(lengthSeconds)} frames at ${VIDEO_FPS} fps. The default is 5 seconds; longer clips take much longer to render.`}
               >
-                <option value="fast">Fast (4 steps)</option>
-                <option value="high">High (20 steps, slower)</option>
-              </select>
-              <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
-                Fast uses a speed-up LoRA and can look grainy. High is cleaner but takes several times longer.
-              </p>
+                <label className="field-label" htmlFor="length">
+                  Length (seconds)
+                </label>
+                <input
+                  id="length"
+                  type="number"
+                  value={lengthSeconds}
+                  min={1}
+                  max={12}
+                  step={0.5}
+                  onChange={(e) => setLengthSeconds(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div
+                className="video-row__quality"
+                title="Fast uses a speed-up LoRA and can look grainy. High is cleaner but takes several times longer."
+              >
+                <label className="field-label" htmlFor="video-quality">
+                  Quality
+                </label>
+                <select
+                  id="video-quality"
+                  value={videoQuality}
+                  onChange={(e) => setVideoQuality(e.target.value as VideoQuality)}
+                  style={{ width: '100%' }}
+                >
+                  <option value="fast">Fast (4 steps)</option>
+                  <option value="high">High (20 steps, slower)</option>
+                </select>
+              </div>
             </div>
           )}
 
