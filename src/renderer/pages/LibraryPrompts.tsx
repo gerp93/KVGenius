@@ -447,6 +447,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             onRerack={handleRerack}
             onImageToVideo={handleImageToVideo}
             onImageToImage={handleImageToImage}
+            onExtendVideo={onImageToVideo}
             onSaveAs={handleSaveAs}
             onReveal={handleReveal}
             onUpscaleQueued={onShowQueue}

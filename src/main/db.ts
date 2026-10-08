@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS generations (
   denoise REAL,
   mask_image_path TEXT,
   outpaint TEXT,
+  extended_frames INTEGER,
   timing_id INTEGER,
   created_at TEXT NOT NULL
 );
@@ -95,6 +96,10 @@ function migrateSchema(db: DatabaseSync): void {
   // Outpainting: how far the source image was extended on each side, as "left,top,right,bottom" (see shared/imageToImage.ts); null for everything else.
   if (!columns.some((c) => c.name === 'outpaint')) {
     db.exec('ALTER TABLE generations ADD COLUMN outpaint TEXT;');
+  }
+  // A video made by extending another: how many frames of the earlier video it starts with; null for everything else.
+  if (!columns.some((c) => c.name === 'extended_frames')) {
+    db.exec('ALTER TABLE generations ADD COLUMN extended_frames INTEGER;');
   }
   if (!columns.some((c) => c.name === 'model_settings')) {
     db.exec('ALTER TABLE generations ADD COLUMN model_settings TEXT;');
@@ -218,6 +223,7 @@ interface GenerationRow {
   denoise?: number | null;
   mask_image_path?: string | null;
   outpaint?: string | null;
+  extended_frames?: number | null;
   created_at: string;
   // Only in a listing grouped by prompt.
   group_count?: number;
@@ -259,6 +265,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     denoise: row.denoise ?? null,
     maskImagePath: row.mask_image_path ?? null,
     outpaint: parseOutpaint(row.outpaint),
+    extendedFrames: row.extended_frames ?? null,
     modelName: row.model_name ?? null,
     modelSettings: parseModelSettings(row.model_settings),
     createdAt: row.created_at,
@@ -286,7 +293,9 @@ export function insertGeneration(
   /** A video's kept copy of its source image (see sourceImages.ts), so it can be re-run in place. */
   sourceImagePath: string | null = null,
   /** An inpainting result's kept copy of its mask. */
-  maskImagePath: string | null = null
+  maskImagePath: string | null = null,
+  /** An extended video's frames from the earlier video it was joined onto. */
+  extendedFrames: number | null = null
 ): GenerationRecord {
   const createdAt = new Date().toISOString();
   const length = params.length ?? null;
@@ -296,8 +305,8 @@ export function insertGeneration(
   const denoise = params.denoise ?? null;
   const outpaint = serializeOutpaint(params.outpaint);
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, outpaint, timing_id, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, outpaint, extended_frames, timing_id, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -317,6 +326,7 @@ export function insertGeneration(
     denoise,
     maskImagePath,
     outpaint,
+    extendedFrames,
     timingId,
     createdAt
   );
@@ -341,6 +351,7 @@ export function insertGeneration(
     denoise,
     maskImagePath,
     outpaint: parseOutpaint(outpaint),
+    extendedFrames,
     modelName,
     modelSettings: params.modelSettings ?? null,
     createdAt,

@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DEFAULT_GIF_FPS, DEFAULT_GIF_WIDTH, GIF_FPS_CHOICES, GIF_WIDTHS } from '../../shared/gif';
 import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../../shared/upscale';
-import { FAMILY_KIND, GenerationKind, GenerationRecord } from '../../shared/types';
+import { FAMILY_KIND, GenerationKind, GenerationRecord, VideoSourceRequest } from '../../shared/types';
+import { isExtendableFamily } from '../../shared/textToVideo';
 import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { formatBytes, formatDifference, formatDuration } from '../utils/format';
 import { shouldSplitDetails } from '../../shared/detailsLayout';
@@ -45,6 +46,8 @@ interface Props {
   onImageToVideo: (record: GenerationRecord) => void;
   /** Start an image to image run from this picture (opens Generate with it as the source image). */
   onImageToImage: (record: GenerationRecord) => void;
+  /** Continue a video from its last frame (opens Generate with that frame as the source image; the new clip will be joined onto the video). */
+  onExtendVideo: (request: VideoSourceRequest) => void;
   onSaveAs: (record: GenerationRecord) => void;
   onReveal: (record: GenerationRecord) => void;
   /** An upscale was added to the queue (the page can show its queue). */
@@ -73,6 +76,7 @@ export default function LibraryDetails({
   onRerack,
   onImageToVideo,
   onImageToImage,
+  onExtendVideo,
   onSaveAs,
   onReveal,
   onUpscaleQueued,
@@ -81,6 +85,20 @@ export default function LibraryDetails({
   onNotice,
 }: Props) {
   const [size, setSize] = useState<number | null>(null);
+  // Extending a video: its last frame is read first (it needs ffmpeg), then Generate opens with it.
+  const [extending, setExtending] = useState(false);
+  async function handleExtend() {
+    setExtending(true);
+    onError(null);
+    try {
+      const frame = await window.kvgenius.prepareVideoExtension(record.id);
+      onExtendVideo({ imagePath: frame.path, width: frame.width, height: frame.height, extend: { fromId: record.id, prompt: record.prompt } });
+    } catch (err) {
+      onError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err));
+    } finally {
+      setExtending(false);
+    }
+  }
   // A video or upscale made from a picture keeps a copy of it; if that copy is gone it cannot be re-run.
   const sourceMissing = useSourceMissing(record);
   // Upscale controls: the models come from ComfyUI when the panel opens.
@@ -275,6 +293,19 @@ export default function LibraryDetails({
           {SOURCE_MISSING_MESSAGE}
         </p>
       )}
+      {kindOf(record) === 'video' && isExtendableFamily(record.modelFamily) && (
+        <>
+          <button
+            type="button"
+            onClick={() => void handleExtend()}
+            disabled={extending}
+            title="Make more of this video: a new clip carries on from its last frame and is joined onto the end of it"
+            style={{ width: '100%' }}
+          >
+            {extending ? 'Reading the last frame...' : '➕ Extend this video'}
+          </button>
+        </>
+      )}
       {kindOf(record) === 'video' && (
         <div className="library-panel__upscale">
           <span className="field-label" style={{ margin: 0 }}>
@@ -416,7 +447,8 @@ export default function LibraryDetails({
           <>
             <dt>Length</dt>
             <dd>
-              {Math.round(((record.length - 1) / VIDEO_FPS) * 4) / 4}s ({record.length} frames)
+              {Math.round(((record.length - 1 + (record.extendedFrames ?? 0)) / VIDEO_FPS) * 4) / 4}s ({record.length + (record.extendedFrames ?? 0)} frames)
+              {record.extendedFrames !== null && ` - an earlier video of ${record.extendedFrames} frames, extended by ${record.length}`}
             </dd>
           </>
         )}

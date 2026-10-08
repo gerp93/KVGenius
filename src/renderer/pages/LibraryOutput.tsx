@@ -963,6 +963,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             onRerack={handleRecreate}
             onImageToVideo={handleImageToVideo}
             onImageToImage={handleImageToImage}
+            onExtendVideo={onImageToVideo}
             onSaveAs={handleSaveAs}
             onReveal={handleReveal}
             onUpscaleQueued={onShowQueue}

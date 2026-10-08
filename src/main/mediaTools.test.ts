@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AssembleInput, planAssemble, planGif } from './mediaTools';
+import { AssembleInput, findFfmpeg, planAssemble, planGif, planJoin, planLastFrame, probeMedia, runFfmpeg } from './mediaTools';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const base = (over: Partial<AssembleInput> = {}): AssembleInput => ({
   clips: [
@@ -118,4 +122,45 @@ test('planGif builds a palette-based gif command that never enlarges', () => {
   const filter = args[args.indexOf('-vf') + 1];
   assert.match(filter, /^fps=15,scale='min\(480,iw\)':-2/);
   assert.match(filter, /palettegen.*paletteuse/);
+});
+
+test('the last-frame and join commands are built as described', () => {
+  const last = planLastFrame('/v/in.mp4', '/o/last.png');
+  assert.ok(last.includes('-sseof') && last.includes('-update'), 'reads from near the end and keeps overwriting one picture');
+  assert.equal(last[last.length - 1], '/o/last.png');
+  const join = planJoin({ first: '/v/a.mp4', second: '/v/b.mp4', output: '/o/ab.mp4', width: 432, height: 640, fps: 16 });
+  const filter = join[join.indexOf('-filter_complex') + 1];
+  assert.match(filter, /\[1:v\].*trim=start_frame=1/, 'the repeated first frame of the continuation is dropped');
+  assert.match(filter, /scale=432:640/);
+  assert.match(filter, /trim=start_frame=1,setpts=PTS-STARTPTS,fps=16/);
+  assert.equal(join[join.length - 1], '/o/ab.mp4');
+  assert.ok(join.includes('-an'));
+});
+
+const ff = findFfmpeg();
+
+test('joining really appends the continuation, and the last frame is read from the end', { skip: ff ? false : 'ffmpeg is not installed' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-join-'));
+  try {
+    const make = (file: string, color: string, frames: number, size: string) =>
+      execFileSync(ff!.ffmpeg, ['-y', '-v', 'error', '-f', 'lavfi', '-i', `color=c=${color}:s=${size}:r=16`, '-frames:v', String(frames), '-pix_fmt', 'yuv420p', file]);
+    const a = path.join(dir, 'a.mp4');
+    const b = path.join(dir, 'b.mp4');
+    make(a, 'red', 32, '64x96');
+    make(b, 'blue', 17, '32x48'); // a different size: it is brought to the first's
+    const joined = path.join(dir, 'ab.mp4');
+    await runFfmpeg(ff!, planJoin({ first: a, second: b, output: joined, width: 64, height: 96, fps: 16 }), 3, () => {}).done;
+    const info = await probeMedia(ff!, joined);
+    assert.equal(info.width, 64);
+    assert.equal(info.height, 96);
+    // 32 frames + 17 frames, minus the repeated first frame of the second clip
+    const counted = Number(execFileSync(ff!.ffprobe, ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', joined]).toString().trim());
+    assert.equal(counted, 48);
+
+    const last = path.join(dir, 'last.png');
+    await runFfmpeg(ff!, planLastFrame(joined, last), 1, () => {}).done;
+    assert.ok(fs.statSync(last).size > 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -12,6 +12,8 @@ import { insertGeneration } from './db';
 import { insertTiming } from './timingStats';
 import { faststartMp4 } from './mp4Faststart';
 import { JobRunner } from './jobQueue';
+import { joinOntoVideo } from './extendVideo';
+import type { FfmpegPaths } from './mediaTools';
 
 // The model family of the last generation that finished. ComfyUI keeps a family's models loaded
 // until something else needs the memory, so the next run of the same family starts "warm".
@@ -26,7 +28,7 @@ export function getLastRunFamily(): string | null {
  * the generation and its timing. This is what used to be the body of the `generate` IPC handler,
  * moved here so every entry point (the UI today, outside clients later) runs identical work.
  */
-export function createGenerationRunner(getDb: () => DatabaseSync | null): JobRunner {
+export function createGenerationRunner(getDb: () => DatabaseSync | null, getFfmpeg: () => FfmpegPaths | null = () => null): JobRunner {
   return async (job, { estimate, onProgress }) => {
     const db = getDb();
     if (!db) throw new Error('Database not initialized');
@@ -52,6 +54,20 @@ export function createGenerationRunner(getDb: () => DatabaseSync | null): JobRun
       }
     }
     fs.writeFileSync(imagePath, bytes);
+
+    // A clip that continues an earlier video is joined onto its end, and the one longer video is what is kept. If the joining fails the
+    // clip itself is kept, so a problem with it never costs the render.
+    let finalPath = imagePath;
+    let extendedFrames: number | null = null;
+    if (params.extendVideoId !== undefined && FAMILY_KIND[family] === 'video') {
+      const joinedPath = path.join(outputDir, `${Date.now()}-${params.seed}-extended${output.extension}`);
+      const joined = await joinOntoVideo(db, getFfmpeg(), params.extendVideoId, imagePath, joinedPath);
+      if (joined) {
+        fs.rmSync(imagePath, { force: true });
+        finalPath = joinedPath;
+        extendedFrames = joined.extendedFrames;
+      }
+    }
 
     // How long it took vs what was predicted goes in its own table (timing_stats), holding only
     // timings and settings - never the prompt or image - so it outlives the generation.
@@ -83,7 +99,7 @@ export function createGenerationRunner(getDb: () => DatabaseSync | null): JobRun
       needsSourceImage(family) && params.sourceImagePath ? keepSourceImage(params.sourceImagePath, getSourcesDir()) : null;
     // Inpainting also keeps the mask it was painted with (in the same folder), so Re-rack can run it again.
     const keptMask = family === INPAINT_FAMILY && params.maskImagePath ? keepSourceImage(params.maskImagePath, getSourcesDir()) : null;
-    const record = insertGeneration(db, params, family, imagePath, timingId, hidden, keptSource, keptMask);
+    const record = insertGeneration(db, params, family, finalPath, timingId, hidden, keptSource, keptMask, extendedFrames);
     return { generationId: record.id };
   };
 }

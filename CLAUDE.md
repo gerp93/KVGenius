@@ -277,6 +277,15 @@ implementation here is exactly the kind of drift it exists to prevent.
   Text → Video. MCP: `generate_video` without `source` is text to video (with `source`, image to video; naming the wrong family for the
   arguments is refused). The T2V file names are unverified against the Hugging Face repo.
   Whenever a source image is set for image to video - chosen from a file, dropped, or picked from the Library - the video size follows its shape (`setVideoSizeToPicture`: long side 640, sides in 16s) so a portrait picture is not cropped into the square default.
+- **A video can be extended** (`➕ Extend this video` in the details panel, `main/extendVideo.ts`, `planLastFrame` / `planJoin` in `mediaTools.ts`). The
+  button reads the video's last frame with ffmpeg (`prepareVideoExtension`), keeps it as a source picture and opens Generate in Image → Video with
+  that frame, the video's size and prompt (`VideoSourceRequest.extend`, the tab's `extendFromId`, shown as a note with "Make a separate clip
+  instead"); the job carries `extendVideoId`. When the clip finishes, `generationService` joins it onto the end of the earlier video (re-encoded to the
+  earlier video's size and frame rate, the clip's repeated first frame dropped) and the one longer video is what is kept as the new record; the
+  original is untouched. `generations.extended_frames` holds how many frames came from before the clip, so the details panel shows the whole length
+  while `length` stays the clip's (Re-rack re-makes the clip, not the join). If the join cannot be done (ffmpeg missing, the earlier video gone) the
+  clip is kept on its own rather than losing the render. Only `wan22-*` videos can be extended. In `planJoin` the frame rate must come *last* in each
+  chain - earlier, ffmpeg 7's concat repeats frames (a test with the bundled ffmpeg checks the frame count). Not available over MCP.
 - **Outpainting is image to image with the picture extended beyond its frame, and its own family** (`z-image-outpaint`, `OUTPAINT_FAMILY` and
   the padding helpers in `shared/imageToImage.ts`, `templates/z-image-outpaint.json`, `fillOutpaint` in `main/imageToImagePatch.ts`,
   `ExtendField.tsx`). Under the source image on Generate, "Extend beyond the frame" sets pixels to add per side (left/top/right/bottom,
