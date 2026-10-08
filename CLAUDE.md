@@ -130,7 +130,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   Every flex ancestor between the shell and a page needs `min-width: 0` (`.app-body`, `.app-main`, `.app-content`): otherwise a
   page wider than the window widens the whole body and pushes the details panel (`.details-slot`) off the right edge.
   Pages use the whole width (no max-width columns): Settings tabs flow their cards into as many 520px+ columns as fit
-  (`.settings-panel--cards`; the Models tab is one wide editor), and Styles, Upscale and the setup guide fill the page.
+  (`.settings-panel--cards`: columns 520-640px wide packed from the left and capped at three, so a huge screen leaves plain space on the right instead of stretched cards; the Models tab is one wide editor), and Styles, Upscale and the setup guide fill the page.
   The rail is full (labels; a section's head folds it) or thin (**icons only, no hover flyouts**: each page keeps its own
   icon, each section shrinks to a caption, so every page is one click away). Thin/full and folded sections are remembered
   in `localStorage`. Every page needs an icon and a `title` for that reason. The shell is a row: sidebar, then
