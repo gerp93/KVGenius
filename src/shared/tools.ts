@@ -66,7 +66,7 @@ export const TOOLS: ToolDefinition[] = [
         extend: {
           type: 'object',
           description:
-            'With `source`: outpainting - extend the picture beyond its frame. Pixels to add on each side of the source (any may be 0, up to 2048; at least one must be above 0). The original is kept as it is and only the new area is drawn, continuing the picture and following the prompt. The size is the whole extended picture (long side 1024-1536), so width, height and strength are ignored.',
+            'With `source`: outpainting - extend the picture beyond its frame. Pixels to add on each side of the source (any may be 0, up to 2048; at least one must be above 0). The original is kept as it is and only the new area is drawn, continuing the picture and following the prompt. The size is the whole extended picture (long side 1024-1536), so width and height are ignored. `strength` is how much of the new area is re-drawn (default 0.8). Describe what should continue beyond the edges in the prompt, not the whole picture.',
           properties: {
             left: { type: 'integer' },
             top: { type: 'integer' },

@@ -294,10 +294,14 @@ implementation here is exactly the kind of drift it exists to prevent.
   painted-mask loader replaced by `ImagePadForOutpaint` (grey padding plus a mask of exactly the new area, feathered 40 px into the original),
   both scaled to the output size **without cropping** and the result pasted back over the padded original, so the original is untouched.
   The output size is the *whole extended canvas* (`outpaintOutputSize`: long side kept within 1024-1536, sides in 64s), set by Generate from the
-  source's size - the Size menu is replaced by a note - and strength is fixed at 1 (the noise mask keeps the original in place while the new
-  area is drawn). It follows the supplied-picture pattern (`SOURCE_IMAGE_FAMILIES`: kept copy, "Original", Library > Sources, Re-rack disabled once
+  source's size - the Size menu is replaced by a note. **The new area does not start from grey**: it starts from a heavily blurred stretch of the whole
+  picture composited under the original (`op-bg` / `op-bgblur` / `op-init` in the template) and is only partly re-drawn - `denoise`, "How much to
+  invent in the new area", default 0.8 (`OUTPAINT_DEFAULT_DENOISE`), on the same slider as image to image. At 1 the model ignores that start and
+  draws the area from the prompt alone, which produced an unrelated picture in the margin (the first version did exactly that); a prompt that
+  describes the whole scene has the same effect, so the form says to describe what continues beyond the edges (the noise mask keeps the original
+  in place while the new area is drawn). It follows the supplied-picture pattern (`SOURCE_IMAGE_FAMILIES`: kept copy, "Original", Library > Sources, Re-rack disabled once
   the copy is gone; the details panel says how far it was extended), has its own origin tag (Outpainted), uses Z-Image's profiles, and the duplicate
-  guard compares the padding. MCP: `generate_image` with `source` and `extend` ({left,top,right,bottom}); naming the family directly is refused.
+  guard compares the padding and strength. MCP: `generate_image` with `source`, `extend` ({left,top,right,bottom}) and optionally `strength`; naming the family directly is refused.
   Unverified against a real ComfyUI: that the graph is accepted and how well Z-Image Turbo continues a picture at the edge.
 - **`shared/modelManifest.ts` lists every model file the templates ask for** (name, ComfyUI folder, role, source) and
   `main/modelManifest.test.ts` pins it to the template JSON - change a template's loader file and that test fails

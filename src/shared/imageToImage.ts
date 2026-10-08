@@ -25,8 +25,10 @@ export const OUTPAINT_FAMILY = 'z-image-outpaint';
 /** How far a side can be extended, in pixels of the source picture. */
 export const OUTPAINT_MAX_PAD = 2048;
 
-/** The padding is drawn from scratch, so it always starts from full noise (the noise mask keeps the original in place). */
-export const OUTPAINT_DENOISE = 1;
+/** How much of the new area is re-drawn. It starts from a blurred stretch of the picture (so it already has the picture's colours and layout at
+ * its edges) and is only partly re-drawn: at 1 the model ignores that start and draws the area from the prompt alone, which is what made the new
+ * area look like an unrelated picture. */
+export const OUTPAINT_DEFAULT_DENOISE = 0.8;
 
 export interface OutpaintPadding {
   left: number;
@@ -79,9 +81,9 @@ export const DENOISE_LIMITS = { min: 0.05, max: 1 } as const;
 export const DEFAULT_DENOISE = 0.6;
 
 /** Keeps a strength within what the sampler accepts, falling back to the default for anything that is not a number. */
-export function clampDenoise(value: unknown): number {
+export function clampDenoise(value: unknown, fallback: number = DEFAULT_DENOISE): number {
   const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n)) return DEFAULT_DENOISE;
+  if (!Number.isFinite(n)) return fallback;
   return Math.min(DENOISE_LIMITS.max, Math.max(DENOISE_LIMITS.min, Math.round(n * 100) / 100));
 }
 
