@@ -1379,13 +1379,16 @@ span.cycle-fade {
 
 .library-card__actions {
   display: flex;
+  /* A narrow card - a tall, thin picture, or any card with the size slider turned down - wraps its buttons onto a second line
+     rather than crushing them together. */
+  flex-wrap: wrap;
   gap: 4px;
   padding: 0 8px 8px;
 }
 
 .library-card__actions button {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 28px;
+  min-width: 28px;
   min-height: 28px;
   padding: 4px 2px;
   font-size: 13px;
@@ -3069,4 +3072,25 @@ button.button-danger--armed:hover:not(:disabled) {
   border-radius: 6px;
   font-size: 11px;
   color: var(--color-text-muted);
+}
+
+/* The Library's card-size slider (small card, slider, big card). */
+.card-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+}
+
+.card-size input[type='range'] {
+  width: 110px;
+  min-width: 0;
+}
+
+.card-size__icon--small {
+  font-size: 12px;
+}
+
+.card-size__icon--big {
+  font-size: 17px;
 }

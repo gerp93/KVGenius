@@ -11,6 +11,8 @@ import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
 import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
 import { justifyRows } from '../utils/justifiedRows';
+import CardSizeSlider from '../components/CardSizeSlider';
+import { useCardScale } from '../hooks/useCardScale';
 import { pinNotice } from '../utils/library';
 import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
 import { useSourceMissing } from '../hooks/useMissingSources';
@@ -157,6 +159,7 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
  * details panel as Library > Output.
  */
 export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImageToVideo, showHidden, onShowQueue }: Props) {
+  const [cardScale, setCardScale] = useCardScale();
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -210,7 +213,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
   const rows = justifyRows(
     visibleGroups.map((g) => ({ aspect: g.items[0].width / Math.max(g.items[0].height, 1) })),
     gridWidth,
-    TARGET_ROW_HEIGHT,
+    TARGET_ROW_HEIGHT * cardScale,
     GRID_GAP
   );
   const infoRecord = records.find((r) => r.id === infoId) ?? null;
@@ -391,6 +394,8 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
               : `${visibleGroups.length} of ${groups.length}`}
             {visible.length !== visibleGroups.length ? ` - ${visible.length} pictures` : ''}
           </span>
+          <span style={{ flex: 1 }} />
+          <CardSizeSlider scale={cardScale} onChange={setCardScale} />
         </div>
 
         {notice && <p className="library-notice">{notice}</p>}

@@ -5,6 +5,8 @@ import GalleryLightbox from '../components/GalleryLightbox';
 import GeneratedVideo from '../components/GeneratedVideo';
 import { formatBytes } from '../utils/format';
 import { justifyRows } from '../utils/justifiedRows';
+import CardSizeSlider from '../components/CardSizeSlider';
+import { useCardScale } from '../hooks/useCardScale';
 
 const PAGE_SIZE = 100;
 const TARGET_ROW_HEIGHT = 200;
@@ -21,6 +23,7 @@ function plural(n: number): string {
 /** Library > Trash: what was moved out of the Library, with Restore and Delete forever. Deleting from
  * here is the only thing in the app that removes a trashed file, and it asks first. */
 export default function LibraryTrash() {
+  const [cardScale, setCardScale] = useCardScale();
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [stats, setStats] = useState<TrashStats>({ count: 0, bytes: 0 });
   const [loaded, setLoaded] = useState(false);
@@ -70,7 +73,7 @@ export default function LibraryTrash() {
   const rows = justifyRows(
     records.map((r) => ({ aspect: r.width / Math.max(r.height, 1) })),
     gridWidth,
-    TARGET_ROW_HEIGHT,
+    TARGET_ROW_HEIGHT * cardScale,
     GRID_GAP
   );
 
@@ -284,6 +287,7 @@ export default function LibraryTrash() {
               {stats.count > 0 ? ` - ${formatBytes(stats.bytes)}` : ''}
             </span>
             <span style={{ flex: 1 }} />
+            <CardSizeSlider scale={cardScale} onChange={setCardScale} />
             {selecting ? (
               <>
                 <span className="library-toolbar__hint">Click to select, Shift-click for a range</span>
