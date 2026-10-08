@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/types';
 import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
+import { I2V_FAMILY, T2V_FAMILY, videoFamilyFor } from '../shared/textToVideo';
 import { PROFILE_FAMILIES, profileFamily, profileFamilyKey, SAMPLER_LIMITS } from '../shared/modelFamilies';
 import { clampDenoise, DEFAULT_DENOISE, DENOISE_LIMITS, I2I_FAMILY, INPAINT_FAMILY } from '../shared/imageToImage';
 import { ModelProfile, profileSettings } from '../shared/modelProfiles';
@@ -43,6 +44,7 @@ export interface ApiServiceDeps {
 const FAMILIES: Record<string, { kind: 'image' | 'video'; description: string }> = {
   'z-image': { kind: 'image', description: 'Fast text-to-image (Z Image Turbo).' },
   'wan22-i2v': { kind: 'video', description: 'Image-to-video (Wan 2.2): animates a source image into a short clip at 16 fps.' },
+  'wan22-t2v': { kind: 'video', description: 'Text-to-video (Wan 2.2): a short clip at 16 fps from a prompt alone.' },
 };
 
 const VIDEO_FPS = 16;
@@ -216,6 +218,19 @@ export class ApiService {
             seed: 'integer, random by default',
           },
         },
+        {
+          family: 'wan22-t2v',
+          ...FAMILIES['wan22-t2v'],
+          tool: 'generate_video',
+          fields: {
+            prompt: 'text describing the scene and the motion',
+            source: 'leave out - passing a source picks image-to-video instead',
+            seconds: { min: 1, max: 12, default: 5, note: 'a clip is ~5s; longer takes proportionally longer' },
+            width: { min: 256, max: 1280, multiple_of: 16, default: 640 },
+            height: { min: 256, max: 1280, multiple_of: 16, default: 640 },
+            seed: 'integer, random by default',
+          },
+        },
       ],
       jobs_run_one_at_a_time: true,
     };
@@ -377,15 +392,19 @@ export class ApiService {
 
   private generateVideo(args: Args) {
     const prompt = reqString(args, 'prompt');
-    const family = optString(args, 'family', 64) ?? 'wan22-i2v';
+    // With a source picture it is image to video, without one text to video - unless the family says otherwise.
+    const sourceId = optString(args, 'source', 64);
+    const family = optString(args, 'family', 64) ?? videoFamilyFor(sourceId !== undefined);
     if (FAMILY_KIND[family] !== 'video' || isUpscaleFamily(family)) fail(`"${family}" is not a video family. Video families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'video' && !isUpscaleFamily(f)).join(', ')}.`);
-    const source = this.requireItem(reqString(args, 'source', 64), ['image'], 'source');
+    if (family === I2V_FAMILY && sourceId === undefined) fail('"source" is required for image-to-video (pass a library image id, or use family "wan22-t2v" for text-to-video).');
+    if (family === T2V_FAMILY && sourceId !== undefined) fail('Text-to-video takes no "source". Leave it out, or use family "wan22-i2v" to animate that picture.');
+    const source = sourceId === undefined ? null : this.requireItem(sourceId, ['image'], 'source');
 
-    const size = source.width && source.height ? { width: source.width, height: source.height } : this.deps.imageSize(source.path);
+    const size = source ? (source.width && source.height ? { width: source.width, height: source.height } : this.deps.imageSize(source.path)) : { width: VIDEO_LONG_SIDE, height: VIDEO_LONG_SIDE };
     let width = optNumber(args, 'width', 16, 8192, true);
     let height = optNumber(args, 'height', 16, 8192, true);
     if (width === undefined || height === undefined) {
-      if (!size) throw new ApiError('unreadable_image', `Could not read the size of ${source.id}; pass width and height explicitly.`);
+      if (!size) throw new ApiError('unreadable_image', `Could not read the size of ${source?.id}; pass width and height explicitly.`);
       // Same rule as the Generate page: keep the aspect ratio at ~640 on the long side.
       const scale = VIDEO_LONG_SIDE / Math.max(size.width, size.height);
       width = width ?? Math.max(256, Math.round((size.width * scale) / 16) * 16);
@@ -403,7 +422,7 @@ export class ApiService {
       steps: 8,
       cfg: 1,
       length: 4 * Math.round(seconds * (VIDEO_FPS / 4)) + 1,
-      sourceImagePath: source.path,
+      ...(source ? { sourceImagePath: source.path } : {}),
       ...(model ? { modelName: model.name, modelSettings: profileSettings(model) } : {}),
     };
     return this.jobView(this.deps.queue.submit({ family, params, source: 'mcp', batch: optBatch(args) }));

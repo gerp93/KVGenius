@@ -223,6 +223,7 @@ export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'z-image-i2i': 'image',
   'z-image-inpaint': 'image',
   'wan22-i2v': 'video',
+  'wan22-t2v': 'video',
   'upscale-video': 'video',
 };
 

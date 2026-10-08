@@ -87,6 +87,22 @@ export const MODEL_MANIFEST: ManifestFeature[] = [
     note: 'The workflow contains both LoRAs, so install all six files even if you only use High quality.',
   },
   {
+    id: 'wan22-t2v',
+    title: 'Video (Wan 2.2 text to video)',
+    summary: 'Makes a short video from a prompt alone. Shares the text encoder and VAE with image to video.',
+    family: 'wan22-t2v',
+    files: [
+      { file: 'wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors', folder: 'diffusion_models', role: 'Video model, high noise', url: hf(WAN_REPO, 'diffusion_models', 'wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors') },
+      { file: 'wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors', folder: 'diffusion_models', role: 'Video model, low noise', url: hf(WAN_REPO, 'diffusion_models', 'wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors') },
+      { file: 'umt5_xxl_fp8_e4m3fn_scaled.safetensors', folder: 'text_encoders', role: 'Text encoder', url: hf(WAN_REPO, 'text_encoders', 'umt5_xxl_fp8_e4m3fn_scaled.safetensors') },
+      { file: 'wan_2.1_vae.safetensors', folder: 'vae', role: 'VAE', url: hf(WAN_REPO, 'vae', 'wan_2.1_vae.safetensors') },
+      { file: 'wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors', folder: 'loras', role: '4-step LoRA, high noise (Fast quality)', url: hf(WAN_REPO, 'loras', 'wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors') },
+      { file: 'wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors', folder: 'loras', role: '4-step LoRA, low noise (Fast quality)', url: hf(WAN_REPO, 'loras', 'wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors') },
+    ],
+    source: { label: 'Wan 2.2 files (Hugging Face)', url: 'https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged' },
+    note: 'Text to video needs its own pair of video models and LoRAs; the text encoder and VAE are the same files image to video uses.',
+  },
+  {
     id: 'upscale',
     title: 'Upscaling',
     summary: 'Enlarges images and videos. You choose the model - any ESRGAN-style file works (.pth or .safetensors).',

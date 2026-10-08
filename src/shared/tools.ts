@@ -94,25 +94,25 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'generate_video',
     description:
-      'Queues an image-to-video generation that animates a library image, and returns immediately with a job id. A clip takes several minutes; jobs run one at a time in the order submitted, so queue a whole batch and poll with list_jobs.',
+      'Queues a video generation and returns immediately with a job id: image-to-video when `source` (a library image) is given, text-to-video from the prompt alone when it is left out. A clip takes several minutes; jobs run one at a time in the order submitted, so queue a whole batch and poll with list_jobs.',
     inputSchema: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'Describes the motion and action to add to the image.' },
-        source: itemIdProp('The image to animate'),
-        family: { type: 'string', description: 'Video family (see list_capabilities). Default "wan22-i2v".' },
+        prompt: { type: 'string', description: 'With a source: the motion and action to add to the image. Without one: the whole scene and its motion.' },
+        source: itemIdProp('Optional. The image to animate (image-to-video). Leave out for text-to-video'),
+        family: { type: 'string', description: 'Video family (see list_capabilities). Default "wan22-i2v" with a source, "wan22-t2v" without.' },
         model: {
           type: 'string',
           description:
             'Optional. The name of one of the user\'s saved video models (see list_models; case-insensitive) - a variant that swaps the Wan model files. Omit for the built-in one.',
         },
         seconds: { type: 'number', description: 'Clip length, 1-12 seconds (snapped to quarter seconds). Default 5.' },
-        width: { type: 'integer', description: 'Snapped to a multiple of 16. Default: keeps the source aspect ratio at ~640px on the long side.' },
-        height: { type: 'integer', description: 'Snapped to a multiple of 16. Default: keeps the source aspect ratio at ~640px on the long side.' },
+        width: { type: 'integer', description: 'Snapped to a multiple of 16. Default: keeps the source aspect ratio at ~640px on the long side (640 without a source).' },
+        height: { type: 'integer', description: 'Snapped to a multiple of 16. Default: keeps the source aspect ratio at ~640px on the long side (640 without a source).' },
         seed: { type: 'integer', description: 'Random if omitted.' },
         batch: batchProp,
       },
-      required: ['prompt', 'source'],
+      required: ['prompt'],
     },
   },
   {

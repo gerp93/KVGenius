@@ -13,6 +13,15 @@ export const SLOT_NODES: Record<string, Record<string, { node: string; input: st
     highNoiseLora: { node: '129:101', input: 'lora_name' },
     lowNoiseLora: { node: '129:102', input: 'lora_name' },
   },
+  // Text to video is the image-to-video graph with the start picture swapped for an empty latent: same node ids.
+  'wan22-t2v': {
+    highNoiseModel: { node: '129:95', input: 'unet_name' },
+    lowNoiseModel: { node: '129:96', input: 'unet_name' },
+    textEncoder: { node: '129:84', input: 'clip_name' },
+    vae: { node: '129:90', input: 'vae_name' },
+    highNoiseLora: { node: '129:101', input: 'lora_name' },
+    lowNoiseLora: { node: '129:102', input: 'lora_name' },
+  },
   'z-image': {
     diffusionModel: { node: '57:28', input: 'unet_name' },
     textEncoder: { node: '57:30', input: 'clip_name' },

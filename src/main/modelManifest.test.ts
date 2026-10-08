@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { FOLDER_LOADERS, MODEL_FOLDERS, MODEL_MANIFEST } from '../shared/modelManifest';
 import zImageTemplate from './templates/z-image.json';
 import wanTemplate from './templates/wan22-i2v.json';
+import wanTextTemplate from './templates/wan22-t2v.json';
 
 type Template = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 
@@ -34,9 +35,16 @@ test('the manifest lists exactly the files the Wan template loads', () => {
   assert.deepEqual(manifestFiles('wan22-i2v'), templateFiles(wanTemplate as Template));
 });
 
-test('manifest ids are unique and every file is listed once', () => {
+test('the manifest lists exactly the files the Wan text-to-video template loads', () => {
+  assert.deepEqual(manifestFiles('wan22-t2v'), templateFiles(wanTextTemplate as Template));
+});
+
+test('manifest ids are unique and no feature lists a file twice', () => {
   const ids = MODEL_MANIFEST.map((f) => f.id);
   assert.equal(new Set(ids).size, ids.length);
-  const all = MODEL_MANIFEST.flatMap((f) => f.files.map((x) => `${x.folder}/${x.file}`));
-  assert.equal(new Set(all).size, all.length);
+  // Features may share a file (text and image to video use one text encoder and VAE); the download planner drops repeats.
+  for (const feature of MODEL_MANIFEST) {
+    const own = feature.files.map((x) => `${x.folder}/${x.file}`);
+    assert.equal(new Set(own).size, own.length, feature.id);
+  }
 });
