@@ -14,7 +14,7 @@ import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import type { PromptTabsModel } from '../utils/promptTabs';
 import { PromptStyle, combinePrompt, extraWording, styleLabel } from '../../shared/styles';
 import { Link } from 'react-router-dom';
-import { SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
+import { SAMPLER_LIMITS, profileFamily, profileFamilyKey } from '../../shared/modelFamilies';
 import { DENOISE_LIMITS, INPAINT_FAMILY, OUTPAINT_DEFAULT_DENOISE, clampDenoise, imageFamilyFor, isPictureStartFamily, normalizeOutpaint, outpaintOutputSize, serializeOutpaint } from '../../shared/imageToImage';
 import { ModelProfile, ModelSettings, profileMatchesSettings, profileSettings, serializeModelSettings } from '../../shared/modelProfiles';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
@@ -22,6 +22,8 @@ import { useGenerationChanges } from '../utils/generationChanges';
 import { VIDEO_FPS, framesToSeconds, secondsToFrames } from '../utils/video';
 import { FAMILY_KIND, GenerationRecord, TimeEstimate, VideoSourceRequest } from '../../shared/types';
 import { T2V_FAMILY, videoFamilyFor } from '../../shared/textToVideo';
+import { V2V_DEFAULT_STRENGTH, V2V_FAMILY } from '../../shared/videoToVideo';
+import SourceVideoField from '../components/SourceVideoField';
 import { VIDEO_QUALITY_SETTINGS, VideoQuality, videoQualityFromCfg } from '../../shared/videoQuality';
 
 type Mode = 'image' | 'video';
@@ -145,6 +147,12 @@ export default function Generate({
     setSourceImagePath,
     videoFromPicture,
     setVideoFromPicture,
+    videoFromVideo,
+    setVideoFromVideo,
+    sourceVideoPath,
+    setSourceVideoPath,
+    videoStrength,
+    setVideoStrength,
     extendFromId,
     setExtendFromId,
     advancedOpen,
@@ -306,13 +314,16 @@ export default function Generate({
   // Extending but the picture's size is not known yet: nothing to run.
   const needsPadSize = startPad !== null && sourceDims === null;
   // Video mode is image to video with a source image, or text to video without one - two graphs with their own model files.
-  const videoStartPicture = mode === 'video' && videoFromPicture ? sourceImagePath : null;
-  const needsVideoPicture = mode === 'video' && videoFromPicture && !sourceImagePath;
+  // Video to video is a third kind: the run re-draws a Library video, so no picture is involved.
+  const restyleVideo = mode === 'video' && videoFromVideo ? sourceVideoPath : null;
+  const videoStartPicture = mode === 'video' && videoFromPicture && !videoFromVideo ? sourceImagePath : null;
+  const needsRestyleVideo = mode === 'video' && videoFromVideo && !sourceVideoPath;
+  const needsVideoPicture = mode === 'video' && videoFromPicture && !videoFromVideo && !sourceImagePath;
   // Extending a video: the source image is its last frame and the finished clip is joined onto it (only while that picture is still the source).
   const activeExtendId = videoStartPicture !== null ? extendFromId : null;
-  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null, startMask !== null, startPad !== null) : videoFamilyFor(videoFromPicture);
+  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null, startMask !== null, startPad !== null) : videoFamilyFor(videoFromPicture, videoFromVideo);
   // The family whose saved models apply (image to image and inpainting share text to image's).
-  const modelBase = mode === 'image' ? FAMILY_FOR_MODE.image : runFamily;
+  const modelBase = mode === 'image' ? FAMILY_FOR_MODE.image : profileFamilyKey(runFamily);
   const modelFamily = profileFamily(modelBase);
   const familyModels = models.filter((m) => m.family === modelBase);
   const activeModel = familyModels.find((m) => m.id === profileId) ?? null;
@@ -342,7 +353,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask, padKey] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask, padKey] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, restyleVideo, restyleVideo ? videoStrength : null, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -355,7 +366,7 @@ export default function Generate({
   // Bumped when something leaves the Library, which can turn a match into no match.
   const [libraryChanges, setLibraryChanges] = useState(0);
   useEffect(() => {
-    if (!seedLocked || !prompt.trim() || needsVideoPicture || needsStartPicture || needsPadSize) {
+    if (!seedLocked || !prompt.trim() || needsVideoPicture || needsRestyleVideo || needsStartPicture || needsPadSize) {
       setDuplicate(null);
       return;
     }
@@ -370,6 +381,7 @@ export default function Generate({
           steps: runSteps,
           cfg: runCfg,
           ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined } : {}),
+          ...(restyleVideo ? { sourceVideoPath: restyleVideo, denoise: videoStrength } : {}),
           ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad, denoise } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
           ...(modelSettings ? { modelSettings } : {}),
         })
@@ -384,7 +396,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, startPicture, startMask, denoise, padKey, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, needsPadSize, modelSettings && serializeModelSettings(modelSettings)]);
+  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, restyleVideo, videoStrength, startPicture, startMask, denoise, padKey, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, needsRestyleVideo, needsPadSize, modelSettings && serializeModelSettings(modelSettings)]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -392,6 +404,7 @@ export default function Generate({
     setExtendFromId(null);
     setCustomSize(false);
     setSourceImagePath(null);
+    setSourceVideoPath(null);
     if (newMode === 'video') {
       setWidth(640);
       setHeight(640);
@@ -409,9 +422,21 @@ export default function Generate({
     setVideoSizeToPicture(request.width, request.height);
     setSourceImagePath(request.imagePath);
     setVideoFromPicture(true);
+    setVideoFromVideo(false);
     // Extending a video: carry on from its last frame with its own prompt, to be joined onto it when done.
     setExtendFromId(request.extend?.fromId ?? null);
     if (request.extend) setPrompt(request.extend.prompt);
+    setError(null);
+  }
+
+  /** Switch to video mode with a Library video as the source to re-draw (video to video), sized to its shape. A prompt that came with it fills the box. */
+  function setUpVideoToVideo(request: VideoSourceRequest) {
+    setMode('video');
+    setVideoSizeToPicture(request.width, request.height);
+    setSourceVideoPath(request.videoPath ?? request.imagePath);
+    setVideoFromVideo(true);
+    setExtendFromId(null);
+    if (request.prompt) setPrompt(request.prompt);
     setError(null);
   }
 
@@ -480,6 +505,7 @@ export default function Generate({
   useEffect(() => {
     if (!videoSource) return;
     if (videoSource.target === 'image') setUpImageToImage(videoSource);
+    else if (videoSource.target === 'restyle') setUpVideoToVideo(videoSource);
     else setUpVideoFromImage(videoSource);
     onVideoSourceHandled();
   }, [videoSource, onVideoSourceHandled]);
@@ -521,12 +547,13 @@ export default function Generate({
   }
 
   // The Library picture chooser, open for a source image (image to image) or a video's source image.
-  const [picker, setPicker] = useState<'start' | 'video' | null>(null);
+  const [picker, setPicker] = useState<'start' | 'video' | 'restyle' | null>(null);
 
   function handlePickFromLibrary(record: GenerationRecord) {
     const target = picker;
     setPicker(null);
-    if (target === 'video') setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
+    if (target === 'restyle') setUpVideoToVideo({ target: 'restyle', imagePath: record.imagePath, videoPath: record.imagePath, width: record.width, height: record.height });
+    else if (target === 'video') setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
     else if (target === 'start') setUpImageToImage({ imagePath: record.imagePath, width: record.width, height: record.height });
   }
 
@@ -567,8 +594,13 @@ export default function Generate({
       setVideoQuality(videoQualityFromCfg(record.cfg));
       // A video keeps a copy of the image it was made from, so it can be re-run in place. Videos made
       // before that was kept have none: a new one has to be chosen before they can be re-run.
-      const videoFromPic = recalledMode === 'video' && record.modelFamily !== T2V_FAMILY;
+      const videoFromVid = record.modelFamily === V2V_FAMILY;
+      const videoFromPic = recalledMode === 'video' && record.modelFamily !== T2V_FAMILY && !videoFromVid;
       setVideoFromPicture(recalledMode === 'video' ? videoFromPic : true);
+      // A video to video result is re-run from the Library video it was made from (read where it was, so it may be gone), at its strength.
+      setVideoFromVideo(videoFromVid);
+      setSourceVideoPath(videoFromVid ? record.sourceVideoPath : null);
+      if (videoFromVid && record.denoise !== null) setVideoStrength(clampDenoise(record.denoise, V2V_DEFAULT_STRENGTH));
       // A re-run makes the clip again from its source frame; it is not joined onto anything.
       setExtendFromId(null);
       setSourceImagePath(videoFromPic ? record.sourceImagePath : null);
@@ -655,7 +687,7 @@ export default function Generate({
         .catch(() => setCurrentEstimate(null));
     }, 250);
     return () => clearTimeout(timer);
-  }, [mode, runFamily === T2V_FAMILY, width, height, runSteps, runCfg, lengthSeconds, lastActiveFamily, finishedRuns]);
+  }, [mode, runFamily, width, height, runSteps, runCfg, lengthSeconds, lastActiveFamily, finishedRuns]);
 
   const sizePresets = mode === 'image' ? IMAGE_SIZE_PRESETS : VIDEO_SIZE_PRESETS;
   const presetIndex = sizePresets.findIndex((preset) => preset.width === width && preset.height === height);
@@ -682,6 +714,10 @@ export default function Generate({
       setError('Choose a source image first, or switch to Text → Video.');
       return;
     }
+    if (needsRestyleVideo) {
+      setError('Choose a source video first, or switch to Text → Video.');
+      return;
+    }
     if (needsStartPicture) {
       setError('Choose a source image first, or switch to Text → Image.');
       return;
@@ -704,6 +740,7 @@ export default function Generate({
       steps: runSteps,
       cfg: runCfg,
       ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined, ...(activeExtendId !== null ? { extendVideoId: activeExtendId } : {}) } : {}),
+      ...(restyleVideo ? { sourceVideoPath: restyleVideo, denoise: videoStrength } : {}),
       ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad, denoise } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
     };
     const added = queue.enqueue(
@@ -727,9 +764,11 @@ export default function Generate({
   useGenerationChanges((change) => {
     if (change.kind === 'favorite') {
       setSourceImagePath((current) => (current === change.oldPath ? change.imagePath : current));
+      setSourceVideoPath((current) => (current === change.oldPath ? change.imagePath : current));
     } else if (change.kind === 'trashed') {
       setLibraryChanges((n) => n + 1);
       setSourceImagePath((current) => (current === change.imagePath ? null : current));
+      setSourceVideoPath((current) => (current === change.imagePath ? null : current));
     }
   });
 
@@ -741,6 +780,7 @@ export default function Generate({
       queue.updateRecord(record.id, { favorite });
       queue.relocateFile(record.id, record.imagePath, imagePath, window.kvgenius.imageUrlFor(imagePath));
       setSourceImagePath((current) => (current === record.imagePath ? imagePath : current));
+      setSourceVideoPath((current) => (current === record.imagePath ? imagePath : current));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -815,7 +855,8 @@ export default function Generate({
 
           {picker && (
             <LibraryPicker
-              title="Choose the source image"
+              title={picker === 'restyle' ? 'Choose the source video' : 'Choose the source image'}
+              kind={picker === 'restyle' ? 'video' : 'image'}
               onPick={handlePickFromLibrary}
               onClose={() => setPicker(null)}
             />
@@ -824,15 +865,67 @@ export default function Generate({
           {mode === 'video' && (
             <div role="radiogroup" aria-label="Video type" className="radio-row" style={{ marginBottom: 12 }}>
               <label>
-                <input type="radio" name="video-type" checked={!videoFromPicture} onChange={() => setVideoFromPicture(false)} /> Text → Video
+                <input
+                  type="radio"
+                  name="video-type"
+                  checked={!videoFromPicture && !videoFromVideo}
+                  onChange={() => {
+                    setVideoFromPicture(false);
+                    setVideoFromVideo(false);
+                  }}
+                />{' '}
+                Text → Video
               </label>
               <label>
-                <input type="radio" name="video-type" checked={videoFromPicture} onChange={() => setVideoFromPicture(true)} /> Image → Video
+                <input
+                  type="radio"
+                  name="video-type"
+                  checked={videoFromPicture && !videoFromVideo}
+                  onChange={() => {
+                    setVideoFromPicture(true);
+                    setVideoFromVideo(false);
+                  }}
+                />{' '}
+                Image → Video
+              </label>
+              <label>
+                <input type="radio" name="video-type" checked={videoFromVideo} onChange={() => setVideoFromVideo(true)} /> Video → Video
               </label>
             </div>
           )}
 
-          {mode === 'video' && videoFromPicture && (
+          {mode === 'video' && videoFromVideo && (
+            <div style={{ marginBottom: 12 }}>
+              <SourceVideoField
+                path={sourceVideoPath}
+                onChooseFromLibrary={() => setPicker('restyle')}
+              />
+              {sourceVideoPath && (
+                <>
+                  <label className="field-label" htmlFor="video-strength" style={{ marginTop: 10 }}>
+                    How much to change it: {videoStrength.toFixed(2)}
+                  </label>
+                  <input
+                    id="video-strength"
+                    type="range"
+                    min={DENOISE_LIMITS.min}
+                    max={DENOISE_LIMITS.max}
+                    step={0.05}
+                    value={videoStrength}
+                    onChange={(e) => setVideoStrength(clampDenoise(Number(e.target.value), V2V_DEFAULT_STRENGTH))}
+                    style={{ width: '100%' }}
+                  />
+                  <p className="style-picker__preview" style={{ maxHeight: 'none' }}>
+                    Low keeps the motion and look of the video and only restyles it; 1 ignores it. Describe the result you want in the prompt.
+                    Only the first {secondsToFrames(lengthSeconds)} frames are used (set the length below), the size is cropped from the centre to
+                    the shape chosen below, and the sound is not kept.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {mode === 'video' && videoFromPicture && !videoFromVideo && (
             <ImageDropZone
               style={{ marginBottom: 12 }}
               onPaths={(paths) => void useVideoSourcePicture(paths[0] ?? null)}
@@ -1248,7 +1341,7 @@ export default function Generate({
               type="button"
               className="primary generate-actions__go"
               onClick={handleGenerate}
-              disabled={needsVideoPicture || needsStartPicture || needsPadSize || blocked}
+              disabled={needsVideoPicture || needsRestyleVideo || needsStartPicture || needsPadSize || blocked}
               title={
                 duplicate
                   ? 'This exact result is already in your Library'

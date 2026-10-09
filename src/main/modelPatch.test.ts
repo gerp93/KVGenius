@@ -9,9 +9,10 @@ import inpaintTemplate from './templates/z-image-inpaint.json';
 import outpaintTemplate from './templates/z-image-outpaint.json';
 import wanTemplate from './templates/wan22-i2v.json';
 import wanTextTemplate from './templates/wan22-t2v.json';
+import wanVideoTemplate from './templates/wan22-v2v.json';
 
 type Template = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
-const templates: Record<string, Template> = { 'z-image': zImageTemplate as unknown as Template, 'z-image-i2i': i2iTemplate as unknown as Template, 'z-image-inpaint': inpaintTemplate as unknown as Template, 'z-image-outpaint': outpaintTemplate as unknown as Template, 'wan22-i2v': wanTemplate as unknown as Template, 'wan22-t2v': wanTextTemplate as unknown as Template };
+const templates: Record<string, Template> = { 'z-image': zImageTemplate as unknown as Template, 'z-image-i2i': i2iTemplate as unknown as Template, 'z-image-inpaint': inpaintTemplate as unknown as Template, 'z-image-outpaint': outpaintTemplate as unknown as Template, 'wan22-i2v': wanTemplate as unknown as Template, 'wan22-t2v': wanTextTemplate as unknown as Template, 'wan22-v2v': wanVideoTemplate as unknown as Template };
 
 test('every profile slot is wired to a template node whose current file is the slot default - in every template that uses the family', () => {
   for (const [templateFamily, template] of Object.entries(templates)) {

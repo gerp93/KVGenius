@@ -15,7 +15,7 @@ import CardSizeSlider from '../components/CardSizeSlider';
 import { useCardScale } from '../hooks/useCardScale';
 import { useScrollKeeper } from '../hooks/useScrollKeeper';
 import { pinNotice } from '../utils/library';
-import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
+import { sourceMissingMessage } from '../../shared/sourceFamilies';
 import { useSourceMissing } from '../hooks/useMissingSources';
 
 const TARGET_ROW_HEIGHT = 240;
@@ -144,7 +144,7 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
           type="button"
           onClick={() => onRerack(record)}
           disabled={sourceMissing}
-          title={sourceMissing ? SOURCE_MISSING_MESSAGE : "Load this picture's prompt and settings (size, seed, steps)"}
+          title={sourceMissing ? sourceMissingMessage(record.modelFamily) : "Load this picture's prompt and settings (size, seed, steps)"}
         >
           ↺ Re-rack
         </button>

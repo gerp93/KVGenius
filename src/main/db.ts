@@ -12,6 +12,7 @@ import { STYLES_SCHEMA } from './styles';
 import { STYLE_SAMPLES_SCHEMA } from './styleSamples';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, parseOutpaint, serializeOutpaint, OutpaintPadding } from '../shared/imageToImage';
 import { T2V_FAMILY } from '../shared/textToVideo';
+import { V2V_FAMILY } from '../shared/videoToVideo';
 import { MODEL_PROFILES_SCHEMA } from './modelProfiles';
 import { ModelSettings, parseModelSettings, serializeModelSettings } from '../shared/modelProfiles';
 
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS generations (
   denoise REAL,
   mask_image_path TEXT,
   outpaint TEXT,
+  source_video_path TEXT,
   extended_frames INTEGER,
   timing_id INTEGER,
   created_at TEXT NOT NULL
@@ -107,6 +109,10 @@ function migrateSchema(db: DatabaseSync): void {
   // Outpainting: how far the source image was extended on each side, as "left,top,right,bottom" (see shared/imageToImage.ts); null for everything else.
   if (!columns.some((c) => c.name === 'outpaint')) {
     db.exec('ALTER TABLE generations ADD COLUMN outpaint TEXT;');
+  }
+  // Video to video: the Library video the result was re-drawn from (read in place, not copied); null for everything else.
+  if (!columns.some((c) => c.name === 'source_video_path')) {
+    db.exec('ALTER TABLE generations ADD COLUMN source_video_path TEXT;');
   }
   // A video made by extending another: how many frames of the earlier video it starts with; null for everything else.
   if (!columns.some((c) => c.name === 'extended_frames')) {
@@ -235,6 +241,7 @@ interface GenerationRow {
   denoise?: number | null;
   mask_image_path?: string | null;
   outpaint?: string | null;
+  source_video_path?: string | null;
   extended_frames?: number | null;
   created_at: string;
   // Only in a listing grouped by prompt.
@@ -277,6 +284,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     denoise: row.denoise ?? null,
     maskImagePath: row.mask_image_path ?? null,
     outpaint: parseOutpaint(row.outpaint),
+    sourceVideoPath: row.source_video_path ?? null,
     extendedFrames: row.extended_frames ?? null,
     modelName: row.model_name ?? null,
     modelSettings: parseModelSettings(row.model_settings),
@@ -316,9 +324,10 @@ export function insertGeneration(
   const modelSettings = serializeModelSettings(params.modelSettings);
   const denoise = params.denoise ?? null;
   const outpaint = serializeOutpaint(params.outpaint);
+  const sourceVideoPath = params.sourceVideoPath ?? null;
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, outpaint, extended_frames, timing_id, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, outpaint, source_video_path, extended_frames, timing_id, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -338,6 +347,7 @@ export function insertGeneration(
     denoise,
     maskImagePath,
     outpaint,
+    sourceVideoPath,
     extendedFrames,
     timingId,
     createdAt
@@ -363,6 +373,7 @@ export function insertGeneration(
     denoise,
     maskImagePath,
     outpaint: parseOutpaint(outpaint),
+    sourceVideoPath,
     extendedFrames,
     modelName,
     modelSettings: params.modelSettings ?? null,
@@ -679,6 +690,8 @@ export interface DuplicateQuery {
   maskImagePath?: string | null;
   /** Outpainting only: how far the source was extended. A different extension is a different picture. */
   outpaint?: OutpaintPadding | null;
+  /** Video to video only: the video it is re-drawn from. A different source is a different video. */
+  sourceVideoPath?: string | null;
   /** Image only: the model settings the run would use (none: the shipped template). A different model makes a different picture. */
   modelSettings?: ModelSettings | null;
 }
@@ -691,8 +704,10 @@ export interface DuplicateQuery {
 export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, query: DuplicateQuery): GenerationRecord | null {
   const isVideo = query.length !== undefined && query.length !== null;
   // A video's (or an image to image result's) picture depends on its source image, which is only comparable once there is one.
-  const needsSource = (isVideo && modelFamily !== T2V_FAMILY) || modelFamily === I2I_FAMILY || modelFamily === INPAINT_FAMILY || modelFamily === OUTPAINT_FAMILY;
+  const needsSource = (isVideo && modelFamily !== T2V_FAMILY && modelFamily !== V2V_FAMILY) || modelFamily === I2I_FAMILY || modelFamily === INPAINT_FAMILY || modelFamily === OUTPAINT_FAMILY;
   if (needsSource && !query.sourceImagePath) return null;
+  const needsVideo = modelFamily === V2V_FAMILY;
+  if (needsVideo && !query.sourceVideoPath) return null;
   const needsMask = modelFamily === INPAINT_FAMILY;
   if (needsMask && !query.maskImagePath) return null;
   if (modelFamily === OUTPAINT_FAMILY && !serializeOutpaint(query.outpaint)) return null;
@@ -701,7 +716,7 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
       `${GENERATION_SELECT}
        WHERE g.model_family = ? AND g.trashed_at IS NULL AND TRIM(g.prompt) = ? AND g.width = ? AND g.height = ?
          AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ? AND g.model_settings IS ? AND g.denoise IS ? AND g.outpaint IS ?
-         ${needsSource ? 'AND g.source_image_path = ?' : ''} ${needsMask ? 'AND g.mask_image_path = ?' : ''}
+         ${needsSource ? 'AND g.source_image_path = ?' : ''} ${needsMask ? 'AND g.mask_image_path = ?' : ''} ${needsVideo ? 'AND g.source_video_path = ?' : ''}
        ORDER BY g.id DESC LIMIT 1`
     )
     .get(
@@ -717,7 +732,8 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
       query.denoise ?? null,
       serializeOutpaint(query.outpaint),
       ...(needsSource ? [query.sourceImagePath as string] : []),
-      ...(needsMask ? [query.maskImagePath as string] : [])
+      ...(needsMask ? [query.maskImagePath as string] : []),
+      ...(needsVideo ? [query.sourceVideoPath as string] : [])
     ) as unknown as GenerationRow | undefined;
   return row ? rowToRecord(row) : null;
 }

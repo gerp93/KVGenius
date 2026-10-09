@@ -52,7 +52,8 @@
   overflow: hidden;
 }
 
-.library-picker__tile img {
+.library-picker__tile img,
+.library-picker__tile video {
   width: 100%;
   height: 100%;
   object-fit: cover;

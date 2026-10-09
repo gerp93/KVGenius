@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { GenerationRecord } from '../../shared/types';
-import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
+import { sourceMissingMessage } from '../../shared/sourceFamilies';
 import { UPSCALE_FAMILY, isUpscaleFamily } from '../../shared/upscale';
 import { keptFilesOf, useMissingSources } from '../hooks/useMissingSources';
 import { videoQualityFromCfg } from '../../shared/videoQuality';
@@ -382,7 +382,7 @@ export default function QueuePanel({
                           disabled={keptFilesOf(job.record).some((file) => missingSources.has(file))}
                           title={
                             keptFilesOf(job.record).some((file) => missingSources.has(file))
-                              ? SOURCE_MISSING_MESSAGE
+                              ? sourceMissingMessage(job.record?.modelFamily ?? '')
                               : job.family === UPSCALE_FAMILY
                                 ? 'Open the original in Tools > Upscale'
                                 : 'Load this prompt and its exact settings back into the form'
