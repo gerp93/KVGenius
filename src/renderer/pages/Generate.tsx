@@ -12,7 +12,7 @@ import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useG
 import { usePromptSlots } from '../hooks/usePromptSlots';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import type { PromptTabsModel } from '../utils/promptTabs';
-import { PromptStyle, combinePrompt } from '../../shared/styles';
+import { PromptStyle, combinePrompt, extraWording, styleLabel } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { SAMPLER_LIMITS, profileFamily } from '../../shared/modelFamilies';
 import { DENOISE_LIMITS, INPAINT_FAMILY, OUTPAINT_DEFAULT_DENOISE, clampDenoise, imageFamilyFor, isPictureStartFamily, normalizeOutpaint, outpaintOutputSize, serializeOutpaint } from '../../shared/imageToImage';
@@ -154,6 +154,8 @@ export default function Generate({
     batchSize,
     setBatchSize,
     styleId,
+    elementIds,
+    setElementIds,
     setStyleId,
     profileId,
     setProfileId,
@@ -241,7 +243,11 @@ export default function Generate({
       cancelled = true;
     };
   }, [stylesVersion]);
-  const activeStyle = mode === 'image' ? (styles.find((style) => style.id === styleId) ?? null) : null;
+  // One style (a look) and any number of elements (reusable parts of the picture), in image mode. A style or element picked in a tab that has since been
+  // deleted - or changed to the other kind - counts as not picked.
+  const activeStyle = mode === 'image' ? (styles.find((style) => style.id === styleId && style.kind === 'style') ?? null) : null;
+  const activeElements =
+    mode === 'image' ? elementIds.flatMap((id) => styles.filter((style) => style.id === id && style.kind === 'element')) : [];
 
   // The user's saved models (Models page): variants of the built-in one, for the family of the mode in use. None
   // picked means the built-in model, exactly as before. A model picked in a tab that has since been deleted - or
@@ -325,7 +331,7 @@ export default function Generate({
     }
   }
   // What is actually sent: the prompt, plus the style's words when one is picked.
-  const finalPrompt = combinePrompt(prompt, activeStyle?.text);
+  const finalPrompt = combinePrompt(prompt, extraWording(activeElements, activeStyle));
 
   // Everything that decides what a run produces. The same signature with the same seed is the same
   // picture, so a locked seed plus an unchanged signature would only repeat the last result.
@@ -537,6 +543,7 @@ export default function Generate({
       setMode(recalledMode);
       // A past generation's prompt already has its style's words in it, so no style is picked again.
       setStyleId(null);
+      setElementIds([]);
       // The model it was made with: picked again if a saved model still means exactly that, otherwise the built-in
       // model is picked and the user is told, so a re-run never quietly uses different files.
       if (record.modelSettings) {
@@ -602,6 +609,7 @@ export default function Generate({
     }
     // A prompt from Library > Prompts already has any style's words in it (see applyRecord).
     setStyleId(null);
+    setElementIds([]);
     setPrompt(text);
   }
 
@@ -689,7 +697,7 @@ export default function Generate({
     if (!seedLocked) setSeed(seeds[0]);
     const base = {
       prompt: finalPrompt,
-      ...(activeStyle ? { styleName: activeStyle.name } : {}),
+      ...(styleLabel(activeElements, activeStyle) ? { styleName: styleLabel(activeElements, activeStyle) as string } : {}),
       ...(activeModel && modelSettings ? { modelName: activeModel.name, modelSettings } : {}),
       width,
       height,
@@ -974,6 +982,46 @@ export default function Generate({
             )}
           </div>
 
+          {mode === 'image' && styles.some((style) => style.kind === 'element') && (
+            <div style={{ marginTop: 12 }}>
+              <label className="field-label" htmlFor="element-select">
+                Elements (optional)
+              </label>
+              {activeElements.length > 0 && (
+                <div className="element-chips">
+                  {activeElements.map((element) => (
+                    <span key={element.id} className="element-chip" title={element.text}>
+                      {element.name}
+                      <button
+                        type="button"
+                        className="element-chip__remove"
+                        aria-label={`Remove ${element.name}`}
+                        onClick={() => setElementIds(elementIds.filter((id) => id !== element.id))}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <select
+                id="element-select"
+                value=""
+                onChange={(e) => e.target.value !== '' && setElementIds([...elementIds.filter((id) => id !== Number(e.target.value)), Number(e.target.value)])}
+                style={{ width: '100%' }}
+              >
+                <option value="">{activeElements.length > 0 ? '+ Add another element...' : '+ Add an element (an outfit, a character...)'}</option>
+                {styles
+                  .filter((style) => style.kind === 'element' && !activeElements.some((element) => element.id === style.id))
+                  .map((style) => (
+                    <option key={style.id} value={style.id}>
+                      {style.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+
           {mode === 'image' && (
             <div style={{ marginTop: 12 }}>
               <label className="field-label" htmlFor="style-select">
@@ -986,11 +1034,13 @@ export default function Generate({
                 style={{ width: '100%' }}
               >
                 <option value="">None - use the prompt as written</option>
-                {styles.map((style) => (
-                  <option key={style.id} value={style.id}>
-                    {style.name}
-                  </option>
-                ))}
+                {styles
+                  .filter((style) => style.kind === 'style')
+                  .map((style) => (
+                    <option key={style.id} value={style.id}>
+                      {style.name}
+                    </option>
+                  ))}
               </select>
               {activeStyle && (
                 <p className="style-picker__preview" title="Added after your prompt. Edit it in the Styles tab.">

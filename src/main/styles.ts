@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { PromptStyle, PromptStyleInput, validateStyleInput } from '../shared/styles';
+import { PromptStyle, PromptStyleInput, cleanStyleKind, validateStyleInput } from '../shared/styles';
 
 /**
  * User-defined prompt styles (see shared/styles.ts). Names are unique ignoring case, so a client can
@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS styles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL COLLATE NOCASE,
   text TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'style',
   created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_styles_name ON styles (name COLLATE NOCASE);
@@ -19,11 +20,12 @@ interface StyleRow {
   id: number;
   name: string;
   text: string;
+  kind?: string | null;
   created_at: string;
 }
 
 function rowToStyle(row: StyleRow): PromptStyle {
-  return { id: row.id, name: row.name, text: row.text, createdAt: row.created_at };
+  return { id: row.id, name: row.name, text: row.text, kind: cleanStyleKind(row.kind), createdAt: row.created_at };
 }
 
 function isNameTaken(err: unknown): boolean {
@@ -49,19 +51,19 @@ export function findStyleByName(db: DatabaseSync, name: string): PromptStyle | n
 export function saveStyle(db: DatabaseSync, input: PromptStyleInput, id: number | null = null): PromptStyle {
   const checked = validateStyleInput(input);
   if (!checked.ok) throw new Error(checked.message);
-  const { name, text } = checked.value;
+  const { name, text, kind } = checked.value;
   try {
     if (id === null) {
       const result = db
-        .prepare('INSERT INTO styles (name, text, created_at) VALUES (?, ?, ?)')
-        .run(name, text, new Date().toISOString());
+        .prepare('INSERT INTO styles (name, text, kind, created_at) VALUES (?, ?, ?, ?)')
+        .run(name, text, kind ?? 'style', new Date().toISOString());
       return getStyle(db, Number(result.lastInsertRowid)) as PromptStyle;
     }
-    const result = db.prepare('UPDATE styles SET name = ?, text = ? WHERE id = ?').run(name, text, id);
+    const result = db.prepare('UPDATE styles SET name = ?, text = ?, kind = ? WHERE id = ?').run(name, text, kind ?? 'style', id);
     if (Number(result.changes) === 0) throw new Error('That style no longer exists.');
     return getStyle(db, id) as PromptStyle;
   } catch (err) {
-    if (isNameTaken(err)) throw new Error(`A style named "${name}" already exists.`);
+    if (isNameTaken(err)) throw new Error(`A style or element named "${name}" already exists.`);
     throw err;
   }
 }

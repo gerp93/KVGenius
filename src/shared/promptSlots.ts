@@ -30,6 +30,8 @@ export interface PromptSlotData {
    * none. Absent in configs saved before styles existed - read as null. A style that has since been
    * deleted is treated as none by the Generate page. */
   styleId?: number | null;
+  /** Image mode only: the ids of the elements (Styles tab: reusable parts of a picture, such as an outfit) added to the prompt, in the order picked. Absent in older configs - none. */
+  elementIds?: number[];
   /** Image mode only: the id of the saved model (Models page) used instead of the built-in one, or null for the
    * built-in. Absent in configs saved before models existed - read as null. A model that has since been deleted
    * is treated as the built-in by the Generate page. */
@@ -81,6 +83,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     customSize: false,
     batchSize: 1,
     styleId: null,
+    elementIds: [],
     profileId: null,
     imageSourcePath: null,
     imageFromPicture: false,
@@ -132,6 +135,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     typeof d.customSize === 'boolean' &&
     typeof d.batchSize === 'number' &&
     (d.styleId === undefined || d.styleId === null || typeof d.styleId === 'number') &&
+    (d.elementIds === undefined || (Array.isArray(d.elementIds) && d.elementIds.every((id) => typeof id === 'number'))) &&
     (d.profileId === undefined || d.profileId === null || typeof d.profileId === 'number') &&
     (d.imageSourcePath === undefined || d.imageSourcePath === null || typeof d.imageSourcePath === 'string') &&
     (d.imageFromPicture === undefined || typeof d.imageFromPicture === 'boolean') &&

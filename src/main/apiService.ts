@@ -15,7 +15,7 @@ import { TOOLS, ToolResult } from '../shared/tools';
 import { JobQueue } from './jobQueue';
 import { AssemblyManager, AssemblySpec } from './assembly';
 import { FfmpegPaths, MediaInfo, EndBehavior, Transition, makePoster, probeMedia } from './mediaTools';
-import { combinePrompt } from '../shared/styles';
+import { PromptStyle, combinePrompt, extraWording, styleLabel } from '../shared/styles';
 import { findStyleByName, listStyles } from './styles';
 import { ItemKind, ItemOrigin, ItemView, getItem, kindForExtension, listItems, upsertImport } from './library';
 
@@ -307,15 +307,7 @@ export class ApiService {
     if (FAMILY_KIND[family] !== 'image') fail(`"${family}" is not an image family. Image families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'image').join(', ')}.`);
     // A style's words are added here, so the job (and the Library record) holds the full prompt that is
     // sent. With no style the prompt is passed through untouched.
-    const styleName = optString(args, 'style', 200);
-    const style = styleName === undefined ? null : findStyleByName(this.deps.db, styleName);
-    if (styleName !== undefined && !style) {
-      const names = listStyles(this.deps.db).map((s) => `"${s.name}"`);
-      throw new ApiError(
-        'not_found',
-        `No style named "${styleName.trim()}". ${names.length ? `Saved styles: ${names.join(', ')}.` : 'There are no saved styles yet - they are created in the KVGenius Styles tab.'}`
-      );
-    }
+    const { style, elements } = this.resolveWording(args);
     // With a `source` picture this is image to image: same model, but the sampler starts from that picture.
     const sourceId = optString(args, 'source', 64);
     const source = sourceId === undefined ? null : this.requireItem(sourceId, ['image'], 'source');
@@ -334,8 +326,8 @@ export class ApiService {
     if (extend && (!sourceSize || sourceSize.width <= 0)) throw new ApiError('unreadable_image', `Could not read the size of ${source?.id}, so it cannot be extended.`);
     const extendedSize = extend && source && sourceSize ? outpaintOutputSize(source.width || sourceSize.width, source.height || sourceSize.height, extend) : null;
     const params: GenerationParams = {
-      prompt: combinePrompt(prompt, style?.text),
-      ...(style ? { styleName: style.name } : {}),
+      prompt: combinePrompt(prompt, extraWording(elements, style)),
+      ...(styleLabel(elements, style) ? { styleName: styleLabel(elements, style) as string } : {}),
       width: extendedSize ? extendedSize.width : snap(optNumber(args, 'width', 64, 8192, true) ?? defaultWidth, 64, 256, 2048),
       height: extendedSize ? extendedSize.height : snap(optNumber(args, 'height', 64, 8192, true) ?? defaultHeight, 64, 256, 2048),
       seed: optNumber(args, 'seed', 0, 2 ** 32 - 1, true) ?? Math.floor(Math.random() * 2 ** 32),
@@ -388,13 +380,42 @@ export class ApiService {
     };
   }
 
+  /** The saved style (`style`, a name) and elements (`elements`, a list of names) a generate_image call asks for. Throws, naming what exists, for a
+   * name that is not saved or is the wrong kind - a style is a look (one), an element is a reusable part of the picture (any number). */
+  private resolveWording(args: Args): { style: PromptStyle | null; elements: PromptStyle[] } {
+    const all = listStyles(this.deps.db);
+    const names = (kind: 'style' | 'element') => all.filter((s) => s.kind === kind).map((s) => `"${s.name}"`);
+    const find = (name: string, kind: 'style' | 'element', argument: string): PromptStyle => {
+      const found = findStyleByName(this.deps.db, name);
+      if (!found) {
+        const saved = names(kind);
+        throw new ApiError(
+          'not_found',
+          `No ${kind} named "${name.trim()}". ${saved.length ? `Saved ${kind === 'style' ? 'styles' : 'elements'}: ${saved.join(', ')}.` : `There are none saved yet - they are created in the KVGenius Styles tab.`}`
+        );
+      }
+      if (found.kind !== kind) fail(`"${found.name}" is ${found.kind === 'style' ? 'a style' : 'an element'}: pass it as \`${found.kind === 'style' ? 'style' : 'elements'}\`, not \`${argument}\`.`);
+      return found;
+    };
+    const styleName = optString(args, 'style', 200);
+    const style = styleName === undefined ? null : find(styleName, 'style', 'style');
+    const raw = args.elements;
+    if (raw !== undefined && raw !== null && (!Array.isArray(raw) || raw.some((n) => typeof n !== 'string' || n.trim() === ''))) fail('"elements" must be a list of saved element names.');
+    const elements: PromptStyle[] = [];
+    for (const name of (raw as string[] | undefined) ?? []) {
+      const element = find(name, 'element', 'elements');
+      if (!elements.some((e) => e.id === element.id)) elements.push(element);
+    }
+    return { style, elements };
+  }
+
   private listStylesTool() {
-    const styles = listStyles(this.deps.db).map((s) => ({ name: s.name, text: s.text }));
+    const styles = listStyles(this.deps.db).map((s) => ({ name: s.name, kind: s.kind, text: s.text }));
     return {
       styles,
       note: styles.length
-        ? 'Pass a name as `style` to generate_image. Its text is appended to your prompt after a comma.'
-        : 'No styles saved yet - the user creates them in the KVGenius Styles tab.',
+        ? 'A "style" is a look (anime, oil painting): pass its name as `style` to generate_image (one per picture). An "element" is a reusable part of the picture (an outfit, a character): pass any number of names as `elements`. Elements are added after your prompt, then the style, each after a comma.'
+        : 'Nothing saved yet - the user creates styles and elements in the KVGenius Styles tab.',
     };
   }
 

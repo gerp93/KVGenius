@@ -37,6 +37,7 @@ export function usePromptSlots() {
   const [customSize, setCustomSize] = useState(false);
   const [batchSize, setBatchSize] = useState(1);
   const [styleId, setStyleId] = useState<number | null>(null);
+  const [elementIds, setElementIds] = useState<number[]>([]);
   const [profileId, setProfileId] = useState<number | null>(null);
   const [imageSourcePath, setImageSourcePath] = useState<string | null>(null);
   const [imageFromPicture, setImageFromPicture] = useState(false);
@@ -63,6 +64,7 @@ export function usePromptSlots() {
     setCustomSize(data.customSize);
     setBatchSize(data.batchSize);
     setStyleId(data.styleId ?? null);
+    setElementIds(data.elementIds ?? []);
     setProfileId(data.profileId ?? null);
     setImageSourcePath(data.imageSourcePath ?? null);
     setImageFromPicture(data.imageFromPicture ?? (data.imageSourcePath ?? null) !== null);
@@ -119,6 +121,7 @@ export function usePromptSlots() {
       customSize,
       batchSize,
       styleId,
+      elementIds,
       profileId,
       imageSourcePath,
       imageFromPicture,
@@ -163,6 +166,7 @@ export function usePromptSlots() {
     customSize,
     batchSize,
     styleId,
+    elementIds,
     profileId,
     imageSourcePath,
     imageFromPicture,
@@ -268,6 +272,8 @@ export function usePromptSlots() {
     setBatchSize,
     styleId,
     setStyleId,
+    elementIds,
+    setElementIds,
     profileId,
     setProfileId,
     imageSourcePath,
