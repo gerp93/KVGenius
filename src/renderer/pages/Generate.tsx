@@ -504,6 +504,12 @@ export default function Generate({
 
   useEffect(() => {
     if (!videoSource) return;
+    // A picture or video sent here from the Library (🎬 Video, 🎨 Image, Extend, Video → Video, Sources) gets its own tab, just like a
+    // Re-rack, so whatever is being worked on in the current tab is left alone. With every tab in use it is loaded into this one.
+    if (addSlot() === null) {
+      setNotice(`All ${MAX_PROMPT_SLOTS} tabs are in use - loaded into this one.`);
+      setTimeout(() => setNotice(null), 4000);
+    }
     if (videoSource.target === 'image') setUpImageToImage(videoSource);
     else if (videoSource.target === 'restyle') setUpVideoToVideo(videoSource);
     else setUpVideoFromImage(videoSource);

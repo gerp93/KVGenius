@@ -287,6 +287,9 @@ implementation here is exactly the kind of drift it exists to prevent.
   and the source image. MCP: `generate_image` with `source` (a library picture) and `strength`; naming the family
   `z-image-i2i` directly is refused. The details panel's "🎨 Image" and Sources' "Image to image" send a picture to
   Generate through the same request as "🎬 Video" (`VideoSourceRequest.target`).
+  **Anything sent to Generate from the Library - 🎬 Video, 🎨 Image, ➕ Extend, 🎞️ Video → Video, Sources' buttons (a `VideoSourceRequest`) - opens in a new
+  prompt tab, exactly like Re-rack** (`Generate.tsx`'s `videoSource` effect calls `addSlot()` first), so the tab being worked on is never overwritten; with every tab in
+  use it is loaded into the current one and says so. Choosing a picture from Generate's own pickers stays in the current tab.
 - **Inpainting is image to image with an optional painted mask, and its own family** (`z-image-inpaint`, `INPAINT_FAMILY` in
   `shared/imageToImage.ts`, `templates/z-image-inpaint.json`, `fillInpaint` in `main/imageToImagePatch.ts`, `MaskEditor.tsx`).
   Under the source image on Generate, "Paint a mask..." opens a full-screen editor (brush, eraser, size, undo, clear, invert); the
