@@ -8,6 +8,7 @@ import { formatBytes, formatDifference, formatDuration } from '../utils/format';
 import { shouldSplitDetails } from '../../shared/detailsLayout';
 import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
 import { useSourceMissing } from '../hooks/useMissingSources';
+import { useRetryWhenReachable } from '../hooks/useRetryWhenReachable';
 import { isUpscale } from '../utils/library';
 import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
@@ -186,6 +187,12 @@ export default function LibraryDetails({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ComfyUI was not running when the panel opened: once it is started, the models appear by themselves (and the notice at the top goes).
+  useRetryWhenReachable(upscaleUnreachable, () => {
+    loadUpscaleModels();
+    onError(null);
+  });
 
   /** Adds an upscale job to the shared queue; several can be waiting at once. */
   function handleUpscale() {

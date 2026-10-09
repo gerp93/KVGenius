@@ -114,6 +114,12 @@ implementation here is exactly the kind of drift it exists to prevent.
   multiplier (0.75-2, default 1, remembered in `localStorage`) on each page's own target row height that `justifyRows` packs to, so bigger cards mean
   fewer to a row and each page keeps its own default size. A card's action buttons wrap onto a second line when the card is narrow
   (`.library-card__actions`), so a small size does not crush them; below about 0.75 a tall, thin card's overlay buttons start to collide.
+- **The Library list stays where it is when a card is deleted or the details panel opens/closes** (`hooks/useScrollKeeper.ts`, used by Output and
+  Prompts; cards carry `data-card-id`). Deleting from the panel closes it, the grid widens and gets shorter, and a list scrolled far down kept its
+  numeric scroll position - landing somewhere much deeper (it looked like a jump to the bottom). `hold()` notes which card is at the top of the view
+  and where just before such a change, and every render for the next ~0.7 s puts that card back at the same place.
+- **Anything showing "ComfyUI is not reachable" fills in by itself once ComfyUI is started** (`hooks/useRetryWhenReachable.ts`: polls every 3 s while
+  waiting and retries) - the upscale controls in the details panel and Tools > Upscale. The "try again" link stays as the manual way.
 - **Group by prompt is an opt-in filter, not the default view** (`listPromptStacks` in
   `db.ts`). A stack card must take exactly the width `justifyRows` gave it (its stacked edges are box-shadow, no margin): a
   row even a few pixels too wide made the page grow, which fitted more cards per row, until everything sat in one row. Only *exactly* equal prompts stack. The cover is pinned > favorite > newest;

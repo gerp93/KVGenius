@@ -1,3 +1,4 @@
+import { useRetryWhenReachable } from '../hooks/useRetryWhenReachable';
 import { useEffect, useRef, useState } from 'react';
 import { MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import type { GenerationQueue, Job } from '../hooks/useGenerationQueue';
@@ -109,6 +110,9 @@ export default function ToolsUpscale({ queue, onShowQueue, recall, onRecallHandl
       cancelled = true;
     };
   }, []);
+
+  // ComfyUI was not running when the page opened: once it is started, the models appear by themselves.
+  useRetryWhenReachable(unreachable, () => loadModels());
 
   /** Adds pictures to the list (from the file dialog or a drop), skipping any already there. */
   function addPaths(paths: string[]) {
