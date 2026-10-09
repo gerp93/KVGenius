@@ -292,7 +292,7 @@
     "class_type": "ImageBlur",
     "inputs": {
       "blur_radius": 31,
-      "sigma": 12.0,
+      "sigma": 10.0,
       "image": [
         "op-bg",
         0
