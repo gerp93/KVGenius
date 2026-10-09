@@ -119,3 +119,34 @@ test('counts can carry a separate origin filter for each tab', () => {
     { image: 1, video: 1 }
   );
 });
+
+test('a search keeps the items whose prompt has every word, ignoring case, in listings, stacks, refs and counts', () => {
+  const db = initDatabase(':memory:');
+  const add = (prompt: string, family = 'z-image', file = `/out/images/${prompt.length}${Math.random()}.png`) =>
+    insertGeneration(db, { prompt, width: 64, height: 64, seed: 1, steps: 4, cfg: 1 }, family, file);
+  add('A red fox in the Snow');
+  add('A red fox in the Snow');
+  add('a blue fox');
+  add('100% cotton shirt');
+  add('a_b under_score');
+  add('a red fox video', 'wan22-i2v', '/out/videos/v.mp4');
+
+  const found = (search: string) => listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { search }).map((r) => r.prompt);
+  assert.equal(found('').length, 5, 'blank search narrows nothing');
+  assert.equal(found('   ').length, 5);
+  assert.deepEqual(found('SNOW'), ['A red fox in the Snow', 'A red fox in the Snow']);
+  assert.deepEqual(found('fox snow'), ['A red fox in the Snow', 'A red fox in the Snow'], 'every word, any order');
+  assert.deepEqual(found('snow fox'), ['A red fox in the Snow', 'A red fox in the Snow']);
+  assert.deepEqual(found('blue red'), []);
+  // LIKE wildcards in what is typed are plain characters.
+  assert.deepEqual(found('100%'), ['100% cotton shirt']);
+  assert.deepEqual(found('%'), ['100% cotton shirt']);
+  assert.deepEqual(found('a_b'), ['a_b under_score']);
+  assert.deepEqual(found('_'), ['a_b under_score']);
+
+  const stacks = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { search: 'fox', grouped: true });
+  assert.deepEqual(stacks.map((r) => [r.prompt, r.groupCount]), [['a blue fox', 1], ['A red fox in the Snow', 2]]);
+  assert.equal(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, false, null, { search: 'snow' }).length, 2);
+  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, null, { search: 'fox' }), { image: 3, video: 1 });
+  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, null, { search: 'fox', grouped: true }), { image: 2, video: 1 });
+});

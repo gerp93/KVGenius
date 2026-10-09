@@ -60,6 +60,13 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const [tab, setTab] = useState<GenerationKind>('image');
   const [cardScale, setCardScale] = useCardScale();
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  // Search over prompt text: what is typed, and what the list is using (a moment behind, so each keystroke is not a query).
+  const [searchText, setSearchText] = useState('');
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchText.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [searchText]);
   // Optional: collapse items with exactly the same prompt into one stack. Off, the list is every item as ever.
   const [grouped, setGrouped] = useState(false);
   // The prompt of the stack that was opened: the list then shows just that prompt's items.
@@ -122,8 +129,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   // Showing stacks right now (grouping is on and none is open): items are stack covers, and the counts are stacks.
   const stacking = grouped && openPrompt === null;
   const listOptions = useMemo<LibraryListOptions>(
-    () => ({ grouped: stacking, prompt: openPrompt, origins }),
-    [stacking, openPrompt, origins]
+    () => ({ grouped: stacking, prompt: openPrompt, origins, search }),
+    [stacking, openPrompt, origins, search]
   );
 
   const loadPage = useCallback(
@@ -203,7 +210,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     }
     let cancelled = false;
     window.kvgenius
-      .countGenerations(favoritesOnly, showHidden, extension, { originsByKind: originsByTab })
+      .countGenerations(favoritesOnly, showHidden, extension, { originsByKind: originsByTab, search })
       .then((c) => {
         if (!cancelled) setItemCounts(c);
       })
@@ -211,7 +218,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     return () => {
       cancelled = true;
     };
-  }, [stacking, selecting, favoritesOnly, showHidden, extension, originsByTab, reloadKey]);
+  }, [stacking, selecting, favoritesOnly, showHidden, extension, originsByTab, search, reloadKey]);
 
   // The file types offered in the filter. A type whose last image was deleted drops out of the list,
   // and the filter goes back to "all" if it was set to that type.
@@ -305,7 +312,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
           favoritesOnly,
           showHidden,
           tab === 'image' ? extension : null,
-          { prompt, origins }
+          { prompt, origins, search }
         );
         items.push(...page);
         if (page.length < 200) break;
@@ -328,7 +335,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
    * just the ones cycling on its card); anything else is just itself. */
   async function refsFor(record: GenerationRecord): Promise<GenerationRef[]> {
     if (!isStack(record)) return [refOf(record)];
-    return window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, { prompt: record.prompt, origins });
+    return window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, { prompt: record.prompt, origins, search });
   }
 
   /** Selects what a card stands for, or - when all of it is already selected - deselects it. */
@@ -391,6 +398,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, {
         prompt: openPrompt,
         origins,
+        search,
       });
       setSelection(new Map(refs.map((ref) => [ref.id, ref])));
     } catch (err) {
@@ -823,6 +831,23 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             </>
           ) : (
             <>
+              <div className="library-search">
+                <input
+                  type="text"
+                  value={searchText}
+                  placeholder="Search prompts..."
+                  aria-label="Search prompt text"
+                  onChange={(e) => setSearchText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setSearchText('');
+                  }}
+                />
+                {searchText !== '' && (
+                  <button type="button" className="library-search__clear" onClick={() => setSearchText('')} title="Clear the search">
+                    ✕
+                  </button>
+                )}
+              </div>
               <div className="origin-filter" role="group" aria-label="Show only items made this way">
                 {originsForKind(tab).map((kind) => {
                   const on = origins.includes(kind);
@@ -945,7 +970,9 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
 
         {!loading && records.length === 0 && (
           <p style={{ color: 'var(--color-text-muted)' }}>
-            {favoritesOnly
+            {search
+              ? `No ${tab === 'video' ? 'videos' : 'images'} have a prompt matching "${search}".`
+              : favoritesOnly
               ? `No favorite ${tab === 'video' ? 'videos' : 'images'} yet - tap ☆ on one to save it here.`
               : tab === 'video'
                 ? 'No videos yet - go make something.'

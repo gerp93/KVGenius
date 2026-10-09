@@ -103,6 +103,8 @@ export interface LibraryListOptions {
   grouped?: boolean;
   /** Only the items whose prompt is exactly this (what opening a stack shows). */
   prompt?: string | null;
+  /** Only items whose prompt contains this text (ignoring case); blank = no search. */
+  search?: string;
   /** Only items made this way (text to image, upscale, ...); none or empty = every kind. */
   origins?: OriginKind[];
   /** Counts only: the origin filter of each tab, since each tab keeps its own. Used in place of `origins`

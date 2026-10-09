@@ -120,6 +120,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   and where just before such a change, and every render for the next ~0.7 s puts that card back at the same place.
 - **Anything showing "ComfyUI is not reachable" fills in by itself once ComfyUI is started** (`hooks/useRetryWhenReachable.ts`: polls every 3 s while
   waiting and retries) - the upscale controls in the details panel and Tools > Upscale. The "try again" link stays as the manual way.
+- **Library > Output has a prompt search** (`LibraryListOptions.search`, `searchCondition` in `db.ts`): a box at the left of the toolbar
+  (debounced 250 ms) that keeps items whose prompt contains every word typed, ignoring case, in any order. It is a server-side `LIKE`
+  (`%`/`_` typed by the user are literal) applied everywhere the other filters are - listings, stacks, select-all refs and the tab
+  counts - so paging and counts agree with it. Prompts has its own client-side search; the Trash has none.
 - **Group by prompt is an opt-in filter, not the default view** (`listPromptStacks` in
   `db.ts`). A stack card must take exactly the width `justifyRows` gave it (its stacked edges are box-shadow, no margin): a
   row even a few pixels too wide made the page grow, which fitted more cards per row, until everything sat in one row. Only *exactly* equal prompts stack. The cover is pinned > favorite > newest;

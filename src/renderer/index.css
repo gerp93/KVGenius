@@ -3158,3 +3158,26 @@ button.button-danger--armed:hover:not(:disabled) {
   color: var(--color-text-muted);
   font-size: 12px;
 }
+
+/* Library > Output: search over prompt text. */
+.library-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.library-search input {
+  width: 220px;
+  padding-right: 26px;
+}
+
+.library-search__clear {
+  position: absolute;
+  right: 2px;
+  min-height: 0;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
