@@ -250,6 +250,7 @@ function cleanListOptions(options: LibraryListOptions | undefined): LibraryListO
   return {
     grouped: options?.grouped === true,
     prompt: typeof options?.prompt === 'string' ? options.prompt : null,
+    search: typeof options?.search === 'string' ? options.search.slice(0, 200) : '',
     origins: cleanOrigins(options?.origins),
     originsByKind: { image: cleanOrigins(options?.originsByKind?.image), video: cleanOrigins(options?.originsByKind?.video) },
   };

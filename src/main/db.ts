@@ -388,6 +388,17 @@ function originCondition(origins: OriginKind[] | undefined): { sql: string; para
   return { sql: `AND model_family IN (${families.map(() => '?').join(', ')}) `, params: families };
 }
 
+/** Narrows a listing to the items whose prompt contains `search` (ignoring case; every word must appear, in any order).
+ * `%`, `_` and the escape character are matched literally. */
+export function searchCondition(search: string | undefined): { sql: string; params: string[] } {
+  const words = (typeof search === 'string' ? search : '').split(/\s+/).filter((w) => w !== '');
+  if (words.length === 0) return { sql: '', params: [] };
+  return {
+    sql: words.map(() => "AND prompt LIKE ? ESCAPE '\\' ").join(''),
+    params: words.map((w) => `%${w.replace(/[\\%_]/g, (c) => `\\${c}`)}%`),
+  };
+}
+
 /** The Library's filters as SQL: anything in the Trash is always left out, favorites only on request,
  * and hidden ones left out unless asked for. */
 function filterSql(favoritesOnly: boolean, showHidden: boolean): string {
@@ -474,19 +485,20 @@ export function listGenerations(
   const ext = extensionCondition(extension);
   const prompt = promptCondition(options.prompt);
   const origin = originCondition(options.origins);
+  const search = searchCondition(options.search);
 
   if (options.grouped && prompt.sql === '') {
     return listPromptStacks(
       db,
-      `${condition.sql} ${ext.sql}${origin.sql}${filterSql(favoritesOnly, showHidden)}`,
-      [...condition.params, ...ext.params, ...origin.params],
+      `${condition.sql} ${ext.sql}${origin.sql}${search.sql}${filterSql(favoritesOnly, showHidden)}`,
+      [...condition.params, ...ext.params, ...origin.params, ...search.params],
       limit,
       beforeId
     );
   }
 
-  const cursor = ext.sql + origin.sql + prompt.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
-  const params: (string | number)[] = [...condition.params, ...ext.params, ...origin.params, ...prompt.params];
+  const cursor = ext.sql + origin.sql + search.sql + prompt.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
+  const params: (string | number)[] = [...condition.params, ...ext.params, ...origin.params, ...search.params, ...prompt.params];
   if (beforeId !== null) params.push(beforeId);
   params.push(limit);
   const rows = db
@@ -508,11 +520,12 @@ export function listGenerationRefs(
   const ext = extensionCondition(extension);
   const prompt = promptCondition(options.prompt);
   const origin = originCondition(options.origins);
+  const search = searchCondition(options.search);
   const rows = db
     .prepare(
-      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
+      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
     )
-    .all(...condition.params, ...ext.params, ...origin.params, ...prompt.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
+    .all(...condition.params, ...ext.params, ...origin.params, ...search.params, ...prompt.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
   return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1, pinned: r.pinned === 1 }));
 }
 
@@ -525,6 +538,7 @@ export function countGenerations(
   options: LibraryListOptions = {}
 ): Record<GenerationKind, number> {
   const prompt = promptCondition(options.prompt);
+  const search = searchCondition(options.search);
   // Grouped, the number is stacks (distinct prompts); opened onto one prompt, it is that prompt's items.
   const grouped = options.grouped === true && prompt.sql === '';
   const count = (kind: GenerationKind): number => {
@@ -533,9 +547,9 @@ export function countGenerations(
     const origin = originCondition(options.originsByKind?.[kind] ?? options.origins);
     const row = db
       .prepare(
-        `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)}`
+        `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)}`
       )
-      .get(...condition.params, ...ext.params, ...origin.params, ...prompt.params) as unknown as { n: number };
+      .get(...condition.params, ...ext.params, ...origin.params, ...search.params, ...prompt.params) as unknown as { n: number };
     return row.n;
   };
   return { image: count('image'), video: count('video') };
