@@ -1087,6 +1087,12 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   color: var(--color-accent-red);
 }
 
+.video-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .video-error-badge {
   position: absolute;
   left: 8px;
@@ -1144,6 +1150,14 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 .library-row {
   display: flex;
   gap: 12px;
+}
+
+/* Rows scrolled out of view are not laid out or painted (see rowSizeHint). That also clips whatever a card draws outside its own
+   box - the 2px selection ring - so the row gives it 3px of room, taken back with a negative margin so nothing moves. */
+.library-row--skippable {
+  content-visibility: auto;
+  padding: 3px;
+  margin: -3px;
 }
 
 .library-sentinel {
@@ -1228,36 +1242,18 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
     8px 8px 0 0 var(--color-border);
 }
 
-/* The labels in a card's top-left (stack count, Upscaled, Hidden). They start to the right of the expand
-   button / select checkbox that owns the very corner, and wrap rather than run into the favorite button. */
+/* The tags of a card (stack count, how it was made, Hidden, pinned) in a row under the picture, so they never cover it. */
 .library-card__badges {
-  position: absolute;
-  top: 6px;
-  left: 40px;
-  right: 40px;
-  z-index: 1;
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   gap: 4px;
-  pointer-events: none;
+  padding: 6px 8px 0;
 }
 
-/* A Prompts tile also has two copy buttons along its right edge. */
-.prompt-tile .library-card__badges {
-  right: 108px;
-}
-
-/* Prompt tiles are as narrow as their picture (a tall, thin one is ~120px): the corner buttons and the origin tag would
-   pile on top of each other, so the less important ones step aside as the tile narrows. */
+/* A Prompts tile is as narrow as its picture (a tall, thin one is ~120px): the tags wrap onto more lines rather than overflow. */
 .prompt-tile {
   container-type: inline-size;
-}
-
-@container (max-width: 260px) {
-  .prompt-tile .library-card__badges {
-    display: none;
-  }
 }
 
 @container (max-width: 170px) {
@@ -1285,7 +1281,7 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 .library-card__origin-badge {
   padding: 2px 7px;
   font-size: 11px;
-  /* On a narrow card, clip rather than run under the favorite button. */
+  /* On a narrow card, clip rather than overflow it. */
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1430,15 +1426,10 @@ span.cycle-fade {
 }
 
 .library-card__pinned-badge {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  z-index: 1;
   padding: 2px 6px;
   border-radius: 999px;
-  font-size: 12px;
-  background: rgba(0, 0, 0, 0.6);
-  pointer-events: none;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.7);
 }
 
 .library-card__play-badge {

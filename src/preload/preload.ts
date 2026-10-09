@@ -15,6 +15,15 @@ function mediaUrlFor(filePath: string): string {
   return isVideo && mediaBase ? `${mediaBase}/${encodeURIComponent(filePath)}` : `kvimage://${encodeURIComponent(filePath)}`;
 }
 
+/** The width of the small copy a Library card loads instead of the full-size picture (see main/thumbnails.ts). */
+const CARD_THUMBNAIL_WIDTH = 800;
+
+/** A card-sized copy of a still picture; videos and GIFs are served as they are. */
+function thumbUrlFor(filePath: string): string {
+  const url = mediaUrlFor(filePath);
+  return /\.(png|jpe?g|webp)$/i.test(filePath) && url.startsWith('kvimage://') ? `${url}?w=${CARD_THUMBNAIL_WIDTH}` : url;
+}
+
 const api: KVGeniusAPI = {
   generate: (family: string, params: GenerationParams, estimate?: { totalMs: number | null; generateMs: number | null } | null) =>
     ipcRenderer.invoke('generate', family, params, estimate ?? null),
@@ -50,6 +59,7 @@ const api: KVGeniusAPI = {
   exportGenerations: (imagePaths: string[]) => ipcRenderer.invoke('exportGenerations', imagePaths),
   setGenerationFavorite: (id: number, favorite: boolean) => ipcRenderer.invoke('setGenerationFavorite', id, favorite),
   imageUrlFor: (imagePath: string) => mediaUrlFor(imagePath),
+  thumbUrlFor: (imagePath: string) => thumbUrlFor(imagePath),
   chooseSourceImage: () => ipcRenderer.invoke('chooseSourceImage'),
   readMaskImage: (filePath: string) => ipcRenderer.invoke('readMaskImage', filePath),
   saveMaskImage: (dataUrl: string) => ipcRenderer.invoke('saveMaskImage', dataUrl),

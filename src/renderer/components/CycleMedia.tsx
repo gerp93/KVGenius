@@ -38,17 +38,17 @@ export default function CycleMedia({ paths, index, isVideo, alt }: Props) {
   useEffect(() => {
     if (!next || isVideo) return;
     const preload = new Image();
-    preload.src = window.kvgenius.imageUrlFor(next);
+    preload.src = window.kvgenius.thumbUrlFor(next);
   }, [next, isVideo]);
 
   function layer(file: string, className?: string) {
-    const url = window.kvgenius.imageUrlFor(file);
+    const url = isVideo ? window.kvgenius.imageUrlFor(file) : window.kvgenius.thumbUrlFor(file);
     return isVideo ? (
       <span key={file} className={className}>
         <GeneratedVideo src={url} filePath={file} thumbnail />
       </span>
     ) : (
-      <img key={file} className={className} src={url} alt={alt} decoding="async" />
+      <img key={file} className={className} src={url} alt={alt} loading="lazy" decoding="async" />
     );
   }
 

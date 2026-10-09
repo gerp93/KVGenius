@@ -121,6 +121,14 @@ implementation here is exactly the kind of drift it exists to prevent.
   sends the picture it replaces to the Trash (favorites stay); deleting a style trashes its example; an example the user trashed reads as none.
   `styles.text_changed_at` records when the wording last changed (a rename or kind change does not move it) and is shown on the card. The page polls
   every 2 s only while an example is queued or rendering.
+- **Library cards stay light so a long list scrolls smoothly** (`main/thumbnails.ts`, `mediaProtocol.ts`, `CycleMedia.tsx`, `GeneratedVideo.tsx`, `rowSizeHint`).
+  A card loads a small copy of its still picture, not the full file: `window.kvgenius.thumbUrlFor(path)` adds `?w=800` to the `kvimage://` URL, and
+  the protocol handler makes (Electron `nativeImage`, JPEG) and keeps a copy in `userData/thumbnails` - keyed by path, size, mtime and width, written
+  as `.part` then renamed - falling back to the original for GIFs, videos, anything already small or unreadable. Only list cards use it; the details panel,
+  lightbox and Sources show the full picture (`imageUrlFor`). Images are `loading="lazy"`; a video thumbnail only mounts its `<video>` within ~600 px of the
+  viewport; and a row of cards is `content-visibility: auto` (`.library-row--skippable`, sized by `rowSizeHint`) so rows out of view cost no layout or paint -
+  except rows holding a stack, whose box-shadow edges that would clip. The row's 3 px padding / -3 px margin keeps the selection ring from being clipped.
+  The tags on a card (stack count, origin, Hidden, pinned) sit in a row *under* the picture (`.library-card__badges`), never over it.
 - **The Library's card size is one slider** (`CardSizeSlider.tsx`, `hooks/useCardScale.ts`) in the toolbar of Output, Prompts and the Trash. It is a
   multiplier (0.75-2, default 1, remembered in `localStorage`) on each page's own target row height that `justifyRows` packs to, so bigger cards mean
   fewer to a row and each page keeps its own default size. A card's action buttons wrap onto a second line when the card is narrow

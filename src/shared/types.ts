@@ -376,6 +376,8 @@ export interface KVGeniusAPI {
    * so this returns the file's - possibly new - path. */
   setGenerationFavorite: (id: number, favorite: boolean) => Promise<{ imagePath: string }>;
   imageUrlFor: (imagePath: string) => string;
+  /** Like imageUrlFor, but a small copy for a grid card (full size for a video, a GIF or anything that cannot be shrunk). */
+  thumbUrlFor: (imagePath: string) => string;
   /** Opens a native file dialog for picking a video mode's source image.
    * Resolves the chosen local path, or null if cancelled. */
   chooseSourceImage: () => Promise<string | null>;

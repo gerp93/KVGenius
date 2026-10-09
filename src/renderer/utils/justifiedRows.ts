@@ -9,6 +9,18 @@ export interface JustifiedRow {
   items: { index: number; width: number }[];
 }
 
+/** What a card adds below its picture (tags, prompt line, buttons), roughly - only a first guess at a row's height. */
+const CARD_CHROME_HEIGHT = 120;
+
+/**
+ * Style for a Library row (`.library-row--skippable`): while the row is scrolled out of view the browser skips its layout and paint
+ * (`content-visibility`), and this is the height it holds the place with until it has been drawn once. With thousands of cards that
+ * is most of what keeps scrolling smooth.
+ */
+export function rowSizeHint(pictureHeight: number): { containIntrinsicSize: string } {
+  return { containIntrinsicSize: `auto ${Math.round(pictureHeight + CARD_CHROME_HEIGHT)}px` };
+}
+
 // A row closed early (without its last candidate) may stretch above the target height, but not
 // by more than this factor - otherwise a lone narrow item would blow up to a huge tile.
 const MAX_STRETCH = 1.5;

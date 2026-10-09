@@ -36,6 +36,18 @@ export default function GeneratedVideo({ src, filePath, thumbnail, style }: Prop
     diagnosedFor.current = null;
   }, [src]);
 
+  // A grid thumbnail only has a <video> element while it is on (or near) the screen: hundreds of them, each holding a decoder and
+  // fetching its file, are what makes a long Library list stagger.
+  const holderRef = useRef<HTMLSpanElement>(null);
+  const [near, setNear] = useState(!thumbnail);
+  useEffect(() => {
+    const el = holderRef.current;
+    if (!thumbnail || !el) return;
+    const observer = new IntersectionObserver((entries) => setNear(entries.some((entry) => entry.isIntersecting)), { rootMargin: '600px' });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [thumbnail]);
+
   // Thumbnails loop while visible and rest on their first frame while scrolled out of view.
   useEffect(() => {
     const el = videoRef.current;
@@ -51,7 +63,7 @@ export default function GeneratedVideo({ src, filePath, thumbnail, style }: Prop
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [thumbnail, reloads, src]);
+  }, [thumbnail, reloads, src, near]);
 
   function handleError(e: React.SyntheticEvent<HTMLVideoElement>) {
     const mediaError = e.currentTarget.error;
@@ -95,14 +107,14 @@ export default function GeneratedVideo({ src, filePath, thumbnail, style }: Prop
 
   if (thumbnail) {
     return (
-      <>
-        {video}
+      <span ref={holderRef} className="video-thumb">
+        {near && video}
         {error && (
           <span className="video-error-badge" title={`Cannot preview this video: ${error}`}>
             ⚠
           </span>
         )}
-      </>
+      </span>
     );
   }
 

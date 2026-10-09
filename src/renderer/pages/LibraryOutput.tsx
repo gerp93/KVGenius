@@ -8,12 +8,13 @@ import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
 import DetailsDock from '../components/DetailsDock';
 import OriginBadge from '../components/OriginBadge';
+import { generationOrigin } from '../../shared/origin';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
 import GalleryLightbox from '../components/GalleryLightbox';
 import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
-import { justifyRows } from '../utils/justifiedRows';
+import { justifyRows, rowSizeHint } from '../utils/justifiedRows';
 import CardSizeSlider from '../components/CardSizeSlider';
 import { useCardScale } from '../hooks/useCardScale';
 import { useScrollKeeper } from '../hooks/useScrollKeeper';
@@ -722,21 +723,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                 ⤢
               </button>
             )}
-            {/* Beside the expand button / checkbox in the corner, never under it. */}
-            <div className="library-card__badges">
-              {stack && (
-                <span className="library-card__stack-badge" title={`${record.groupCount} items have this exact prompt - click to open them`}>
-                  × {record.groupCount}
-                </span>
-              )}
-              <OriginBadge record={record} />
-              {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
-            </div>
-            {record.pinned && (
-              <span className="library-card__pinned-badge" title="Pinned under Prompts">
-                📌
-              </span>
-            )}
             {!selecting && (
               <button
                 type="button"
@@ -751,6 +737,23 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
               </button>
             )}
           </CardMedia>
+          {/* The tags sit under the picture, so they never cover it. */}
+          {(stack || record.hidden || record.pinned || generationOrigin(record.modelFamily)) && (
+            <div className="library-card__badges">
+              {stack && (
+                <span className="library-card__stack-badge" title={`${record.groupCount} items have this exact prompt - click to open them`}>
+                  × {record.groupCount}
+                </span>
+              )}
+              <OriginBadge record={record} />
+              {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
+              {record.pinned && (
+                <span className="library-card__pinned-badge" title="Pinned under Prompts">
+                  📌
+                </span>
+              )}
+            </div>
+          )}
           <div className="library-card__info" title={record.prompt}>
             {record.prompt}
           </div>
@@ -983,7 +986,12 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
         {/* user-select is off in select mode so Shift-click picks a range instead of highlighting text */}
         <div className={`library-rows${selecting ? ' library-rows--selecting' : ''}`} ref={gridRef}>
           {rows.map((row) => (
-            <div key={records[row.items[0].index].id} className="library-row">
+            <div
+              key={records[row.items[0].index].id}
+              // A row with a stack in it draws the stack's edges outside the card, which skipping would clip.
+              className={`library-row${row.items.some(({ index }) => isStack(records[index])) ? '' : ' library-row--skippable'}`}
+              style={rowSizeHint(row.height)}
+            >
               {row.items.map(({ index, width }) => renderCard(records[index], index, width, row.height))}
             </div>
           ))}
