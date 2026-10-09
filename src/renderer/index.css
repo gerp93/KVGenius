@@ -3094,3 +3094,67 @@ button.button-danger--armed:hover:not(:disabled) {
 .card-size__icon--big {
   font-size: 17px;
 }
+
+/* Generate: the elements picked for a prompt, as removable chips above the "add" dropdown. */
+.element-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.element-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font-size: 12px;
+}
+
+.element-chip__remove {
+  min-height: 0;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.element-chip__remove:hover {
+  color: var(--color-text);
+}
+
+/* Styles page: the kind of a saved snippet (Style or Element). */
+.styles-page__kind {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.styles-page__section {
+  margin: 10px 0 4px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.styles-page__kinds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.styles-page__kind-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}

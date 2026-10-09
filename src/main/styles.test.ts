@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { initDatabase, insertGeneration, getGenerationById } from './db';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { deleteStyle, findStyleByName, getStyle, listStyles, saveStyle } from './styles';
 
 const params = (prompt: string, styleName?: string) => ({ prompt, width: 64, height: 64, seed: 1, steps: 4, cfg: 1, ...(styleName ? { styleName } : {}) });
@@ -63,4 +67,26 @@ test('deleting a style leaves past generations alone', () => {
   deleteStyle(db, s.id);
   assert.equal(getGenerationById(db, g.id)?.prompt, 'a fox, black and white');
   assert.equal(getGenerationById(db, g.id)?.styleName, 'Noir');
+});
+
+test('a style or element keeps its kind, and an old table without one is upgraded', () => {
+  const db = initDatabase(':memory:');
+  const coat = saveStyle(db, { name: 'Coat', text: 'red trench coat', kind: 'element' });
+  const anime = saveStyle(db, { name: 'Anime', text: 'cel shaded' });
+  assert.equal(coat.kind, 'element');
+  assert.equal(anime.kind, 'style', 'no kind means a style');
+  assert.equal(getStyle(db, coat.id)?.kind, 'element');
+  assert.equal(saveStyle(db, { name: 'Coat', text: 'red trench coat', kind: 'style' }, coat.id).kind, 'style');
+  assert.throws(() => saveStyle(db, { name: 'anime', text: 'x', kind: 'element' }), /style or element named/);
+});
+
+test('a database made before kinds existed gains the column with every style as a style', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kv-styles-'));
+  const path = join(dir, 'old.db');
+  const old = new DatabaseSync(path);
+  old.exec("CREATE TABLE styles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE, text TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))");
+  old.exec("INSERT INTO styles (name, text) VALUES ('Noir', 'black and white')");
+  old.close();
+  const db = initDatabase(path);
+  assert.deepEqual(listStyles(db).map((s) => [s.name, s.kind]), [['Noir', 'style']]);
 });

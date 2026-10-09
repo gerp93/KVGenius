@@ -252,7 +252,7 @@ test('generate_image names the saved styles when the one asked for does not exis
 
 test('list_styles returns the saved styles', async () => {
   const result = await call('list_styles');
-  assert.deepEqual(result.styles, [{ name: '1930s movie poster', text: 'bold lithograph, limited palette' }]);
+  assert.deepEqual(result.styles, [{ name: '1930s movie poster', text: 'bold lithograph, limited palette', kind: 'style' }]);
 });
 
 test('generate_image rejects bad input', async () => {
@@ -535,4 +535,21 @@ withFfmpeg('assemble_video validates its inputs', async () => {
   await rejects(service.callTool('assemble_video', { clips: ['gen-99999'] }), 'not_found');
   await rejects(service.callTool('assemble_video', { clips: [clip], audio: song, transition: 'wipe' }), 'invalid_argument');
   await rejects(service.callTool('get_assembly', { assembly_id: 99999 }), 'not_found');
+});
+
+test('generate_image adds elements before the style, and a wrong kind says which argument to use', async () => {
+  saveStyle(db, { name: 'Red coat', text: 'wearing a red trench coat', kind: 'element' });
+  saveStyle(db, { name: 'Wide hat', text: 'wide-brim hat', kind: 'element' });
+  const job = await call('generate_image', { prompt: 'a fox', style: '1930s movie poster', elements: ['red coat', 'Wide hat'] });
+  assert.equal(job.prompt, 'a fox, wearing a red trench coat, wide-brim hat, bold lithograph, limited palette');
+  assert.equal(job.style, '1930s movie poster + Red coat + Wide hat');
+  released.shift()?.();
+  await call('get_job', { job_id: job.job_id, wait_seconds: 5 });
+
+  await assert.rejects(service.callTool('generate_image', { prompt: 'x', style: 'Red coat' }), /is an element: pass it as `elements`/);
+  await assert.rejects(service.callTool('generate_image', { prompt: 'x', elements: ['1930s movie poster'] }), /is a style: pass it as `style`/);
+  await assert.rejects(service.callTool('generate_image', { prompt: 'x', elements: ['nope'] }), (e: unknown) => e instanceof ApiError && e.code === 'not_found' && /"Red coat"/.test(e.message));
+  await assert.rejects(service.callTool('generate_image', { prompt: 'x', elements: 'Red coat' }), /list of saved element names/);
+  const listed = (await call('list_styles')).styles.map((s: { name: string; kind: string }) => [s.name, s.kind]);
+  assert.deepEqual(listed, [['1930s movie poster', 'style'], ['Red coat', 'element'], ['Wide hat', 'element']]);
 });

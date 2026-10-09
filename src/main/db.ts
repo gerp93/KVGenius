@@ -54,6 +54,11 @@ interface ColumnInfo {
  * against it fails with "no such column". Checked rather than blindly run, since re-running
  * ALTER TABLE ADD COLUMN on a column that already exists errors instead of no-op'ing. */
 function migrateSchema(db: DatabaseSync): void {
+  // Styles gained a kind (style or element); every one made before is a style.
+  const styleColumns = db.prepare('PRAGMA table_info(styles)').all() as unknown as ColumnInfo[];
+  if (styleColumns.length > 0 && !styleColumns.some((c) => c.name === 'kind')) {
+    db.exec("ALTER TABLE styles ADD COLUMN kind TEXT NOT NULL DEFAULT 'style';");
+  }
   const columns = db.prepare('PRAGMA table_info(generations)').all() as unknown as ColumnInfo[];
   if (!columns.some((c) => c.name === 'length')) {
     db.exec('ALTER TABLE generations ADD COLUMN length INTEGER;');

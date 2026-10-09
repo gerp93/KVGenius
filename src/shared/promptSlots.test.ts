@@ -33,3 +33,16 @@ test('tabs saved before image to image existed still load, and bad values are re
   // an invalid tab is dropped, and a list with nothing valid in it becomes one fresh tab
   assert.notEqual(sanitizeSlots([bad])[0].id, bad.id);
 });
+
+test('a tab remembers its elements; tabs saved before elements existed have none, and bad ids are refused', () => {
+  assert.deepEqual(defaultSlotData('image').elementIds, []);
+  const slot = newPromptSlot('image');
+  slot.data.elementIds = [3, 7];
+  assert.deepEqual(sanitizeSlots([slot])[0].data.elementIds, [3, 7]);
+  const old = newPromptSlot('image') as unknown as { id: string; name: null; data: Record<string, unknown> };
+  delete old.data.elementIds;
+  assert.equal(sanitizeSlots([old])[0].id, old.id);
+  const bad = newPromptSlot('image') as unknown as { id: string; name: null; data: Record<string, unknown> };
+  bad.data.elementIds = ['x'];
+  assert.notEqual(sanitizeSlots([bad])[0].id, bad.id);
+});

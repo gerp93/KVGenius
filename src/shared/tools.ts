@@ -55,7 +55,13 @@ export const TOOLS: ToolDefinition[] = [
         style: {
           type: 'string',
           description:
-            'Optional. The name of one of the user\'s saved styles (see list_styles; case-insensitive). Its wording is appended to the prompt, so describe only the subject in `prompt`. Omit to send the prompt exactly as written.',
+            'Optional. The name of one of the user\'s saved styles of kind "style" (a look such as anime or oil painting; see list_styles; case-insensitive). Its wording is appended to the prompt, so describe only the subject in `prompt`. Omit to send the prompt exactly as written.',
+        },
+        elements: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional. Names of saved elements (reusable parts of a picture, such as a character\'s outfit; see list_styles, kind "element"). Their wording is added after the prompt, before the style. Any number.',
         },
         source: itemIdProp('Optional. A library picture to start from (image to image). The new picture is drawn from it and the prompt, instead of from nothing; width and height then default to its shape'),
         strength: {
@@ -99,7 +105,7 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'list_styles',
     description:
-      'Lists the prompt styles the user saved in KVGenius (a name and the wording it adds after a prompt, e.g. "1930s movie poster"). Pass a style\'s name as `style` to generate_image to apply it.',
+      'Lists what the user saved in KVGenius to add to prompts: styles (a look, e.g. "1930s movie poster"; one per picture) and elements (reusable parts of a picture, e.g. a character\'s outfit; any number), each with its kind and wording. Pass a style\'s name as `style` and element names as `elements` to generate_image.',
     inputSchema: { type: 'object', properties: {} },
   },
   {

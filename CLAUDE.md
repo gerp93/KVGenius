@@ -98,18 +98,18 @@ implementation here is exactly the kind of drift it exists to prevent.
   automatic steps - move to Trash, empty Trash - are separate options, **both off by
   default** (Settings > Library Cleanup); turning one on starts its clock, so its first run
   is a day later.
-- **Styles are optional, one per generation, image mode only, and just text** (`shared/styles.ts`,
-  `main/styles.ts`, `pages/Styles.tsx`). A style is a named snippet of wording ("1930s movie poster,
-  bold lithograph...") stored in the `styles` table (names unique ignoring case). Generate's Style
-  dropdown (per prompt tab, `PromptSlotData.styleId`, default none) shows the style read-only under the
-  prompt and `combinePrompt` appends it at submit time - the UI's `generate` and the MCP/API
-  `generate_image` `style` argument (by name; `list_styles` lists them) both do this *before* the job is
-  queued. So the job, the Library record, Re-rack, pins, hidden words and group-by-prompt all see the one
-  full prompt that was sent, and with no style `combinePrompt` returns the prompt untouched - nothing
-  changes from before styles existed. `generations.style_name` is only a label for the details panel; the
-  text is never re-derived from it. Re-rack / a prompt from Library > Prompts load that full prompt with no
-  style picked (else the style would be added twice). Editing or deleting a style never touches past
-  generations.
+- **Styles come in two kinds - Style and Element - both just text** (`shared/styles.ts`, `main/styles.ts`, `pages/Styles.tsx`). A
+  *style* is a general look ("1930s movie poster, bold lithograph...") and a picture uses at most one; an *element* is a reusable part
+  of the picture (an outfit, a character) and a picture can use any number. Both live in the `styles` table (`kind` column, default
+  `'style'`, added to older databases by `migrateSchema`; names unique ignoring case across both kinds). Image mode only. Generate has a
+  Style dropdown (kind style only) and an Elements chip list with an "add" dropdown (per prompt tab: `PromptSlotData.styleId`,
+  `elementIds`; default none). `combinePrompt` appends at submit time, in this order: the prompt, the elements (in the order picked),
+  the style last (`extraWording`) - the UI's `generate` and the MCP/API `generate_image` (`style` by name, `elements` as a list of names;
+  `list_styles` lists both with their `kind`; a name of the wrong kind is refused with a pointer to the right argument) both do this
+  *before* the job is queued. So the job, the Library record, Re-rack, pins, hidden words and group-by-prompt all see the one full prompt
+  that was sent, and with nothing picked `combinePrompt` returns the prompt untouched. `generations.style_name` is only a display label
+  (`styleLabel`: "Anime + Red coat"); the text is never re-derived from it. Re-rack / a prompt from Library > Prompts load that full
+  prompt with no style or elements picked (else they would be added twice). Editing or deleting one never touches past generations.
 - **The Library's card size is one slider** (`CardSizeSlider.tsx`, `hooks/useCardScale.ts`) in the toolbar of Output, Prompts and the Trash. It is a
   multiplier (0.75-2, default 1, remembered in `localStorage`) on each page's own target row height that `justifyRows` packs to, so bigger cards mean
   fewer to a row and each page keeps its own default size. A card's action buttons wrap onto a second line when the card is narrow
