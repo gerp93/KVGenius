@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
+import { Thumbnail, thumbnailWidth } from './thumbnails';
 
 export const MEDIA_SCHEME = 'kvimage';
 
@@ -40,7 +41,9 @@ export const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.mkv'];
 export async function handleMediaRequest(
   request: Request,
   allowedDirectories: string[],
-  extraAllowedFiles: ReadonlySet<string> = new Set()
+  extraAllowedFiles: ReadonlySet<string> = new Set(),
+  /** Makes the small copy a `?w=<width>` request asks for; null means serve the original. */
+  makeThumbnail?: (file: string, width: number) => Promise<Thumbnail | null>
 ): Promise<Response> {
   const encodedPath = request.url.replace('kvimage://', '').replace(/[?#].*$/, '');
   const filePath = decodeURIComponent(encodedPath);
@@ -51,6 +54,19 @@ export async function handleMediaRequest(
   const resolved = path.resolve(filePath);
   if (!isAllowedMediaPath(resolved, allowedDirectories, extraAllowedFiles)) {
     return new Response('Forbidden', { status: 403 });
+  }
+
+  // A card asks for a small copy (?w=800); anything that cannot be shrunk falls through to the original file.
+  const widthParam = /[?&]w=(\d+)/.exec(request.url);
+  const width = thumbnailWidth(widthParam ? widthParam[1] : null);
+  if (makeThumbnail && width !== null && !request.headers.get('range')) {
+    const thumb = await makeThumbnail(resolved, width);
+    if (thumb) {
+      return new Response(new Uint8Array(thumb.data), {
+        status: 200,
+        headers: { 'Content-Type': thumb.mime, 'Content-Length': String(thumb.data.length), 'Cache-Control': 'max-age=31536000' },
+      });
+    }
   }
 
   let size: number;

@@ -113,6 +113,7 @@ import { estimateRun } from '../shared/estimator';
 import { clearTimingStats, insertTiming, listTimingRows } from './timingStats';
 import { isHardpointReachable, openHardpoint } from './hardpointLaunch';
 import { isImageFileName } from '../shared/imageFiles';
+import { Resizer, thumbnailFor } from './thumbnails';
 import { MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES, VIDEO_EXTENSIONS, handleMediaRequest, isAllowedMediaPath } from './mediaProtocol';
 import { MediaServer, startMediaServer } from './mediaServer';
 import { applyFavorite, syncFavoriteFiles } from './favorites';
@@ -262,8 +263,18 @@ function cleanIds(ids: unknown): number[] {
   return Array.isArray(ids) ? ids.filter((id): id is number => Number.isInteger(id)) : [];
 }
 
+/** Shrinks a picture for a Library card with Electron's own image decoder; null when it is unreadable or already small. */
+const resizeForCard: Resizer = async (file, width) => {
+  const image = nativeImage.createFromPath(file);
+  if (image.isEmpty() || image.getSize().width <= width) return null;
+  return image.resize({ width, quality: 'good' }).toJPEG(85);
+};
+
 function registerImageProtocol(): void {
-  protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, mediaDirs(), pickedSourceImages));
+  const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
+  protocol.handle(MEDIA_SCHEME, (request) =>
+    handleMediaRequest(request, mediaDirs(), pickedSourceImages, (file, width) => thumbnailFor(file, width, cacheDir, resizeForCard))
+  );
 }
 
 let mediaServer: MediaServer | null = null;

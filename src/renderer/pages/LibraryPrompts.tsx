@@ -10,7 +10,7 @@ import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
 import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
-import { justifyRows } from '../utils/justifiedRows';
+import { justifyRows, rowSizeHint } from '../utils/justifiedRows';
 import CardSizeSlider from '../components/CardSizeSlider';
 import { useCardScale } from '../hooks/useCardScale';
 import { useScrollKeeper } from '../hooks/useScrollKeeper';
@@ -125,16 +125,16 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
         </button>
         <CopyButton compact className="prompt-tile__copy" text={record.prompt} title="Copy this prompt" />
         {!isVideo && <CopyButton compact className="prompt-tile__copy prompt-tile__copy--image" imagePath={record.imagePath} title="Copy the image" />}
-        <div className="library-card__badges">
-          {group.items.length > 1 && (
-            <span className="library-card__stack-badge" title={`${group.items.length} pinned pictures share this exact prompt - this card cycles through them`}>
-              {index + 1} / {group.items.length}
-            </span>
-          )}
-          <OriginBadge record={record} />
-          {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
-        </div>
         <div className="prompt-tile__prompt">{record.prompt}</div>
+      </div>
+      <div className="library-card__badges">
+        {group.items.length > 1 && (
+          <span className="library-card__stack-badge" title={`${group.items.length} pinned pictures share this exact prompt - this card cycles through them`}>
+            {index + 1} / {group.items.length}
+          </span>
+        )}
+        <OriginBadge record={record} />
+        {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
       </div>
       <div className="library-card__actions library-card__actions--labeled">
         <button type="button" className="primary" onClick={() => onUse(record)} title="Put this prompt on the Generate page">
@@ -427,7 +427,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
         {/* Always rendered so the width observer attaches on mount. */}
         <div className="library-rows" ref={gridRef}>
           {rows.map((row) => (
-            <div key={visibleGroups[row.items[0].index].items[0].id} className="library-row">
+            <div key={visibleGroups[row.items[0].index].items[0].id} className="library-row library-row--skippable" style={rowSizeHint(row.height)}>
               {row.items.map(({ index, width }) => {
                 const group = visibleGroups[index];
                 return (

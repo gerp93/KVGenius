@@ -4,7 +4,7 @@ import { TrashStats } from '../../shared/cleanup';
 import GalleryLightbox from '../components/GalleryLightbox';
 import GeneratedVideo from '../components/GeneratedVideo';
 import { formatBytes } from '../utils/format';
-import { justifyRows } from '../utils/justifiedRows';
+import { justifyRows, rowSizeHint } from '../utils/justifiedRows';
 import CardSizeSlider from '../components/CardSizeSlider';
 import { useCardScale } from '../hooks/useCardScale';
 
@@ -335,7 +335,7 @@ export default function LibraryTrash() {
         {/* user-select is off in select mode so Shift-click picks a range instead of highlighting text */}
         <div className={`library-rows${selecting ? ' library-rows--selecting' : ''}`} ref={gridRef}>
           {rows.map((row) => (
-            <div key={records[row.items[0].index].id} className="library-row">
+            <div key={records[row.items[0].index].id} className="library-row library-row--skippable" style={rowSizeHint(row.height)}>
               {row.items.map(({ index, width }) => {
                 const record = records[index];
                 const url = window.kvgenius.imageUrlFor(record.imagePath);
@@ -362,7 +362,7 @@ export default function LibraryTrash() {
                           <span className="library-card__play-badge">▶</span>
                         </>
                       ) : (
-                        <img src={url} alt={record.prompt} loading="lazy" decoding="async" />
+                        <img src={window.kvgenius.thumbUrlFor(record.imagePath)} alt={record.prompt} loading="lazy" decoding="async" />
                       )}
                       <div className="prompt-tile__prompt">{record.prompt}</div>
                     </div>
