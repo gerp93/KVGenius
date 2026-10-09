@@ -16,6 +16,7 @@ import { announceGenerationChange, useGenerationChanges } from '../utils/generat
 import { justifyRows } from '../utils/justifiedRows';
 import CardSizeSlider from '../components/CardSizeSlider';
 import { useCardScale } from '../hooks/useCardScale';
+import { useScrollKeeper } from '../hooks/useScrollKeeper';
 import { pinNotice } from '../utils/library';
 
 const PAGE_SIZE = 60;
@@ -106,6 +107,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
 
   const navigate = useNavigate();
   const gridRef = useRef<HTMLDivElement>(null);
+  // The scrolling column around the grid: kept in place when cards leave it or the details panel opens and closes.
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  scrollerRef.current = gridRef.current?.closest<HTMLElement>('.library-output__main') ?? null;
+  const keepView = useScrollKeeper(scrollerRef);
   const sentinelRef = useRef<HTMLDivElement>(null);
   // Bumped on every tab change so a page that finishes loading for the tab we just left is
   // discarded instead of being appended to the new tab's list.
@@ -472,6 +477,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   }
 
   function forgetIds(ids: number[], kind: GenerationKind) {
+    keepView.hold(ids);
     if (stacking) {
       // Taking an item out of a stack changes its count and maybe its cover, so load the stacks again.
       setReloadKey((k) => k + 1);
@@ -493,6 +499,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       case 'hidden':
       case 'created':
         // Left (or joined) the Library: load the list (and the counts) again.
+        if (change.kind !== 'created') keepView.hold([change.id]);
         setReloadKey((k) => k + 1);
         break;
       case 'pinned':
@@ -683,6 +690,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     return (
       <div
         key={record.id}
+        data-card-id={record.id}
         className={`library-card${selected ? ' library-card--selected' : ''}${active ? ' library-card--active' : ''}${stack ? ' library-card--stack' : ''}`}
         style={{ width }}
       >
@@ -964,7 +972,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
           <LibraryDetails
             record={infoRecord}
             queue={queue}
-            onClose={() => setInfoId(null)}
+            onClose={() => {
+              keepView.hold();
+              setInfoId(null);
+            }}
             onExpand={() => setLightboxIndex(records.findIndex((r) => r.id === infoRecord.id))}
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}

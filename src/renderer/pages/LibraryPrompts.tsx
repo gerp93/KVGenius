@@ -13,6 +13,7 @@ import { announceGenerationChange, useGenerationChanges } from '../utils/generat
 import { justifyRows } from '../utils/justifiedRows';
 import CardSizeSlider from '../components/CardSizeSlider';
 import { useCardScale } from '../hooks/useCardScale';
+import { useScrollKeeper } from '../hooks/useScrollKeeper';
 import { pinNotice } from '../utils/library';
 import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
 import { useSourceMissing } from '../hooks/useMissingSources';
@@ -89,7 +90,7 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
   const isVideo = kindOf(record) === 'video';
   const sourceMissing = useSourceMissing(record);
   return (
-    <div className={`library-card prompt-tile${active ? ' library-card--active' : ''}`} style={{ width }}>
+    <div data-card-id={group.items[0].id} className={`library-card prompt-tile${active ? ' library-card--active' : ''}`} style={{ width }}>
       <div
         className="library-card__media"
         style={{ height, cursor: 'pointer' }}
@@ -173,6 +174,10 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
   const [reloadKey, setReloadKey] = useState(0);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  // The scrolling column around the grid: kept in place when cards leave it or the details panel opens and closes.
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  scrollerRef.current = gridRef.current?.closest<HTMLElement>('.library-output__main') ?? null;
+  const keepView = useScrollKeeper(scrollerRef);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -222,6 +227,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
 
   /** Takes a generation out of the list (unpinned, hidden, deleted), closing whatever showed it. */
   function forget(id: number) {
+    keepView.hold([id]);
     setRecords((prev) => prev.filter((r) => r.id !== id));
     setInfoId((prev) => (prev === id ? null : prev));
     // The viewer was showing one of these by index - close it rather than land on a shifted item.
@@ -449,7 +455,10 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
           <LibraryDetails
             record={infoRecord}
             queue={queue}
-            onClose={() => setInfoId(null)}
+            onClose={() => {
+              keepView.hold();
+              setInfoId(null);
+            }}
             onExpand={() => setLightboxIndex(visible.findIndex((r) => r.id === infoRecord.id))}
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}
