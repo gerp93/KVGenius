@@ -9,6 +9,7 @@ import { migrateFamilyKeys } from './familyMigration';
 import { IMPORTS_SCHEMA } from './library';
 import { ASSEMBLIES_SCHEMA } from './assembly';
 import { STYLES_SCHEMA } from './styles';
+import { STYLE_SAMPLES_SCHEMA } from './styleSamples';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, parseOutpaint, serializeOutpaint, OutpaintPadding } from '../shared/imageToImage';
 import { T2V_FAMILY } from '../shared/textToVideo';
 import { MODEL_PROFILES_SCHEMA } from './modelProfiles';
@@ -58,6 +59,11 @@ function migrateSchema(db: DatabaseSync): void {
   const styleColumns = db.prepare('PRAGMA table_info(styles)').all() as unknown as ColumnInfo[];
   if (styleColumns.length > 0 && !styleColumns.some((c) => c.name === 'kind')) {
     db.exec("ALTER TABLE styles ADD COLUMN kind TEXT NOT NULL DEFAULT 'style';");
+  }
+  // ...and a date for when its wording last changed; before this it is when the style was made.
+  if (styleColumns.length > 0 && !styleColumns.some((c) => c.name === 'text_changed_at')) {
+    db.exec("ALTER TABLE styles ADD COLUMN text_changed_at TEXT NOT NULL DEFAULT '';");
+    db.exec("UPDATE styles SET text_changed_at = created_at WHERE text_changed_at = '';");
   }
   const columns = db.prepare('PRAGMA table_info(generations)').all() as unknown as ColumnInfo[];
   if (!columns.some((c) => c.name === 'length')) {
@@ -191,6 +197,7 @@ export function initDatabase(dbPath: string): DatabaseSync {
   db.exec(IMPORTS_SCHEMA);
   db.exec(ASSEMBLIES_SCHEMA);
   db.exec(STYLES_SCHEMA);
+  db.exec(STYLE_SAMPLES_SCHEMA);
   db.exec(MODEL_PROFILES_SCHEMA);
   migrateSchema(db);
   try {

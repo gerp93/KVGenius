@@ -22,6 +22,8 @@ export interface PromptStyle {
   /** Style (a look, one per picture) or element (a reusable part of the picture, as many as wanted). */
   kind: StyleKind;
   createdAt: string;
+  /** When the wording (`text`) was last written or changed - a rename or a kind change does not count. */
+  textChangedAt: string;
 }
 
 /** What the Styles page sends when saving: a new style (no id) or an edit of an existing one. */

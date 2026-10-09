@@ -9,6 +9,7 @@ import type { OutpaintPadding } from './imageToImage';
 import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
 import type { PromptStyle, PromptStyleInput } from './styles';
+import type { StyleSampleSettings, StyleSamplesView } from './styleSamples';
 
 export interface GenerationParams {
   prompt: string;
@@ -449,6 +450,11 @@ export interface KVGeniusAPI {
   saveStyle: (input: PromptStyleInput, id?: number | null) => Promise<PromptStyle>;
   /** Past generations are not affected: they keep the text they were made with. */
   deleteStyle: (id: number) => Promise<void>;
+  /** The standard prompt and seed the Styles page's examples are made from, and how each example stands. */
+  getStyleSamples: () => Promise<StyleSamplesView>;
+  saveStyleSampleSettings: (input: { prompt: string; seed: number }) => Promise<StyleSampleSettings>;
+  /** Queues the examples for these ids (0 = the baseline with nothing added); returns how many were queued. */
+  renderStyleSamples: (ids: number[]) => Promise<number>;
 
   /** Saved model variants (see shared/modelProfiles.ts). Past generations keep the files and settings they were made with. */
   listModelProfiles: () => Promise<ModelProfile[]>;

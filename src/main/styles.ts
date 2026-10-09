@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS styles (
   name TEXT NOT NULL COLLATE NOCASE,
   text TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'style',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  text_changed_at TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_styles_name ON styles (name COLLATE NOCASE);
 `;
@@ -22,10 +23,11 @@ interface StyleRow {
   text: string;
   kind?: string | null;
   created_at: string;
+  text_changed_at?: string | null;
 }
 
 function rowToStyle(row: StyleRow): PromptStyle {
-  return { id: row.id, name: row.name, text: row.text, kind: cleanStyleKind(row.kind), createdAt: row.created_at };
+  return { id: row.id, name: row.name, text: row.text, kind: cleanStyleKind(row.kind), createdAt: row.created_at, textChangedAt: row.text_changed_at || row.created_at };
 }
 
 function isNameTaken(err: unknown): boolean {
@@ -52,14 +54,17 @@ export function saveStyle(db: DatabaseSync, input: PromptStyleInput, id: number 
   const checked = validateStyleInput(input);
   if (!checked.ok) throw new Error(checked.message);
   const { name, text, kind } = checked.value;
+  const now = new Date().toISOString();
   try {
     if (id === null) {
       const result = db
-        .prepare('INSERT INTO styles (name, text, kind, created_at) VALUES (?, ?, ?, ?)')
-        .run(name, text, kind ?? 'style', new Date().toISOString());
+        .prepare('INSERT INTO styles (name, text, kind, created_at, text_changed_at) VALUES (?, ?, ?, ?, ?)')
+        .run(name, text, kind ?? 'style', now, now);
       return getStyle(db, Number(result.lastInsertRowid)) as PromptStyle;
     }
-    const result = db.prepare('UPDATE styles SET name = ?, text = ?, kind = ? WHERE id = ?').run(name, text, kind ?? 'style', id);
+    const before = getStyle(db, id);
+    const changedAt = before && before.text === text ? before.textChangedAt : now;
+    const result = db.prepare('UPDATE styles SET name = ?, text = ?, kind = ?, text_changed_at = ? WHERE id = ?').run(name, text, kind ?? 'style', changedAt, id);
     if (Number(result.changes) === 0) throw new Error('That style no longer exists.');
     return getStyle(db, id) as PromptStyle;
   } catch (err) {

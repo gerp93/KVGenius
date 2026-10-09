@@ -49,7 +49,8 @@ import { compileHiddenMatcher } from '../shared/hiddenWords';
 import { normalizeDays, updateCleanupSettings } from '../shared/cleanup';
 import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
-import { deleteStyle, listStyles, saveStyle } from './styles';
+import { deleteStyle, getStyle, listStyles, saveStyle } from './styles';
+import { StyleSampleService, saveSampleSettings } from './styleSamples';
 import { deleteModelProfile, listModelProfiles, saveModelProfile } from './modelProfiles';
 import {
   initDatabase,
@@ -441,6 +442,26 @@ function mcpInfo(): McpInfo {
     configSnippet: JSON.stringify(snippet, null, 2),
     ffmpeg: { available: ff !== null, path: ff?.ffmpeg ?? null, override: getFfmpegOverride() },
   };
+}
+
+let styleSampleService: StyleSampleService | null = null;
+
+/** The service behind the Styles page's example pictures; made on first use, once the database and queue exist. */
+function styleSamples(): StyleSampleService | null {
+  if (!db || !jobQueue) return null;
+  const database = db;
+  const queue = jobQueue;
+  styleSampleService ??= new StyleSampleService({
+    db: database,
+    queue,
+    trash: (ids) => void moveToTrash(database, ids, getTrashDir()),
+    hide: (id) => setGenerationHidden(database, id, true),
+    getRecord: (id) => getGenerationById(database, id),
+    imageUrlFor,
+    listStyles: () => listStyles(database),
+    getStyle: (id) => getStyle(database, id),
+  });
+  return styleSampleService;
 }
 
 function registerIpcHandlers(): void {
@@ -884,6 +905,21 @@ function registerIpcHandlers(): void {
   ipcMain.handle('deleteStyle', (_event, id: number) => {
     if (!db) throw new Error('Database not initialized');
     deleteStyle(db, id);
+    styleSamples()?.forget(id);
+  });
+  ipcMain.handle('getStyleSamples', () => {
+    const service = styleSamples();
+    if (!service) throw new Error('Database not initialized');
+    return service.view();
+  });
+  ipcMain.handle('saveStyleSampleSettings', (_event, input: { prompt?: unknown; seed?: unknown }) => {
+    if (!db) throw new Error('Database not initialized');
+    return saveSampleSettings(db, input ?? {});
+  });
+  ipcMain.handle('renderStyleSamples', (_event, ids: unknown) => {
+    const service = styleSamples();
+    if (!service) throw new Error('Database not initialized');
+    return service.render(cleanIds(ids));
   });
 
   ipcMain.handle('listModelProfiles', () => {
