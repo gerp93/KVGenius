@@ -837,6 +837,7 @@ function registerIpcHandlers(): void {
       denoise: params.denoise ?? null,
       maskImagePath: params.maskImagePath ?? null,
       outpaint: params.outpaint ?? null,
+      sourceVideoPath: params.sourceVideoPath ?? null,
     });
   });
 

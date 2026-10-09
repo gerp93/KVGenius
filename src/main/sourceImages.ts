@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { INPAINT_FAMILY } from '../shared/imageToImage';
 import { needsSourceImage } from '../shared/sourceFamilies';
+import { V2V_FAMILY } from '../shared/videoToVideo';
 
 /**
  * A video is made from a source image that is only ever uploaded to ComfyUI, so without a copy a
@@ -82,8 +83,12 @@ export function keptFilesOfParams(family: string, params: { sourceImagePath?: st
  * may move, be favorited into another folder or be deleted while the job waits. Throws, naming the problem, when an original is
  * already gone: better said at once than as a failed job later.
  */
-export function keepJobSources<P extends { sourceImagePath?: string; maskImagePath?: string }>(family: string, params: P, sourcesDir: string): P {
+export function keepJobSources<P extends { sourceImagePath?: string; maskImagePath?: string; sourceVideoPath?: string }>(family: string, params: P, sourcesDir: string): P {
   const next = { ...params };
+  // A video to video source is a Library video, read in place (videos are too big to copy), so only check it is still there.
+  if (family === V2V_FAMILY && params.sourceVideoPath && !fs.existsSync(params.sourceVideoPath)) {
+    throw new Error(`The source video could not be found any more (${params.sourceVideoPath}). Choose it again.`);
+  }
   if (needsSourceImage(family) && params.sourceImagePath) {
     const kept = keepSourceImage(params.sourceImagePath, sourcesDir);
     if (!kept) throw new Error(`The source image could not be found any more (${params.sourceImagePath}). Choose it again.`);

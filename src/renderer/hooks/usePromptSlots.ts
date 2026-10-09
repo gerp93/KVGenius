@@ -3,6 +3,7 @@ import { clampDenoise, DEFAULT_DENOISE, normalizeOutpaint } from '../../shared/i
 import type { OutpaintPadding } from '../../shared/imageToImage';
 import { GenerationKind } from '../../shared/types';
 import type { VideoQuality } from '../../shared/videoQuality';
+import { V2V_DEFAULT_STRENGTH } from '../../shared/videoToVideo';
 import { MAX_PROMPT_SLOTS, PromptSlot, PromptSlotData, newPromptSlot, slotLabel } from '../../shared/promptSlots';
 
 /** How long to wait after the last edit before writing the tabs to disk - typing shouldn't hit
@@ -32,6 +33,9 @@ export function usePromptSlots() {
   const [videoQuality, setVideoQuality] = useState<VideoQuality>('fast');
   const [sourceImagePath, setSourceImagePath] = useState<string | null>(null);
   const [videoFromPicture, setVideoFromPicture] = useState(true);
+  const [videoFromVideo, setVideoFromVideo] = useState(false);
+  const [sourceVideoPath, setSourceVideoPath] = useState<string | null>(null);
+  const [videoStrength, setVideoStrength] = useState(V2V_DEFAULT_STRENGTH);
   const [extendFromId, setExtendFromId] = useState<number | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customSize, setCustomSize] = useState(false);
@@ -59,6 +63,9 @@ export function usePromptSlots() {
     setVideoQuality(data.videoQuality ?? 'fast');
     setSourceImagePath(data.sourceImagePath);
     setVideoFromPicture(data.videoFromPicture ?? true);
+    setVideoFromVideo(data.videoFromVideo ?? false);
+    setSourceVideoPath(data.sourceVideoPath ?? null);
+    setVideoStrength(data.videoStrength ?? V2V_DEFAULT_STRENGTH);
     setExtendFromId(data.extendFromId ?? null);
     setAdvancedOpen(data.advancedOpen);
     setCustomSize(data.customSize);
@@ -116,6 +123,9 @@ export function usePromptSlots() {
       videoQuality,
       sourceImagePath,
       videoFromPicture,
+      videoFromVideo,
+      sourceVideoPath,
+      videoStrength,
       extendFromId,
       advancedOpen,
       customSize,
@@ -161,6 +171,9 @@ export function usePromptSlots() {
     videoQuality,
     sourceImagePath,
     videoFromPicture,
+    videoFromVideo,
+    sourceVideoPath,
+    videoStrength,
     extendFromId,
     advancedOpen,
     customSize,
@@ -262,6 +275,12 @@ export function usePromptSlots() {
     setSourceImagePath,
     videoFromPicture,
     setVideoFromPicture,
+    videoFromVideo,
+    setVideoFromVideo,
+    sourceVideoPath,
+    setSourceVideoPath,
+    videoStrength,
+    setVideoStrength,
     extendFromId,
     setExtendFromId,
     advancedOpen,

@@ -2,6 +2,7 @@ import { DEFAULT_DENOISE } from './imageToImage';
 import type { OutpaintPadding } from './imageToImage';
 import type { GenerationKind } from './types';
 import type { VideoQuality } from './videoQuality';
+import { V2V_DEFAULT_STRENGTH } from './videoToVideo';
 
 /** Everything a prompt "tab" on the Generate page holds - the whole left-hand form, so switching
  * tabs restores exactly what was there. Deliberately plain JSON (no functions/Dates) since this
@@ -21,6 +22,12 @@ export interface PromptSlotData {
   sourceImagePath: string | null;
   /** Video mode only: the Text -> Video / Image -> Video choice. Absent in older configs - image to video (the only kind then). */
   videoFromPicture?: boolean;
+  /** Video mode only: re-draw a Library video (video to video) instead of starting from a picture or from nothing. Absent in older configs - false. */
+  videoFromVideo?: boolean;
+  /** Video to video only: the Library video re-drawn, or null. Absent in older configs - null. */
+  sourceVideoPath?: string | null;
+  /** Video to video only: how much of the source is re-drawn (0.05-1). Absent in older configs - the default. */
+  videoStrength?: number;
   /** Image to video only: the id of the video this run extends (its last frame is the source image and the new clip is joined onto it), or null. Absent in older configs - null. */
   extendFromId?: number | null;
   advancedOpen: boolean;
@@ -78,6 +85,9 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     videoQuality: 'fast',
     sourceImagePath: null,
     videoFromPicture: true,
+    videoFromVideo: false,
+    sourceVideoPath: null,
+    videoStrength: V2V_DEFAULT_STRENGTH,
     extendFromId: null,
     advancedOpen: false,
     customSize: false,
@@ -130,6 +140,9 @@ function isValidData(data: unknown): data is PromptSlotData {
     (d.videoQuality === undefined || d.videoQuality === 'fast' || d.videoQuality === 'high') &&
     (d.sourceImagePath === null || typeof d.sourceImagePath === 'string') &&
     (d.videoFromPicture === undefined || typeof d.videoFromPicture === 'boolean') &&
+    (d.videoFromVideo === undefined || typeof d.videoFromVideo === 'boolean') &&
+    (d.sourceVideoPath === undefined || d.sourceVideoPath === null || typeof d.sourceVideoPath === 'string') &&
+    (d.videoStrength === undefined || typeof d.videoStrength === 'number') &&
     (d.extendFromId === undefined || d.extendFromId === null || typeof d.extendFromId === 'number') &&
     typeof d.advancedOpen === 'boolean' &&
     typeof d.customSize === 'boolean' &&

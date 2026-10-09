@@ -2,11 +2,12 @@ import { canonicalFamily, LEGACY_FAMILY_KEYS, Z_IMAGE_FAMILY } from './families'
 import { GIF_FAMILY } from './gif';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY } from './imageToImage';
 import { I2V_FAMILY, T2V_FAMILY } from './textToVideo';
+import { V2V_FAMILY } from './videoToVideo';
 import { FAMILY_KIND, GenerationKind } from './types';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from './upscale';
 
 /** How a Library item came to be - shown as a small tag on its card so it can be told at a glance. */
-export type OriginKind = 'text-to-image' | 'image-to-image' | 'inpaint' | 'outpaint' | 'image-to-video' | 'text-to-video' | 'upscale' | 'gif';
+export type OriginKind = 'text-to-image' | 'image-to-image' | 'inpaint' | 'outpaint' | 'image-to-video' | 'text-to-video' | 'video-to-video' | 'upscale' | 'gif';
 
 export interface GenerationOrigin {
   kind: OriginKind;
@@ -23,6 +24,7 @@ const ORIGINS: Record<OriginKind, Omit<GenerationOrigin, 'kind'>> = {
   outpaint: { label: 'Outpainted', title: 'A picture extended beyond its frame; the original is untouched and only the new area is drawn' },
   'image-to-video': { label: 'Image → Video', title: 'A video animated from a still image' },
   'text-to-video': { label: 'Text → Video', title: 'A video generated from a text prompt' },
+  'video-to-video': { label: 'Video → Video', title: 'A video re-drawn from another video and a prompt' },
   upscale: { label: 'Upscaled', title: 'An enlarged copy of another picture or video, not generated from the prompt' },
   gif: { label: 'GIF', title: 'A GIF made from a video' },
 };
@@ -40,11 +42,12 @@ export function generationOrigin(modelFamily: string): GenerationOrigin | null {
   else if (modelFamily === OUTPAINT_FAMILY) kind = 'outpaint';
   else if (modelFamily === I2V_FAMILY) kind = 'image-to-video';
   else if (modelFamily === T2V_FAMILY) kind = 'text-to-video';
+  else if (modelFamily === V2V_FAMILY) kind = 'video-to-video';
   return kind ? { kind, ...ORIGINS[kind] } : null;
 }
 
 /** Every origin, in the order the Library's filter lists them. */
-export const ORIGIN_KINDS: OriginKind[] = ['text-to-image', 'image-to-image', 'inpaint', 'outpaint', 'image-to-video', 'text-to-video', 'upscale', 'gif'];
+export const ORIGIN_KINDS: OriginKind[] = ['text-to-image', 'image-to-image', 'inpaint', 'outpaint', 'image-to-video', 'text-to-video', 'video-to-video', 'upscale', 'gif'];
 
 /** The model families that make an item of this origin - what a "show only these" filter selects. */
 export const FAMILIES_BY_ORIGIN: Record<OriginKind, string[]> = {
@@ -55,6 +58,7 @@ export const FAMILIES_BY_ORIGIN: Record<OriginKind, string[]> = {
   outpaint: [OUTPAINT_FAMILY],
   'image-to-video': [I2V_FAMILY],
   'text-to-video': [T2V_FAMILY],
+  'video-to-video': [V2V_FAMILY],
   upscale: [UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY],
   gif: [GIF_FAMILY],
 };

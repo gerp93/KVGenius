@@ -1,3 +1,5 @@
+import { V2V_FAMILY } from './videoToVideo';
+
 /**
  * Text to video: Wan 2.2's text-to-video pair of models, run from a prompt alone. It shares the image-to-video
  * workflow's shape (two-stage high/low noise sampling, the same text encoder and VAE, a Fast 4-step LoRA switch) with
@@ -14,7 +16,8 @@ export function isExtendableFamily(family: string): boolean {
   return family === I2V_FAMILY || family === T2V_FAMILY;
 }
 
-/** The video workflow family a Generate run uses: image to video once the run starts from a picture, else text to video. */
-export function videoFamilyFor(fromPicture: boolean): string {
+/** The video workflow family a Generate run uses: video to video once it re-draws a video, image to video once it starts from a picture, else text to video. */
+export function videoFamilyFor(fromPicture: boolean, fromVideo = false): string {
+  if (fromVideo) return V2V_FAMILY;
   return fromPicture ? I2V_FAMILY : T2V_FAMILY;
 }

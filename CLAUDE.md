@@ -310,6 +310,19 @@ implementation here is exactly the kind of drift it exists to prevent.
   Text → Video. MCP: `generate_video` without `source` is text to video (with `source`, image to video; naming the wrong family for the
   arguments is refused). The T2V file names are unverified against the Hugging Face repo.
   Whenever a source image is set for image to video - chosen from a file, dropped, or picked from the Library - the video size follows its shape (`setVideoSizeToPicture`: long side 640, sides in 16s) so a portrait picture is not cropped into the square default.
+- **Video to video is Generate's video mode re-drawing a Library video, and its own family** (`wan22-v2v`, `shared/videoToVideo.ts`,
+  `templates/wan22-v2v.json`, `main/videoToVideoPatch.ts`, `SourceVideoField.tsx`). Video mode has a third radio, Video → Video (the tab's `videoFromVideo`,
+  `sourceVideoPath`, `videoStrength`; `videoFamilyFor(fromPicture, fromVideo)` picks the family). It is the text-to-video graph with the empty latent replaced by
+  load video -> split into frames -> scale to the output size (centre crop) -> first `length` frames -> VAE encode, **keeping every node id** (so the text-to-video model
+  profiles - `PROFILE_BASE` - the Fast / High switch and the sizes work unchanged), and the saved video takes its frame rate from the source. Strength ("How much to
+  change it", `generations.denoise`, default 0.7) works like image to image's: `v2vSchedule` skips the first `(1 - strength)` of the steps by setting the high-noise sampler's
+  `start_at_step`; when that is already past the hand-over to the low-noise model, the low-noise sampler adds the noise itself. `V2V_STEPS` must match the template's step primitives
+  (`videoToVideo.test.ts` checks). The source is a **Library video read in place** (`generations.source_video_path`, `GenerationParams.sourceVideoPath`, uploaded to ComfyUI like a
+  video upscale's) - videos are too big to copy, so unlike a source *image* there is no kept copy: the queue refuses a source that is gone (`keepJobSources`), a favorite moves the
+  file so Generate follows it (`useGenerationChanges`), and Re-rack is disabled with "the source video is missing" once it is gone (`keptFilesOf`, `sourceMissingMessage`). Entry
+  points: the details panel's "🎞️ Video → Video" (a `VideoSourceRequest` with `target: 'restyle'`) and Generate's "From Library..." (`LibraryPicker kind="video"`). The sound
+  of the source is **not** kept (the model makes none either), only the first N frames are used, origin tag Video → Video, not available over MCP. Unverified against a real
+  ComfyUI: that the graph is accepted (`LoadVideo` / `GetVideoComponents` / `ImageFromBatch` / `VAEEncode` are core nodes) and how well Wan restyles at partial strength.
 - **A video can be extended** (`➕ Extend this video` in the details panel, `main/extendVideo.ts`, `planLastFrame` / `planJoin` in `mediaTools.ts`). The
   button reads the video's last frame with ffmpeg (`prepareVideoExtension`), keeps it as a source picture and opens Generate in Image → Video with
   that frame, the video's size and prompt (`VideoSourceRequest.extend`, the tab's `extendFromId`, shown as a note with "Make a separate clip

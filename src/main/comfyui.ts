@@ -9,6 +9,7 @@ import { getEffectiveComfyUIHost } from './dbLocation';
 import zImageTurboTemplate from './templates/z-image.json';
 import wan22I2vTemplate from './templates/wan22-i2v.json';
 import wan22T2vTemplate from './templates/wan22-t2v.json';
+import wan22V2vTemplate from './templates/wan22-v2v.json';
 import zImageI2iTemplate from './templates/z-image-i2i.json';
 import zImageInpaintTemplate from './templates/z-image-inpaint.json';
 import zImageOutpaintTemplate from './templates/z-image-outpaint.json';
@@ -19,6 +20,8 @@ import { canonicalFamily } from '../shared/families';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, normalizeOutpaint } from '../shared/imageToImage';
 import { I2V_FAMILY, T2V_FAMILY } from '../shared/textToVideo';
 import { fillImageToImage, fillInpaint, fillOutpaint } from './imageToImagePatch';
+import { fillVideoToVideo } from './videoToVideoPatch';
+import { V2V_FAMILY } from '../shared/videoToVideo';
 import { applyModelSettings } from './modelPatch';
 import { FOLDER_LOADERS, MODEL_FOLDERS } from '../shared/modelManifest';
 import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/modelStatus';
@@ -36,6 +39,7 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
   [OUTPAINT_FAMILY]: zImageOutpaintTemplate,
   'wan22-i2v': wan22I2vTemplate,
   [T2V_FAMILY]: wan22T2vTemplate,
+  [V2V_FAMILY]: wan22V2vTemplate,
   [UPSCALE_FAMILY]: upscaleImageTemplate,
   [UPSCALE_VIDEO_FAMILY]: upscaleVideoTemplate,
 };
@@ -246,6 +250,14 @@ async function patchTemplate(
     const resize = workflow[UPSCALE_VIDEO_NODE_MAP.resize] as { inputs: Record<string, unknown> };
     resize.inputs.width = params.width;
     resize.inputs.height = params.height;
+    return workflow;
+  }
+
+  if (family === V2V_FAMILY) {
+    if (!params.sourceVideoPath) throw new Error('Video to video needs a source video.');
+    // ComfyUI's upload endpoint stores any file in its input folder; LoadVideo then finds it by name.
+    const uploadedName = await uploadSourceImage(params.sourceVideoPath, signal);
+    fillVideoToVideo(workflow, params, uploadedName, family);
     return workflow;
   }
 

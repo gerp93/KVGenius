@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DEFAULT_GIF_FPS, DEFAULT_GIF_WIDTH, GIF_FPS_CHOICES, GIF_WIDTHS } from '../../shared/gif';
-import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../../shared/upscale';
+import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, VideoSourceRequest } from '../../shared/types';
 import { isExtendableFamily } from '../../shared/textToVideo';
 import { GenerationQueue, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { formatBytes, formatDifference, formatDuration } from '../utils/format';
 import { shouldSplitDetails } from '../../shared/detailsLayout';
-import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
+import { sourceMissingMessage } from '../../shared/sourceFamilies';
+import { V2V_FAMILY } from '../../shared/videoToVideo';
 import { useSourceMissing } from '../hooks/useMissingSources';
 import { useRetryWhenReachable } from '../hooks/useRetryWhenReachable';
 import { isUpscale } from '../utils/library';
@@ -290,15 +291,27 @@ export default function LibraryDetails({
         className="primary"
         onClick={() => onRerack(record)}
         disabled={sourceMissing}
-        title={sourceMissing ? SOURCE_MISSING_MESSAGE : undefined}
+        title={sourceMissing ? sourceMissingMessage(record.modelFamily) : undefined}
         style={{ width: '100%' }}
       >
         ↺ Re-rack
       </button>
       {sourceMissing && (
         <p className="library-panel__warning" role="alert">
-          {SOURCE_MISSING_MESSAGE}
+          {sourceMissingMessage(record.modelFamily)}
         </p>
+      )}
+      {kindOf(record) === 'video' && !isUpscaleFamily(record.modelFamily) && (
+        <button
+          type="button"
+          onClick={() =>
+            onExtendVideo({ target: 'restyle', imagePath: record.imagePath, videoPath: record.imagePath, width: record.width, height: record.height, prompt: record.prompt })
+          }
+          title="Re-draw this video from a new prompt, keeping its motion to the degree you choose"
+          style={{ width: '100%' }}
+        >
+          🎞️ Video → Video
+        </button>
       )}
       {kindOf(record) === 'video' && isExtendableFamily(record.modelFamily) && (
         <>
@@ -492,6 +505,12 @@ export default function LibraryDetails({
         <dd>{new Date(record.createdAt).toLocaleString()}</dd>
         <dt>File</dt>
         <dd>{record.imagePath.split(/[\\/]/).pop()}</dd>
+        {record.modelFamily === V2V_FAMILY && record.sourceVideoPath && (
+          <>
+            <dt>Source video</dt>
+            <dd title={record.sourceVideoPath}>{record.sourceVideoPath.split(/[\\/]/).pop()}</dd>
+          </>
+        )}
       </dl>
       {record.sourceImagePath && (
         <div className="library-panel__original">

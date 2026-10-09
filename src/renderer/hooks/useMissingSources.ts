@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { GenerationRecord } from '../../shared/types';
 import { needsSourceImage } from '../../shared/sourceFamilies';
+import { V2V_FAMILY } from '../../shared/videoToVideo';
 
 /** The kept source image a result needs in order to be re-run, or null if it needs none (or none was
  * ever recorded - results made before sources were kept, which can still be re-run with a new one). */
@@ -9,10 +10,11 @@ export function sourcePathOf(record: GenerationRecord | null | undefined): strin
   return record.sourceImagePath ?? null;
 }
 
-/** Every kept file a result needs in order to be re-run: its source image and, for inpainting, its mask. */
+/** Every file a result needs in order to be re-run: its kept source image and, for inpainting, its mask - or, for video to video, the Library video it was made from. */
 export function keptFilesOf(record: GenerationRecord | null | undefined): string[] {
   const source = sourcePathOf(record);
-  return [source, record?.maskImagePath ?? null].filter((p): p is string => !!p);
+  const video = record?.modelFamily === V2V_FAMILY ? (record.sourceVideoPath ?? null) : null;
+  return [source, record?.maskImagePath ?? null, video].filter((p): p is string => !!p);
 }
 
 /**

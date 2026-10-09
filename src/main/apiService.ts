@@ -5,6 +5,7 @@ import * as path from 'path';
 import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/types';
 import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
 import { I2V_FAMILY, T2V_FAMILY, videoFamilyFor } from '../shared/textToVideo';
+import { V2V_FAMILY } from '../shared/videoToVideo';
 import { PROFILE_FAMILIES, profileFamily, profileFamilyKey, SAMPLER_LIMITS } from '../shared/modelFamilies';
 import { clampDenoise, DEFAULT_DENOISE, DENOISE_LIMITS, I2I_FAMILY, INPAINT_FAMILY, normalizeOutpaint, OUTPAINT_DEFAULT_DENOISE, OUTPAINT_FAMILY, outpaintOutputSize } from '../shared/imageToImage';
 import { ModelProfile, profileSettings } from '../shared/modelProfiles';
@@ -425,6 +426,7 @@ export class ApiService {
     const sourceId = optString(args, 'source', 64);
     const family = optString(args, 'family', 64) ?? videoFamilyFor(sourceId !== undefined);
     if (FAMILY_KIND[family] !== 'video' || isUpscaleFamily(family)) fail(`"${family}" is not a video family. Video families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'video' && !isUpscaleFamily(f)).join(', ')}.`);
+    if (family === V2V_FAMILY) fail('Video to video is only available in the app.');
     if (family === I2V_FAMILY && sourceId === undefined) fail('"source" is required for image-to-video (pass a library image id, or use family "wan22-t2v" for text-to-video).');
     if (family === T2V_FAMILY && sourceId !== undefined) fail('Text-to-video takes no "source". Leave it out, or use family "wan22-i2v" to animate that picture.');
     const source = sourceId === undefined ? null : this.requireItem(sourceId, ['image'], 'source');

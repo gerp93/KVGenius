@@ -79,6 +79,8 @@ export interface GenerationRecord {
   /** Outpainting only: how far the source image was extended (see GenerationParams.outpaint), else null. */
   outpaint: OutpaintPadding | null;
   /** A video made by extending another: how many frames of the earlier video it starts with (those before the clip `length` counts), else null. */
+  /** Video to video only: the Library video it was re-drawn from (read in place - there is no kept copy), else null. */
+  sourceVideoPath: string | null;
   extendedFrames: number | null;
   /** The model profile this was made with (display only), or null for the shipped model. */
   modelName: string | null;
@@ -223,8 +225,12 @@ export type ExportResult = { status: 'saved'; path: string; count: number } | { 
 /** A request to open the Generate tab with an existing image as the source - of a video, or of an image to image run. */
 export interface VideoSourceRequest {
   /** What the picture is for: a video's source (the default) or the start picture of an image to image run. */
-  target?: 'video' | 'image';
+  target?: 'video' | 'image' | 'restyle';
+  /** A picture - or, for 'restyle', the video itself (its path is also `videoPath`). */
   imagePath: string;
+  /** 'restyle' (video to video): the Library video to re-draw, and the prompt it was made with. */
+  videoPath?: string;
+  prompt?: string;
   /** The image's own dimensions, used to pick a video size that keeps its aspect ratio. */
   width: number;
   height: number;
@@ -241,6 +247,7 @@ export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'z-image-outpaint': 'image',
   'wan22-i2v': 'video',
   'wan22-t2v': 'video',
+  'wan22-v2v': 'video',
   'upscale-video': 'video',
 };
 
