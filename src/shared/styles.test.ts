@@ -34,7 +34,7 @@ test('style input is trimmed and checked', () => {
   assert.equal(validateStyleInput({ name: 'x', text: 'x'.repeat(2001) }).ok, false);
 });
 
-const piece = (id: number, name: string, text: string, kind: 'style' | 'element'): PromptStyle => ({ id, name, text, kind, createdAt: '' });
+const piece = (id: number, name: string, text: string, kind: 'style' | 'element'): PromptStyle => ({ id, name, text, kind, createdAt: '', textChangedAt: '' });
 
 test('a kind defaults to style and anything unknown is a style', () => {
   assert.equal(cleanStyleKind('element'), 'element');

@@ -110,6 +110,17 @@ implementation here is exactly the kind of drift it exists to prevent.
   that was sent, and with nothing picked `combinePrompt` returns the prompt untouched. `generations.style_name` is only a display label
   (`styleLabel`: "Anime + Red coat"); the text is never re-derived from it. Re-rack / a prompt from Library > Prompts load that full
   prompt with no style or elements picked (else they would be added twice). Editing or deleting one never touches past generations.
+- **Every style and element has an example picture, all from one standard prompt and seed** (`shared/styleSamples.ts`, `main/styleSamples.ts`,
+  `pages/Styles.tsx`). The Styles page is ~75% examples (a card per style/element plus a dashed "No style" baseline card) and a ~25% editor side
+  panel. The standard prompt and seed (defaults in `styleSamples.ts`, kept in the `style_sample_settings` table) are what every example is made
+  from: `combinePrompt(standard prompt, the wording)` at the fixed seed, 768 px square, Z-Image's 8 steps / cfg 1, the shipped model. An example
+  is a normal Library generation made through the normal queue (batch `style-examples`, so it shows in the queue bar), then hidden
+  (`hidden = 1`, so only "Show hidden" reveals it); `style_samples` points each style at its generation with the wording, prompt and seed it was
+  made from, and `sampleFreshness` compares those with now - a changed wording, standard prompt or seed marks it **outdated** (old picture kept,
+  dimmed). "Render N examples" makes the missing/outdated ones, each card has its own (Re)render, "Re-render all" redoes everything. A re-render
+  sends the picture it replaces to the Trash (favorites stay); deleting a style trashes its example; an example the user trashed reads as none.
+  `styles.text_changed_at` records when the wording last changed (a rename or kind change does not move it) and is shown on the card. The page polls
+  every 2 s only while an example is queued or rendering.
 - **The Library's card size is one slider** (`CardSizeSlider.tsx`, `hooks/useCardScale.ts`) in the toolbar of Output, Prompts and the Trash. It is a
   multiplier (0.75-2, default 1, remembered in `localStorage`) on each page's own target row height that `justifyRows` packs to, so bigger cards mean
   fewer to a row and each page keeps its own default size. A card's action buttons wrap onto a second line when the card is narrow
