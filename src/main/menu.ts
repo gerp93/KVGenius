@@ -70,12 +70,21 @@ export function setupApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-/** Right-click Cut/Copy/Paste/Select All, since the Edit menu was dropped above. */
+/** Right-click in a text box: spelling suggestions and "Add to dictionary" for a misspelled word (underlined by the
+ * built-in spell checker), then Cut/Copy/Paste/Select All, since the Edit menu was dropped above. */
 export function attachContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
     if (!params.isEditable) return;
 
     const menu = new Menu();
+    for (const suggestion of params.dictionarySuggestions) {
+      menu.append(new MenuItem({ label: suggestion, click: () => win.webContents.replaceMisspelling(suggestion) }));
+    }
+    if (params.misspelledWord) {
+      const word = params.misspelledWord;
+      menu.append(new MenuItem({ label: 'Add to dictionary', click: () => win.webContents.session.addWordToSpellCheckerDictionary(word) }));
+    }
+    if (menu.items.length > 0) menu.append(new MenuItem({ type: 'separator' }));
     if (params.editFlags.canCut) menu.append(new MenuItem({ role: 'cut' }));
     if (params.editFlags.canCopy) menu.append(new MenuItem({ role: 'copy' }));
     if (params.editFlags.canPaste) menu.append(new MenuItem({ role: 'paste' }));
