@@ -1,0 +1,87 @@
+/* The bar across the top of the window (TopBar.tsx): the app's name, then the ComfyUI connection and graphics card. */
+.top-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 36px;
+  padding: 0 12px 0 16px;
+  background: var(--color-top-bar-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.top-bar .top-bar__title {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.top-bar .top-bar__status-group {
+  margin-left: auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.top-bar .top-bar__gpu,
+.top-bar .top-bar__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-family: inherit;
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.top-bar .top-bar__gpu {
+  color: var(--color-text-muted);
+}
+
+.top-bar .top-bar__status {
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.top-bar .top-bar__status:hover:not(:disabled) {
+  background: var(--color-top-bar-hover);
+}
+
+.top-bar .top-bar__status:disabled {
+  cursor: progress;
+}
+
+.top-bar .top-bar__dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.top-bar .top-bar__status--connected .top-bar__dot {
+  background: #7cfc9a;
+}
+
+.top-bar .top-bar__status--unreachable .top-bar__dot {
+  background: var(--color-accent-red);
+}
+
+.top-bar .top-bar__status--starting .top-bar__dot {
+  background: #ffd23f;
+}
+
+.top-bar .top-bar__error {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-accent-red);
+}

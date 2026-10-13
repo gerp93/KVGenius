@@ -21,16 +21,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 48px;
+  height: 36px;
   padding: 0 10px 0 16px;
   border-bottom: 1px solid var(--color-border);
   flex: none;
-}
-
-.side-nav .side-nav__title {
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
 }
 
 .side-nav .side-nav__toggle {
@@ -50,10 +44,6 @@
 .side-nav--thin .side-nav__brand {
   padding: 0;
   justify-content: center;
-}
-
-.side-nav--thin .side-nav__title {
-  display: none;
 }
 
 .side-nav--thin .side-nav__toggle {
@@ -79,8 +69,7 @@
 
 /* One row: a page link, a button or the status. */
 .side-nav .side-nav__item,
-.side-nav .side-nav__head,
-.side-nav .side-nav__status {
+.side-nav .side-nav__head {
   position: relative;
   display: flex;
   align-items: center;
@@ -104,7 +93,6 @@
 
 .side-nav .side-nav__item:hover:not(:disabled),
 .side-nav .side-nav__head:hover:not(:disabled),
-.side-nav .side-nav__status:hover:not(:disabled),
 .side-nav .side-nav__toggle:hover:not(:disabled) {
   background: var(--color-top-bar-hover);
 }
@@ -196,53 +184,13 @@
   border: 1px solid var(--color-top-bar-bg);
 }
 
-.side-nav .side-nav__status {
-  height: 32px;
-  font-size: 13px;
-}
-
-.side-nav .side-nav__status:disabled {
-  cursor: progress;
-}
-
-.side-nav .side-nav__dot {
-  flex: none;
-  width: 9px;
-  height: 9px;
-  margin: 0 5.5px;
-  border-radius: 50%;
-  background: var(--color-text-muted);
-}
-
-.side-nav .side-nav__status--connected .side-nav__dot {
-  background: #7cfc9a;
-}
-
-.side-nav .side-nav__status--unreachable .side-nav__dot {
-  background: var(--color-accent-red);
-}
-
-.side-nav .side-nav__status--starting .side-nav__dot {
-  background: #ffd23f;
-}
-
-.side-nav .side-nav__error {
-  padding: 2px 10px;
-  max-height: 3.6em;
-  overflow: hidden;
-  font-size: 12px;
-  color: var(--color-accent-red);
-}
-
 /* ---- thin: icons only; sections become captions ---- */
 .side-nav--thin .side-nav__label,
-.side-nav--thin .side-nav__chevron,
-.side-nav--thin .side-nav__error {
+.side-nav--thin .side-nav__chevron {
   display: none;
 }
 
-.side-nav--thin .side-nav__item,
-.side-nav--thin .side-nav__status {
+.side-nav--thin .side-nav__item {
   justify-content: center;
   padding: 0;
 }
@@ -275,34 +223,8 @@
   font-size: 16px;
 }
 
-.side-nav--thin .side-nav__dot {
-  margin: 0;
-}
-
 .side-nav--thin .side-nav__item--attention::after {
   right: 10px;
-}
-
-/* The graphics card ComfyUI runs on, under the connection status. */
-.side-nav .side-nav__gpu {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-.side-nav .side-nav__gpu .side-nav__icon {
-  font-size: 13px;
-  width: 20px;
-}
-
-.side-nav--thin .side-nav__gpu {
-  justify-content: center;
-  padding: 0;
 }
 
 /* ---- Prompt tabs, under Image / Video ----
@@ -484,7 +406,7 @@
   justify-content: center;
 }
 
-/* A thin rule between the footer's groups: setup guide / show hidden / ComfyUI status and graphics card. */
+/* A thin rule between the footer's groups: settings and setup guide / show hidden. */
 .side-nav .side-nav__rule {
   flex: none;
   height: 1px;
