@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import Generate from './pages/Generate';
 import QueuePanel from './components/QueuePanel';
 import SideNav from './components/SideNav';
+import TopBar from './components/TopBar';
 import LibraryDetails from './components/LibraryDetails';
 import DetailsDock, { DetailsSlotContext } from './components/DetailsDock';
 import GalleryLightbox from './components/GalleryLightbox';
@@ -45,7 +46,7 @@ export default function App() {
   // Bumped when a saved model is added, edited or deleted, so Generate's Model dropdown reloads.
   const [modelsVersion, setModelsVersion] = useState(0);
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
-  // The card ComfyUI runs on, shown in the sidebar footer; refreshed with the connection check (its free memory moves).
+  // The card ComfyUI runs on, shown in the top bar; refreshed with the connection check (its free memory moves).
   const [gpus, setGpus] = useState<GpuInfo[]>([]);
   // Generate's prompt tabs, listed in the sidebar.
   const [promptTabs, setPromptTabs] = useState<PromptTabsModel | null>(null);
@@ -236,12 +237,11 @@ export default function App() {
   return (
     <DetailsSlotContext.Provider value={detailsSlot}>
     <div className="app-shell">
+      <TopBar connection={connection} gpus={gpus} launchError={launchError} onLaunchComfyUI={handleLaunchComfyUI} />
+      <div className="app-frame">
       <SideNav
-        connection={connection}
-        gpus={gpus}
+        unreachable={connection === 'unreachable'}
         promptTabs={promptTabs}
-        launchError={launchError}
-        onLaunchComfyUI={handleLaunchComfyUI}
         showHidden={showHidden}
         onToggleShowHidden={() => setShowHidden((v) => !v)}
       />
@@ -357,6 +357,7 @@ export default function App() {
         </div>
         {/* Where the details panels dock (see DetailsDock): full height, right of the page and queue bar. */}
         <div className="details-slot" ref={setDetailsSlot} />
+      </div>
       </div>
 
         {detailsRecord && (

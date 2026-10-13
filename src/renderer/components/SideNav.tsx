@@ -1,7 +1,6 @@
 import { Fragment, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import type { PromptTabsModel } from '../utils/promptTabs';
-import { GpuInfo, formatVram, gpuLabel } from '../../shared/gpuInfo';
 import './SideNav.css';
 
 type NavItem = { to: string; icon: string; label: string; end?: boolean };
@@ -72,25 +71,13 @@ function remember(key: string, value: string) {
   }
 }
 
-type ConnectionStatus = 'checking' | 'connected' | 'unreachable' | 'starting';
-
 type Props = {
-  connection: ConnectionStatus;
-  /** The device(s) ComfyUI runs on; empty while it is unreachable. */
-  gpus: GpuInfo[];
+  /** ComfyUI cannot be reached: flags the Setup guide. (The connection itself is shown in the top bar.) */
+  unreachable: boolean;
   /** Generate's prompt tabs, listed under Image / Video; null until Generate has published them. */
   promptTabs: PromptTabsModel | null;
-  launchError: string | null;
-  onLaunchComfyUI: () => void;
   showHidden: boolean;
   onToggleShowHidden: () => void;
-};
-
-const CONNECTION_LABEL: Record<ConnectionStatus, string> = {
-  checking: 'Checking ComfyUI...',
-  connected: 'ComfyUI connected',
-  unreachable: 'ComfyUI not reachable - click to launch',
-  starting: 'Starting ComfyUI...',
 };
 
 const TAB_ROW = 28;
@@ -195,7 +182,7 @@ function PromptTabs({ model, thin, onGenerate }: { model: PromptTabsModel; thin:
 /** The app's navigation: a left rail that is either full (labels, sections that fold) or thin (every page
  * its own icon, sections kept as small captions - nothing hides behind a hover). Which one, and which
  * sections are folded, is remembered. */
-export default function SideNav({ connection, gpus, promptTabs, launchError, onLaunchComfyUI, showHidden, onToggleShowHidden }: Props) {
+export default function SideNav({ unreachable, promptTabs, showHidden, onToggleShowHidden }: Props) {
   const location = useLocation();
   const [thin, setThin] = useState(loadThin);
   const [folded, setFolded] = useState<string[]>(loadFolded);
@@ -217,7 +204,6 @@ export default function SideNav({ connection, gpus, promptTabs, launchError, onL
   return (
     <nav className={`side-nav${thin ? ' side-nav--thin' : ''}`} aria-label="Main">
       <div className="side-nav__brand">
-        <span className="side-nav__title">KVGenius</span>
         <button
           type="button"
           className="side-nav__toggle"
@@ -281,7 +267,7 @@ export default function SideNav({ connection, gpus, promptTabs, launchError, onL
         {/* Always one click from the setup guide; a red dot while ComfyUI cannot be reached, when it is most needed. */}
         <Link
           to="/setup"
-          className={`side-nav__item${location.pathname === '/setup' ? ' active' : ''}${connection === 'unreachable' ? ' side-nav__item--attention' : ''}`}
+          className={`side-nav__item${location.pathname === '/setup' ? ' active' : ''}${unreachable ? ' side-nav__item--attention' : ''}`}
           title="Setup guide: install ComfyUI, add the models, connect"
         >
           <span className="side-nav__icon">❓</span>
@@ -298,42 +284,6 @@ export default function SideNav({ connection, gpus, promptTabs, launchError, onL
           <span className="side-nav__icon">🙈</span>
           <span className="side-nav__label">{showHidden ? 'Showing hidden' : 'Show hidden'}</span>
         </button>
-        <div className="side-nav__rule" />
-        {launchError && (
-          <span className="side-nav__error" title={launchError}>
-            {launchError}
-          </span>
-        )}
-        {connection === 'unreachable' || connection === 'starting' ? (
-          <button
-            type="button"
-            className={`side-nav__status side-nav__status--${connection}`}
-            disabled={connection === 'starting'}
-            onClick={onLaunchComfyUI}
-            title={
-              connection === 'starting'
-                ? 'Waiting for ComfyUI to come up...'
-                : 'Start ComfyUI. The first time you may be asked which program to run (you can change it, or the server address, in Settings).'
-            }
-          >
-            <span className="side-nav__dot" />
-            <span className="side-nav__label">{CONNECTION_LABEL[connection]}</span>
-          </button>
-        ) : (
-          <Link to="/settings?tab=comfyui" className={`side-nav__status side-nav__status--${connection}`} title={CONNECTION_LABEL[connection]}>
-            <span className="side-nav__dot" />
-            <span className="side-nav__label">{CONNECTION_LABEL[connection]}</span>
-          </Link>
-        )}
-        {gpus.length > 0 && (
-          <div
-            className="side-nav__gpu"
-            title={gpus.map((g) => `${g.name}${g.vramTotal > 0 ? ` - ${formatVram(g.vramFree)} free of ${formatVram(g.vramTotal)}` : ''}`).join('\n')}
-          >
-            <span className="side-nav__icon">🖥️</span>
-            <span className="side-nav__label">{gpuLabel(gpus[0])}</span>
-          </div>
-        )}
       </div>
     </nav>
   );

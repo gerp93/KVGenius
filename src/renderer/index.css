@@ -17,7 +17,15 @@ body {
 
 .app-shell {
   display: flex;
+  flex-direction: column;
   height: 100%;
+}
+
+/* Under the top bar: the sidebar beside everything else. */
+.app-frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
 /* Right of the sidebar: the page with the queue bar under it, and - to their right - the details
