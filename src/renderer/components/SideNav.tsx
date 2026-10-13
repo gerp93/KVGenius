@@ -175,19 +175,34 @@ function PromptTabs({ model, thin, onGenerate }: { model: PromptTabsModel; thin:
           );
         })}
       </div>
-      <button
-        type="button"
-        className="side-nav__tab-add"
-        disabled={!model.canAdd}
-        onClick={() => {
-          model.add();
-          navigate('/');
-        }}
-        title={model.canAdd ? 'New prompt tab' : `Up to ${model.maxTabs} tabs`}
-        aria-label="New prompt tab"
-      >
-        {thin ? '＋' : '＋ New tab'}
-      </button>
+      <div className="side-nav__tab-actions">
+        <button
+          type="button"
+          className="side-nav__tab-add"
+          disabled={!model.canAdd}
+          onClick={() => {
+            model.add();
+            navigate('/');
+          }}
+          title={model.canAdd ? 'New prompt tab' : `Up to ${model.maxTabs} tabs`}
+          aria-label="New prompt tab"
+        >
+          {thin ? '＋' : '＋ New tab'}
+        </button>
+        <button
+          type="button"
+          className="side-nav__tab-add"
+          disabled={!model.canAdd}
+          onClick={() => {
+            model.duplicate(model.activeId);
+            navigate('/');
+          }}
+          title={model.canAdd ? 'Duplicate the current tab: a copy of its prompt and settings, next to it' : `Up to ${model.maxTabs} tabs`}
+          aria-label="Duplicate the current tab"
+        >
+          {thin ? '⧉' : '⧉ Duplicate'}
+        </button>
+      </div>
     </>
   );
 }

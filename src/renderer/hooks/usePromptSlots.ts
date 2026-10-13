@@ -4,7 +4,7 @@ import type { OutpaintPadding } from '../../shared/imageToImage';
 import { GenerationKind } from '../../shared/types';
 import type { VideoQuality } from '../../shared/videoQuality';
 import { V2V_DEFAULT_STRENGTH } from '../../shared/videoToVideo';
-import { MAX_PROMPT_SLOTS, PromptSlot, PromptSlotData, newPromptSlot, slotLabel } from '../../shared/promptSlots';
+import { MAX_PROMPT_SLOTS, PromptSlot, PromptSlotData, copyOfSlot, newPromptSlot, slotLabel } from '../../shared/promptSlots';
 
 /** How long to wait after the last edit before writing the tabs to disk - typing shouldn't hit
  * the filesystem on every keystroke. */
@@ -212,6 +212,21 @@ export function usePromptSlots() {
     return fresh.id;
   }
 
+  /** Adds a copy of a tab (the whole form as it stands now) right after it, and switches to the copy. Returns its id, or null when every tab is in use. */
+  function duplicateSlot(id: string): string | null {
+    if (slots.length >= MAX_PROMPT_SLOTS) return null;
+    const merged = slots.map((s) => (s.id === activeSlotId ? { ...s, data: snapshotFromState() } : s));
+    const index = merged.findIndex((s) => s.id === id);
+    if (index < 0) return null;
+    const copy = copyOfSlot(merged[index]);
+    const next = [...merged.slice(0, index + 1), copy, ...merged.slice(index + 1)];
+    setSlots(next);
+    setActiveSlotId(copy.id);
+    applySnapshot(copy.data);
+    void window.kvgenius.savePromptSlots(next, copy.id);
+    return copy.id;
+  }
+
   function closeSlot(id: string) {
     if (slots.length <= 1) return;
     const merged = slots.map((s) => (s.id === activeSlotId ? { ...s, data: snapshotFromState() } : s));
@@ -247,6 +262,7 @@ export function usePromptSlots() {
     activeSlotId,
     switchTo,
     addSlot,
+    duplicateSlot,
     closeSlot,
     renameSlot,
     labelFor,

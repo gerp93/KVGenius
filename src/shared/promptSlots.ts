@@ -112,6 +112,17 @@ export function newPromptSlot(mode: GenerationKind = 'image'): PromptSlot {
   return { id: randomSlotId(), name: null, data: defaultSlotData(mode) };
 }
 
+/** A copy of a tab, to sit next to it: the same form, its own id. A named tab's copy says so; an unnamed one is labeled from its (same)
+ * prompt. It has not run in its own right, so it starts without the "last run" record. */
+export function copyOfSlot(source: PromptSlot): PromptSlot {
+  const fresh = newPromptSlot(source.data.mode);
+  return {
+    ...fresh,
+    name: source.name ? `${source.name} copy`.slice(0, 40) : null,
+    data: JSON.parse(JSON.stringify({ ...source.data, lastRunSignature: null })) as PromptSlotData,
+  };
+}
+
 /** Most characters of the prompt a tab shows (the rail gives it a few lines; CSS clips the rest). */
 const SLOT_LABEL_CHARS = 60;
 

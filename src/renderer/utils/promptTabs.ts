@@ -14,6 +14,8 @@ export interface PromptTabsModel {
   maxTabs: number;
   select: (id: string) => void;
   add: () => void;
+  /** Adds a copy of the tab with this id, next to it, and switches to it. */
+  duplicate: (id: string) => void;
   close: (id: string) => void;
   rename: (id: string, name: string) => void;
 }
