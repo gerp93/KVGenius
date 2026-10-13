@@ -74,5 +74,18 @@ export function extraWording(elements: readonly PromptStyle[], style: PromptStyl
 /** What a generation records as its style (a label for the details panel only): the style and elements used, e.g. "Anime + Red jacket". */
 export function styleLabel(elements: readonly PromptStyle[], style: PromptStyle | null): string | null {
   const names = [...(style ? [style.name] : []), ...elements.map((element) => element.name)];
-  return names.length > 0 ? names.join(' + ') : null;
+  return names.length > 0 ? names.join(STYLE_LABEL_SEPARATOR) : null;
+}
+
+/** Between the names in a recorded style label (see styleLabel). */
+export const STYLE_LABEL_SEPARATOR = ' + ';
+
+/** The individual styles and elements a recorded label stands for ("Anime + Red jacket" -> Anime, Red jacket) - what the
+ * tags show and the Library's style filter matches. A name that itself contains " + " would split in two; that is rare enough to accept. */
+export function styleTags(label: string | null | undefined): string[] {
+  if (!label) return [];
+  return label
+    .split(STYLE_LABEL_SEPARATOR)
+    .map((name) => name.trim())
+    .filter((name) => name !== '');
 }

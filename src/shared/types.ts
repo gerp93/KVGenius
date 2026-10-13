@@ -110,6 +110,8 @@ export interface LibraryListOptions {
   search?: string;
   /** Only items made this way (text to image, upscale, ...); none or empty = every kind. */
   origins?: OriginKind[];
+  /** Only pictures made with any of these styles or elements (see styleTags); none or empty = all. Videos are not filtered by it. */
+  styles?: string[];
   /** Counts only: the origin filter of each tab, since each tab keeps its own. Used in place of `origins`
    * for a kind that has an entry. */
   originsByKind?: Partial<Record<GenerationKind, OriginKind[]>>;
@@ -358,6 +360,8 @@ export interface KVGeniusAPI {
   ) => Promise<Record<GenerationKind, number>>;
   /** File extensions present among the Library's images (lowercase, no dot), most common first. */
   listImageExtensions: () => Promise<string[]>;
+  /** The names of the styles and elements the Library's pictures were made with, alphabetical - what the style filter offers. */
+  listStyleTags: () => Promise<string[]>;
   /** Every generation of the kind (newest first), for Select All across pages that aren't loaded. */
   listGenerationRefs: (
     kind: GenerationKind,
