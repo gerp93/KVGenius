@@ -120,6 +120,7 @@ export default function Generate({
     activeSlotId,
     switchTo: switchSlot,
     addSlot,
+    duplicateSlot,
     closeSlot,
     renameSlot,
     labelFor: slotLabelFor,
@@ -182,8 +183,8 @@ export default function Generate({
   } = slotState;
   // The tabs live in the sidebar (under Image / Video), so hand it the list and the actions. The handlers go through a
   // ref so the sidebar always calls the latest ones, and the model is only republished when what it shows changes.
-  const tabActions = useRef({ switchSlot, addSlot, closeSlot, renameSlot, forget: queue.forgetSlot });
-  tabActions.current = { switchSlot, addSlot, closeSlot, renameSlot, forget: queue.forgetSlot };
+  const tabActions = useRef({ switchSlot, addSlot, duplicateSlot, closeSlot, renameSlot, forget: queue.forgetSlot });
+  tabActions.current = { switchSlot, addSlot, duplicateSlot, closeSlot, renameSlot, forget: queue.forgetSlot };
   const tabItems = slots.map((slot) => ({
     id: slot.id,
     label: slotLabelFor(slot),
@@ -199,6 +200,7 @@ export default function Generate({
       maxTabs: MAX_PROMPT_SLOTS,
       select: (id) => tabActions.current.switchSlot(id),
       add: () => void tabActions.current.addSlot(),
+      duplicate: (id) => void tabActions.current.duplicateSlot(id),
       close: (id) => {
         tabActions.current.closeSlot(id);
         tabActions.current.forget(id);
@@ -1042,7 +1044,12 @@ export default function Generate({
             <label className="field-label" htmlFor="prompt">
               Prompt
             </label>
-            <CopyButton compact className="copy-button--icon" text={prompt} title="Copy the prompt" />
+            <CopyButton
+              compact
+              className="copy-button--icon"
+              text={finalPrompt}
+              title={finalPrompt !== prompt ? "Copy the prompt with the style's words added, as it will be sent" : 'Copy the prompt'}
+            />
           </div>
           <textarea
             id="prompt"

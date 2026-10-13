@@ -364,13 +364,20 @@
   font-size: 12px;
 }
 
+/* New tab and Duplicate, side by side (stacked in the thin rail). */
+.side-nav .side-nav__tab-actions {
+  flex: none;
+  display: flex;
+  margin: 2px 0 0 10px;
+}
+
 .side-nav .side-nav__tab-add {
   flex: none;
   justify-content: flex-start;
   height: 28px;
   min-height: 0;
-  margin: 2px 0 0 10px;
-  padding: 0 8px 0 14px;
+  margin: 0;
+  padding: 0 8px;
   border: none;
   border-radius: 6px;
   background: none;
@@ -399,9 +406,14 @@
   display: none;
 }
 
+.side-nav--thin .side-nav__tab-actions {
+  flex-direction: column;
+  margin: 2px 0 0;
+}
+
 .side-nav--thin .side-nav__tab-add {
   width: 100%;
-  margin: 2px 0 0;
+  margin: 0;
   padding: 0;
   justify-content: center;
 }

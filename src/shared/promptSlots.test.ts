@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultSlotData, newPromptSlot, sanitizeSlots } from './promptSlots';
+import { copyOfSlot, defaultSlotData, newPromptSlot, sanitizeSlots } from './promptSlots';
 import { DEFAULT_DENOISE } from './imageToImage';
 
 test('a new tab has no start picture and the default strength', () => {
@@ -45,4 +45,29 @@ test('a tab remembers its elements; tabs saved before elements existed have none
   const bad = newPromptSlot('image') as unknown as { id: string; name: null; data: Record<string, unknown> };
   bad.data.elementIds = ['x'];
   assert.notEqual(sanitizeSlots([bad])[0].id, bad.id);
+});
+
+test('a copy of a tab has its own id and a deep copy of the form, and no last-run record', () => {
+  const source = newPromptSlot('video');
+  source.data.prompt = 'a fox';
+  source.data.elementIds = [1, 2];
+  source.data.lastRunSignature = 'sig';
+  const copy = copyOfSlot(source);
+  assert.notEqual(copy.id, source.id);
+  assert.equal(copy.data.mode, 'video');
+  assert.equal(copy.data.prompt, 'a fox');
+  assert.deepEqual(copy.data.elementIds, [1, 2]);
+  assert.equal(copy.data.lastRunSignature, null);
+  assert.equal(source.data.lastRunSignature, 'sig');
+  copy.data.elementIds.push(3);
+  assert.deepEqual(source.data.elementIds, [1, 2]);
+  assert.equal(copy.name, null);
+});
+
+test("a named tab's copy is named as a copy, within the name limit", () => {
+  const source = newPromptSlot();
+  source.name = 'Portraits';
+  assert.equal(copyOfSlot(source).name, 'Portraits copy');
+  source.name = 'x'.repeat(40);
+  assert.equal(copyOfSlot(source).name?.length, 40);
 });
