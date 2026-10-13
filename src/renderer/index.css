@@ -3342,3 +3342,70 @@ button.button-danger--armed:hover:not(:disabled) {
   max-height: 220px;
   object-fit: contain;
 }
+
+/* A style or element a picture was made with (StyleTags.tsx): a tag in the Library card's badge row, the queue's rows and the details panel. */
+.style-tag {
+  display: inline-block;
+  max-width: 100%;
+  min-height: 0;
+  padding: 2px 7px;
+  border: none;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #fff;
+  background: rgba(140, 80, 160, 0.88);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+button.style-tag {
+  cursor: pointer;
+}
+
+button.style-tag:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
+.style-tag--on {
+  box-shadow: 0 0 0 1px #fff;
+}
+
+/* The tags of one queue row or details field. */
+.style-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+/* The Library's style filter: the same chips as the origin filter, in the style tag's own color. */
+.origin-filter__chip--style.origin-filter__chip--on {
+  background: rgba(140, 80, 160, 0.88);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* Both filter rows (made by / styles) stacked at the left of the toolbar; the buttons stay at the right. */
+.library-filters {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-right: auto;
+  min-width: 0;
+}
+
+/* Many styles scroll inside their own row rather than pushing the grid down. */
+.style-filter {
+  max-height: 62px;
+  overflow-y: auto;
+  margin-right: 0;
+}
+
+.style-filter__label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}

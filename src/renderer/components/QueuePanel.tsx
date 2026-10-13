@@ -11,6 +11,7 @@ import { framesToSeconds } from '../utils/video';
 import ExpandButton from './Lightbox';
 import GeneratedVideo from './GeneratedVideo';
 import RunProgress from './RunProgress';
+import StyleTags from './StyleTags';
 
 interface Props {
   jobs: Job[];
@@ -194,6 +195,11 @@ export default function QueuePanel({
           {extra}
         </div>
         <div className="queue-job__meta">{describe(job)}</div>
+        {job.params.styleName && (
+          <div className="style-tags">
+            <StyleTags label={job.params.styleName} />
+          </div>
+        )}
         {label && <div className="queue-job__meta">{label}</div>}
         {job.status === 'queued' && job.estimate && (
           <div className="queue-job__meta">
@@ -259,7 +265,7 @@ export default function QueuePanel({
                       isRunning && !runningDisplay?.determinate ? ' queue-bar__tile--pulse' : ''
                     }`}
                     style={fillStyle}
-                    title={`${status}\n${job.params.prompt}`}
+                    title={`${status}\n${job.params.prompt}${job.params.styleName ? `\nStyle: ${job.params.styleName}` : ''}`}
                   >
                     <span className="queue-bar__tile-icon">{job.status === 'failed' ? '⚠' : job.kind === 'video' ? '🎬' : '🖼️'}</span>
                     {position > 0 && <span className="queue-bar__tile-position">{position}</span>}
@@ -373,6 +379,11 @@ export default function QueuePanel({
                     <div className="queue-done__caption queue-done__open" title={job.params.prompt} onClick={() => onOpenDetails(job.record)}>
                       {job.params.prompt}
                     </div>
+                    {job.record.styleName && (
+                      <div className="style-tags queue-done__styles">
+                        <StyleTags label={job.record.styleName} />
+                      </div>
+                    )}
                     <div className="queue-done__actions">
                       {(!isUpscaleFamily(job.family) || job.family === UPSCALE_FAMILY) && (
                         <button

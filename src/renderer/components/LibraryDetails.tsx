@@ -14,6 +14,7 @@ import { isUpscale } from '../utils/library';
 import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
 import OriginBadge from './OriginBadge';
+import StyleTags from './StyleTags';
 import ExpandButton from './Lightbox';
 
 // wan22-i2v's frame rate (see Generate.tsx) - only used to show a video's length in seconds.
@@ -454,7 +455,11 @@ export default function LibraryDetails({
         {record.styleName && (
           <>
             <dt>Style</dt>
-            <dd title="The style's words are already part of the prompt above">{record.styleName}</dd>
+            <dd title="The style's words are already part of the prompt above">
+              <div className="style-tags">
+                <StyleTags label={record.styleName} />
+              </div>
+            </dd>
           </>
         )}
         <dt>Dimensions</dt>

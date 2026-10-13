@@ -8,6 +8,8 @@ import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
 import DetailsDock from '../components/DetailsDock';
 import OriginBadge from '../components/OriginBadge';
+import StyleTags from '../components/StyleTags';
+import { styleTags } from '../../shared/styles';
 import { generationOrigin } from '../../shared/origin';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
@@ -84,6 +86,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   const origins = originsByTab[tab];
   const setOrigins = (update: (prev: OriginKind[]) => OriginKind[]) =>
     setOriginsByTab((prev) => ({ ...prev, [tab]: update(prev[tab]) }));
+  // Image tab only: show just the pictures made with any of these styles or elements; none chosen = all. `styleOptions` are the ones in use.
+  const [styles, setStyles] = useState<string[]>([]);
+  const [styleOptions, setStyleOptions] = useState<string[]>([]);
+  const styleFilter = tab === 'image' ? styles : [];
   const [extensions, setExtensions] = useState<string[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -130,8 +136,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   // Showing stacks right now (grouping is on and none is open): items are stack covers, and the counts are stacks.
   const stacking = grouped && openPrompt === null;
   const listOptions = useMemo<LibraryListOptions>(
-    () => ({ grouped: stacking, prompt: openPrompt, origins, search }),
-    [stacking, openPrompt, origins, search]
+    () => ({ grouped: stacking, prompt: openPrompt, origins, search, styles: styleFilter }),
+    // styleFilter is a new array each render for the video tab; its contents are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stacking, openPrompt, origins, search, styleFilter.join('|')]
   );
 
   const loadPage = useCallback(
@@ -211,7 +219,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     }
     let cancelled = false;
     window.kvgenius
-      .countGenerations(favoritesOnly, showHidden, extension, { originsByKind: originsByTab, search })
+      .countGenerations(favoritesOnly, showHidden, extension, { originsByKind: originsByTab, search, styles: styleFilter })
       .then((c) => {
         if (!cancelled) setItemCounts(c);
       })
@@ -219,7 +227,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     return () => {
       cancelled = true;
     };
-  }, [stacking, selecting, favoritesOnly, showHidden, extension, originsByTab, search, reloadKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stacking, selecting, favoritesOnly, showHidden, extension, originsByTab, search, reloadKey, styleFilter.join('|')]);
 
   // The file types offered in the filter. A type whose last image was deleted drops out of the list,
   // and the filter goes back to "all" if it was set to that type.
@@ -237,11 +246,28 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     refreshExtensions();
   }, [refreshExtensions, counts.image]);
 
+  // The styles offered in the filter; one nothing uses any more drops out of it (and of the chosen ones).
+  useEffect(() => {
+    window.kvgenius
+      .listStyleTags()
+      .then((list) => {
+        setStyleOptions(list);
+        const known = new Set(list.map((s) => s.toLowerCase()));
+        setStyles((prev) => (prev.every((s) => known.has(s.toLowerCase())) ? prev : prev.filter((s) => known.has(s.toLowerCase()))));
+      })
+      .catch(() => {});
+  }, [counts.image, reloadKey]);
+
+  function toggleStyle(name: string) {
+    setStyles((prev) => (prev.some((s) => s.toLowerCase() === name.toLowerCase()) ? prev.filter((s) => s.toLowerCase() !== name.toLowerCase()) : [...prev, name]));
+  }
+
   /** Whether a new image belongs in the list as filtered: its type has to be the chosen one. */
   // Whether a freshly made item belongs in what its own tab currently shows.
   const matchesFilters = (record: GenerationRecord, kind: GenerationKind) =>
     (kind !== 'image' || !extension || record.imagePath.toLowerCase().endsWith(`.${extension}`)) &&
-    passesOriginFilter(record.modelFamily, originsByTab[kind]);
+    passesOriginFilter(record.modelFamily, originsByTab[kind]) &&
+    (kind !== 'image' || styles.length === 0 || styleTags(record.styleName).some((t) => styles.some((s) => s.toLowerCase() === t.toLowerCase())));
 
   const loadMore = useCallback(() => {
     // The very first page belongs to the tab-change effect above.
@@ -313,7 +339,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
           favoritesOnly,
           showHidden,
           tab === 'image' ? extension : null,
-          { prompt, origins, search }
+          { prompt, origins, search, styles: styleFilter }
         );
         items.push(...page);
         if (page.length < 200) break;
@@ -336,7 +362,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
    * just the ones cycling on its card); anything else is just itself. */
   async function refsFor(record: GenerationRecord): Promise<GenerationRef[]> {
     if (!isStack(record)) return [refOf(record)];
-    return window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, { prompt: record.prompt, origins, search });
+    return window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, { prompt: record.prompt, origins, search, styles: styleFilter });
   }
 
   /** Selects what a card stands for, or - when all of it is already selected - deselects it. */
@@ -400,6 +426,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
         prompt: openPrompt,
         origins,
         search,
+        styles: styleFilter,
       });
       setSelection(new Map(refs.map((ref) => [ref.id, ref])));
     } catch (err) {
@@ -738,7 +765,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             )}
           </CardMedia>
           {/* The tags sit under the picture, so they never cover it. */}
-          {(stack || record.hidden || record.pinned || generationOrigin(record.modelFamily)) && (
+          {(stack || record.hidden || record.pinned || record.styleName || generationOrigin(record.modelFamily)) && (
             <div className="library-card__badges">
               {stack && (
                 <span className="library-card__stack-badge" title={`${record.groupCount} items have this exact prompt - click to open them`}>
@@ -746,6 +773,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                 </span>
               )}
               <OriginBadge record={record} />
+              <StyleTags label={record.styleName} onPick={toggleStyle} activeTags={styles} />
               {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
               {record.pinned && (
                 <span className="library-card__pinned-badge" title="Pinned under Prompts">
@@ -851,6 +879,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                   </button>
                 )}
               </div>
+              <div className="library-filters">
               <div className="origin-filter" role="group" aria-label="Show only items made this way">
                 {originsForKind(tab).map((kind) => {
                   const on = origins.includes(kind);
@@ -872,6 +901,32 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                     ✕
                   </button>
                 )}
+              </div>
+              {tab === 'image' && styleOptions.length > 0 && (
+                <div className="origin-filter style-filter" role="group" aria-label="Show only pictures made with these styles">
+                  <span className="style-filter__label">Styles</span>
+                  {styleOptions.map((name) => {
+                    const on = styles.some((s) => s.toLowerCase() === name.toLowerCase());
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        className={`origin-filter__chip origin-filter__chip--style${on ? ' origin-filter__chip--on' : ''}`}
+                        aria-pressed={on}
+                        onClick={() => toggleStyle(name)}
+                        title={on ? 'Click to stop filtering by this' : 'Show only pictures made with this style or element (pick several to see any of them)'}
+                      >
+                        {name}
+                      </button>
+                    );
+                  })}
+                  {styles.length > 0 && (
+                    <button type="button" className="origin-filter__clear" onClick={() => setStyles([])} title="Show every style again">
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
               </div>
               <button
                 type="button"

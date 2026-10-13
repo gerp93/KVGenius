@@ -49,6 +49,7 @@ const api: KVGeniusAPI = {
   countGenerations: (favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null, options?: LibraryListOptions) =>
     ipcRenderer.invoke('countGenerations', favoritesOnly, showHidden, imageExtension ?? null, options),
   listImageExtensions: () => ipcRenderer.invoke('listImageExtensions'),
+  listStyleTags: () => ipcRenderer.invoke('listStyleTags'),
   listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null, options?: LibraryListOptions) =>
     ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly, showHidden, extension ?? null, options),
   setGenerationHidden: (id: number, hidden: boolean) => ipcRenderer.invoke('setGenerationHidden', id, hidden),

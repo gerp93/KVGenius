@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { DatabaseSync } from 'node:sqlite';
-import { countGenerations, initDatabase, insertGeneration, listGenerationRefs, listGenerations, listImageExtensions } from './db';
+import { countGenerations, initDatabase, insertGeneration, listGenerationRefs, listGenerations, listImageExtensions, listStyleTags } from './db';
 import { OutputDirs, applyFavorite } from './favorites';
 import { GIF_FAMILY } from '../shared/gif';
 import { OriginKind } from '../shared/origin';
@@ -149,4 +149,39 @@ test('a search keeps the items whose prompt has every word, ignoring case, in li
   assert.equal(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, false, null, { search: 'snow' }).length, 2);
   assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, null, { search: 'fox' }), { image: 3, video: 1 });
   assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, null, { search: 'fox', grouped: true }), { image: 2, video: 1 });
+});
+
+test('the style filter finds pictures by any chosen style or element, by whole name only', () => {
+  const db = initDatabase(':memory:');
+  const made = (seed: number, styleName?: string) => insertGeneration(db, { ...params(seed), ...(styleName ? { styleName } : {}) }, 'z-image', `/out/images/s${seed}.png`);
+  made(1, 'Anime');
+  made(2, 'Anime + Red jacket');
+  made(3, 'Red jacket');
+  made(4, 'Anime Noir');
+  made(5, '50% off_sale');
+  made(6);
+  insertGeneration(db, { ...params(7), styleName: 'Anime' }, 'wan22-i2v', '/out/videos/s7.mp4');
+  const seeds = (styles: string[]) => listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { styles }).map((r) => r.seed).sort();
+  assert.deepEqual(seeds(['Anime']), [1, 2]);
+  assert.deepEqual(seeds(['Red jacket']), [2, 3]);
+  assert.deepEqual(seeds(['Anime', 'Red jacket']), [1, 2, 3]);
+  assert.deepEqual(seeds(['Anime Noir']), [4]);
+  // Wildcards in a name are literal.
+  assert.deepEqual(seeds(['50% off_sale']), [5]);
+  assert.deepEqual(seeds(['%']), []);
+  assert.equal(seeds([]).length, 6);
+  assert.deepEqual(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, false, null, { styles: ['Anime'] }).length, 2);
+  // Counts narrow pictures only; videos are not filtered by style.
+  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, null, { styles: ['Anime'] }), { image: 2, video: 1 });
+});
+
+test('listStyleTags lists each style and element once, alphabetically, ignoring the Trash', () => {
+  const db = initDatabase(':memory:');
+  insertGeneration(db, { ...params(1), styleName: 'Red jacket + anime' }, 'z-image', '/out/images/a.png');
+  insertGeneration(db, { ...params(2), styleName: 'Anime' }, 'z-image', '/out/images/b.png');
+  insertGeneration(db, params(3), 'z-image', '/out/images/c.png');
+  const trashed = insertGeneration(db, { ...params(4), styleName: 'Only in trash' }, 'z-image', '/out/images/d.png');
+  db.prepare('UPDATE generations SET trashed_at = ? WHERE id = ?').run('2026-01-01T00:00:00Z', trashed.id);
+  // 'Red jacket + anime' and 'Anime' name the same style ignoring case: one entry.
+  assert.deepEqual(listStyleTags(db), ['Anime', 'Red jacket']);
 });

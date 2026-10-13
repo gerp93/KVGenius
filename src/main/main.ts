@@ -59,6 +59,7 @@ import {
   listGenerations,
   countGenerations,
   listGenerationRefs,
+  listStyleTags,
   listImageExtensions,
   setGenerationHidden,
   applyHiddenRule,
@@ -255,6 +256,7 @@ function cleanListOptions(options: LibraryListOptions | undefined): LibraryListO
     search: typeof options?.search === 'string' ? options.search.slice(0, 200) : '',
     origins: cleanOrigins(options?.origins),
     originsByKind: { image: cleanOrigins(options?.originsByKind?.image), video: cleanOrigins(options?.originsByKind?.video) },
+    styles: Array.isArray(options?.styles) ? options.styles.filter((s): s is string => typeof s === 'string').map((s) => s.slice(0, 200)).slice(0, 50) : [],
   };
 }
 
@@ -563,6 +565,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null, options?: LibraryListOptions) => {
     if (!db) throw new Error('Database not initialized');
     return countGenerations(db, videoFamilies, !!favoritesOnly, !!showHidden, imageExtension ?? null, cleanListOptions(options));
+  });
+
+  ipcMain.handle('listStyleTags', () => {
+    if (!db) throw new Error('Database not initialized');
+    return listStyleTags(db);
   });
 
   ipcMain.handle('listImageExtensions', () => {

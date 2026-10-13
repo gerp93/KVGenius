@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
 import * as path from 'path';
 import { FAMILIES_BY_ORIGIN, OriginKind, cleanOrigins } from '../shared/origin';
+import { styleTags } from '../shared/styles';
 import { GenerationKind, GenerationParams, GenerationRecord, GenerationRef, LibraryListOptions } from '../shared/types';
 import { TIMING_SCHEMA } from './timingStats';
 import { JOBS_SCHEMA } from './jobStore';
@@ -406,6 +407,29 @@ function originCondition(origins: OriginKind[] | undefined): { sql: string; para
   return { sql: `AND model_family IN (${families.map(() => '?').join(', ')}) `, params: families };
 }
 
+/** Narrows a listing to the pictures made with any of the chosen styles or elements (see styleTags). The recorded label is
+ * "A + B"; padding both ends with " + " lets one LIKE find a whole name and never part of a longer one. `%`, `_` and the escape
+ * character in a name are matched literally. */
+export function styleCondition(styles: string[] | undefined): { sql: string; params: string[] } {
+  const names = [...new Set((styles ?? []).filter((s): s is string => typeof s === 'string' && s !== ''))].slice(0, 50);
+  if (names.length === 0) return { sql: '', params: [] };
+  return {
+    sql: `AND (${names.map(() => "(' + ' || style_name || ' + ') LIKE ? ESCAPE '\\'").join(' OR ')}) `,
+    params: names.map((n) => `% + ${n.replace(/[\\%_]/g, (c) => `\\${c}`)} + %`),
+  };
+}
+
+/** Every style and element named on a picture in the Library (not the Trash), alphabetical - what the style filter offers. */
+export function listStyleTags(db: DatabaseSync): string[] {
+  const rows = db
+    .prepare("SELECT DISTINCT style_name FROM generations WHERE style_name IS NOT NULL AND style_name <> '' AND trashed_at IS NULL ORDER BY style_name")
+    .all() as unknown as { style_name: string }[];
+  // The filter's LIKE ignores case, so names that differ only by case are one entry.
+  const names = new Map<string, string>();
+  for (const row of rows) for (const tag of styleTags(row.style_name)) if (!names.has(tag.toLowerCase())) names.set(tag.toLowerCase(), tag);
+  return [...names.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
+
 /** Narrows a listing to the items whose prompt contains `search` (ignoring case; every word must appear, in any order).
  * `%`, `_` and the escape character are matched literally. */
 export function searchCondition(search: string | undefined): { sql: string; params: string[] } {
@@ -504,19 +528,20 @@ export function listGenerations(
   const prompt = promptCondition(options.prompt);
   const origin = originCondition(options.origins);
   const search = searchCondition(options.search);
+  const style = styleCondition(kind === 'image' ? options.styles : undefined);
 
   if (options.grouped && prompt.sql === '') {
     return listPromptStacks(
       db,
-      `${condition.sql} ${ext.sql}${origin.sql}${search.sql}${filterSql(favoritesOnly, showHidden)}`,
-      [...condition.params, ...ext.params, ...origin.params, ...search.params],
+      `${condition.sql} ${ext.sql}${origin.sql}${search.sql}${style.sql}${filterSql(favoritesOnly, showHidden)}`,
+      [...condition.params, ...ext.params, ...origin.params, ...search.params, ...style.params],
       limit,
       beforeId
     );
   }
 
-  const cursor = ext.sql + origin.sql + search.sql + prompt.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
-  const params: (string | number)[] = [...condition.params, ...ext.params, ...origin.params, ...search.params, ...prompt.params];
+  const cursor = ext.sql + origin.sql + search.sql + style.sql + prompt.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
+  const params: (string | number)[] = [...condition.params, ...ext.params, ...origin.params, ...search.params, ...style.params, ...prompt.params];
   if (beforeId !== null) params.push(beforeId);
   params.push(limit);
   const rows = db
@@ -539,11 +564,12 @@ export function listGenerationRefs(
   const prompt = promptCondition(options.prompt);
   const origin = originCondition(options.origins);
   const search = searchCondition(options.search);
+  const style = styleCondition(kind === 'image' ? options.styles : undefined);
   const rows = db
     .prepare(
-      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
+      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${style.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
     )
-    .all(...condition.params, ...ext.params, ...origin.params, ...search.params, ...prompt.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
+    .all(...condition.params, ...ext.params, ...origin.params, ...search.params, ...style.params, ...prompt.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
   return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1, pinned: r.pinned === 1 }));
 }
 
@@ -563,11 +589,12 @@ export function countGenerations(
     const condition = kindCondition(videoFamilies, kind);
     const ext = extensionCondition(kind === 'image' ? imageExtension : null);
     const origin = originCondition(options.originsByKind?.[kind] ?? options.origins);
+    const style = styleCondition(kind === 'image' ? options.styles : undefined);
     const row = db
       .prepare(
-        `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)}`
+        `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${style.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)}`
       )
-      .get(...condition.params, ...ext.params, ...origin.params, ...search.params, ...prompt.params) as unknown as { n: number };
+      .get(...condition.params, ...ext.params, ...origin.params, ...search.params, ...style.params, ...prompt.params) as unknown as { n: number };
     return row.n;
   };
   return { image: count('image'), video: count('video') };
