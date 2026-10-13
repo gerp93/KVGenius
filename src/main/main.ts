@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, ipcMain, dialog, nativeImage, protocol, shell } from 'electron';
+import { app, BrowserWindow, clipboard, ClipboardItem, ipcMain, dialog, nativeImage, protocol, session, shell } from 'electron';
 import { DatabaseSync } from 'node:sqlite';
 import * as os from 'os';
 import * as path from 'path';
@@ -207,6 +207,8 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Underline misspelled words in every text box (a box opts out with spellCheck={false}); suggestions are in the right-click menu.
+      spellcheck: true,
     },
   });
 
@@ -1303,6 +1305,7 @@ function checkForUpdatesNow(): Promise<UpdateCheckResult> {
 app
   .whenReady()
   .then(async () => {
+    session.defaultSession.setSpellCheckerLanguages(['en-US']);
     migrateLegacyDefaultDbLocation();
     enforceDevDatabaseIsolation();
     db = initDatabase(getEffectiveDbPath());
