@@ -86,7 +86,7 @@ import { createGenerationRunner, getLastRunFamily } from './generationService';
 import { AssemblyManager } from './assembly';
 import { ApiService } from './apiService';
 import { LocalApi, removeDiscoveryFile, startLocalApi, writeDiscoveryFile } from './localApi';
-import { FfmpegPaths, findFfmpeg, planGif, planLastFrame, probeMedia, runFfmpeg } from './mediaTools';
+import { FfmpegPaths, findFfmpeg, firstFramePng, planGif, planLastFrame, probeMedia, runFfmpeg } from './mediaTools';
 import { GIF_FAMILY } from '../shared/gif';
 import { cleanOrigins } from '../shared/origin';
 import { detectComfyUIProgram, launchComfyUIProgram } from './comfyLauncher';
@@ -634,7 +634,9 @@ function registerIpcHandlers(): void {
       GIF_FAMILY,
       finalPath,
       null,
-      hidden
+      hidden,
+      // The video's kept source picture, so the GIF's details show where it started.
+      source.sourceImagePath
     );
     return { record, imageUrl: imageUrlFor(record.imagePath) };
   });
@@ -794,7 +796,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle('copyImageToClipboard', async (_event, imagePath: string) => {
     const resolved = path.resolve(String(imagePath));
     if (!isAllowedMediaPath(resolved, mediaDirs(), pickedSourceImages)) throw new Error('That file is not one the app can copy.');
-    const image = nativeImage.createFromPath(resolved);
+    let image = nativeImage.createFromPath(resolved);
+    if (image.isEmpty()) {
+      // Electron only reads PNG and JPEG itself; a GIF (or anything else) is decoded to its first frame by ffmpeg.
+      const ff = getFfmpeg();
+      const frame = ff ? await firstFramePng(ff, resolved) : null;
+      if (frame) image = nativeImage.createFromBuffer(frame);
+      else if (!ff && /\.(gif|webp)$/i.test(resolved)) throw new Error('Copying a GIF needs ffmpeg, which was not found. Set it up in Settings.');
+    }
     if (image.isEmpty()) throw new Error('Could not read that file as an image (a video cannot be copied as a picture).');
     // As a PNG whatever the file is, so any app that takes a pasted picture can use it.
     await clipboard.write([new ClipboardItem({ 'image/png': new Blob([image.toPNG()], { type: 'image/png' }) })]);

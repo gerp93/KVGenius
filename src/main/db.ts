@@ -12,6 +12,7 @@ import { ASSEMBLIES_SCHEMA } from './assembly';
 import { STYLES_SCHEMA } from './styles';
 import { STYLE_SAMPLES_SCHEMA } from './styleSamples';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, parseOutpaint, serializeOutpaint, OutpaintPadding } from '../shared/imageToImage';
+import { GIF_FAMILY } from '../shared/gif';
 import { T2V_FAMILY } from '../shared/textToVideo';
 import { V2V_FAMILY } from '../shared/videoToVideo';
 import { MODEL_PROFILES_SCHEMA } from './modelProfiles';
@@ -125,6 +126,16 @@ function migrateSchema(db: DatabaseSync): void {
   if (!columns.some((c) => c.name === 'style_name')) {
     db.exec('ALTER TABLE generations ADD COLUMN style_name TEXT;');
   }
+  // A GIF made from a video shows the picture that video started from, like the video does. GIFs made before that was kept get it from the
+  // newest earlier video with the same prompt and seed (which is what the GIF was converted from); a GIF with no such video keeps none.
+  db.prepare(
+    `UPDATE generations SET source_image_path = (
+       SELECT v.source_image_path FROM generations v
+       WHERE v.prompt = generations.prompt AND v.seed = generations.seed AND v.id < generations.id
+         AND v.model_family != ? AND v.source_image_path IS NOT NULL
+       ORDER BY v.id DESC LIMIT 1)
+     WHERE model_family = ? AND source_image_path IS NULL`
+  ).run(GIF_FAMILY, GIF_FAMILY);
 }
 
 /**

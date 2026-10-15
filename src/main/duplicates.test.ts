@@ -128,3 +128,23 @@ test('an inpainting run is a duplicate only of the same picture with the same ma
   assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { ...query, sourceImagePath: '/s/other.png' }), null, 'a different picture');
   assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { ...query, maskImagePath: null }), null, 'no mask yet means nothing to compare');
 });
+
+test('a GIF made before it kept its source picture gets the one from the video it was converted from', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-gifsrc-'));
+  const file = path.join(dir, 'lib.db');
+  try {
+    const db = initDatabase(file);
+    const video = add(db, { seed: 5 }, 'wan22-i2v', '/kept/start.png');
+    const gif = add(db, { seed: 5 }, 'video-gif');
+    const unrelated = add(db, { seed: 6 }, 'video-gif');
+    db.close();
+    const again = initDatabase(file);
+    const row = (id: number) => again.prepare('SELECT source_image_path AS p FROM generations WHERE id = ?').get(id) as { p: string | null };
+    assert.equal(row(gif.id).p, '/kept/start.png');
+    assert.equal(row(unrelated.id).p, null);
+    assert.equal(row(video.id).p, '/kept/start.png');
+    again.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
