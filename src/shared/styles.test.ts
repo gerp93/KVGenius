@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PromptStyle, cleanStyleKind, combinePrompt, extraWording, styleLabel, validateStyleInput } from './styles';
+import { PromptStyle, cleanStyleKind, combinePrompt, extraWording, splitStyledPrompt, styleLabel, validateStyleInput } from './styles';
 
 test('without a style the prompt is returned exactly as typed', () => {
   for (const prompt of ['a red fox', '  a red fox  ', 'a red fox\n', '', 'trailing comma,']) {
@@ -62,4 +62,23 @@ test('elements go before the style, and the label names both', () => {
   assert.equal(styleLabel([coat], null), 'Coat');
   assert.equal(styleLabel([], null), null);
   assert.equal(combinePrompt('a fox', extraWording([], null)), 'a fox');
+});
+
+test('splitStyledPrompt gives back the typed prompt and the picked style and elements', () => {
+  const mk = (id: number, name: string, text: string, kind: 'style' | 'element'): PromptStyle => ({ id, name, text, kind, createdAt: '', textChangedAt: '' });
+  const anime = mk(1, 'Anime', 'anime, cel shaded', 'style');
+  const jacket = mk(2, 'Red jacket', 'wearing a red jacket', 'element');
+  const hat = mk(3, 'Hat', 'a tall hat.', 'element');
+  const all = [anime, jacket, hat];
+  for (const typed of ['a fox in the snow', 'A fox.', '']) {
+    const full = combinePrompt(typed, extraWording([jacket, hat], anime));
+    const split = splitStyledPrompt(full, styleLabel([jacket, hat], anime), all);
+    assert.ok(split);
+    assert.equal(split.prompt, typed);
+    assert.equal(split.style?.id, 1);
+    assert.deepEqual(split.elements.map((e) => e.id), [2, 3]);
+  }
+  assert.equal(splitStyledPrompt('a fox, anime, cel shaded', 'Anime', [{ ...anime, text: 'anime, flat' }]), null, 'edited wording');
+  assert.equal(splitStyledPrompt('a fox, anime, cel shaded', 'Gone', all), null, 'missing name');
+  assert.deepEqual(splitStyledPrompt('a fox', null, all), { prompt: 'a fox', style: null, elements: [] });
 });
