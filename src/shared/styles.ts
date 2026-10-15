@@ -89,3 +89,38 @@ export function styleTags(label: string | null | undefined): string[] {
     .map((name) => name.trim())
     .filter((name) => name !== '');
 }
+
+/**
+ * Undoes combinePrompt for a past generation (Re-rack): the Library keeps the full prompt that was sent plus a label of the style and
+ * elements used, so this finds those among the current styles by name and strips their wording off the end, giving back what was typed in
+ * the prompt box and what was picked. Returns null when it cannot be done exactly - a name that no longer exists (or is now the other
+ * kind), or wording that was edited since - so the caller can keep the full prompt rather than guess.
+ */
+export function splitStyledPrompt(
+  fullPrompt: string,
+  label: string | null | undefined,
+  available: readonly PromptStyle[]
+): { prompt: string; style: PromptStyle | null; elements: PromptStyle[] } | null {
+  const picked: PromptStyle[] = [];
+  for (const tag of styleTags(label)) {
+    const found = available.find((s) => s.name.toLowerCase() === tag.toLowerCase());
+    if (!found || picked.includes(found)) return null;
+    picked.push(found);
+  }
+  const styles = picked.filter((s) => s.kind === 'style');
+  if (styles.length > 1) return null;
+  const style = styles[0] ?? null;
+  const elements = picked.filter((s) => s.kind === 'element');
+  const pieces = extraWording(elements, style).map((piece) => piece.trim()).filter((piece) => piece !== '');
+  if (pieces.length === 0) return { prompt: fullPrompt, style, elements };
+
+  let rest = fullPrompt;
+  for (let i = pieces.length - 1; i >= 0; i--) {
+    if (!rest.endsWith(pieces[i])) return null;
+    rest = rest.slice(0, rest.length - pieces[i].length);
+    if (rest.endsWith(', ')) rest = rest.slice(0, -2);
+    else if (rest.endsWith(' ') && /[,;:.!?]$/.test(rest.trimEnd())) rest = rest.slice(0, -1);
+    else if (rest !== '') return null;
+  }
+  return combinePrompt(rest, pieces) === fullPrompt ? { prompt: rest, style, elements } : null;
+}

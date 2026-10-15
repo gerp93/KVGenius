@@ -12,7 +12,7 @@ import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useG
 import { usePromptSlots } from '../hooks/usePromptSlots';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import type { PromptTabsModel } from '../utils/promptTabs';
-import { PromptStyle, combinePrompt, extraWording, styleLabel } from '../../shared/styles';
+import { PromptStyle, combinePrompt, extraWording, splitStyledPrompt, styleLabel } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { SAMPLER_LIMITS, profileFamily, profileFamilyKey } from '../../shared/modelFamilies';
 import { DENOISE_LIMITS, INPAINT_FAMILY, OUTPAINT_DEFAULT_DENOISE, clampDenoise, imageFamilyFor, isPictureStartFamily, normalizeOutpaint, outpaintOutputSize, serializeOutpaint } from '../../shared/imageToImage';
@@ -258,6 +258,8 @@ export default function Generate({
   const activeStyle = mode === 'image' ? (styles.find((style) => style.id === styleId && style.kind === 'style') ?? null) : null;
   const activeElements =
     mode === 'image' ? elementIds.flatMap((id) => styles.filter((style) => style.id === id && style.kind === 'element')) : [];
+  const stylesRef = useRef<PromptStyle[]>([]);
+  stylesRef.current = styles;
 
   // The user's saved models (Models page): variants of the built-in one, for the family of the mode in use. None
   // picked means the built-in model, exactly as before. A model picked in a tab that has since been deleted - or
@@ -583,9 +585,16 @@ export default function Generate({
     (record: GenerationRecord, slotId: string) => {
       const recalledMode: Mode = FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
       setMode(recalledMode);
-      // A past generation's prompt already has its style's words in it, so no style is picked again.
-      setStyleId(null);
-      setElementIds([]);
+      // A past generation's stored prompt has its style's and elements' words already in it. Take them back off and pick the style and
+      // elements again, so the form is as it was. If that cannot be done exactly (renamed, deleted or reworded since), the full prompt
+      // is kept with nothing picked, which sends the same words.
+      const split = recalledMode === 'image' && record.styleName ? splitStyledPrompt(record.prompt, record.styleName, stylesRef.current) : null;
+      setStyleId(split?.style?.id ?? null);
+      setElementIds(split ? split.elements.map((e) => e.id) : []);
+      if (recalledMode === 'image' && record.styleName && !split) {
+        setNotice(`The style "${record.styleName}" has changed or been removed, so it could not be picked again - its words are in the prompt instead.`);
+        setTimeout(() => setNotice(null), 8000);
+      }
       // The model it was made with: picked again if a saved model still means exactly that, otherwise the built-in
       // model is picked and the user is told, so a re-run never quietly uses different files.
       if (record.modelSettings) {
@@ -598,7 +607,7 @@ export default function Generate({
       } else {
         setProfileId(null);
       }
-      setPrompt(record.prompt);
+      setPrompt(split ? split.prompt : record.prompt);
       setWidth(record.width);
       setHeight(record.height);
       setSeed(record.seed);
@@ -1075,35 +1084,6 @@ export default function Generate({
             style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
           />
 
-          <div style={{ marginTop: 12 }}>
-            <div className="field-label-row">
-              <label className="field-label" htmlFor="model-select">
-                Model
-              </label>
-              <Link to="/settings?tab=models" className="field-hint-link" title="Add, edit or check the model files">
-                ⚙ Model settings
-              </Link>
-            </div>
-            <select
-              id="model-select"
-              value={activeModel ? String(activeModel.id) : ''}
-              onChange={(e) => handleModelChange(e.target.value === '' ? null : Number(e.target.value))}
-              style={{ width: '100%' }}
-            >
-              <option value="">{modelFamily?.builtInName} (built-in)</option>
-              {familyModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
-            {activeModel && mode === 'image' && (
-              <p className="style-picker__preview">
-                {activeModel.sampler.steps} steps, CFG {activeModel.sampler.cfg}, {activeModel.sampler.sampler} / {activeModel.sampler.scheduler}
-              </p>
-            )}
-          </div>
-
           {mode === 'image' && styles.some((style) => style.kind === 'element') && (
             <div style={{ marginTop: 12 }}>
               <label className="field-label" htmlFor="element-select">
@@ -1171,6 +1151,35 @@ export default function Generate({
               )}
             </div>
           )}
+
+          <div style={{ marginTop: 12 }}>
+            <div className="field-label-row">
+              <label className="field-label" htmlFor="model-select">
+                Model
+              </label>
+              <Link to="/settings?tab=models" className="field-hint-link" title="Add, edit or check the model files">
+                ⚙ Model settings
+              </Link>
+            </div>
+            <select
+              id="model-select"
+              value={activeModel ? String(activeModel.id) : ''}
+              onChange={(e) => handleModelChange(e.target.value === '' ? null : Number(e.target.value))}
+              style={{ width: '100%' }}
+            >
+              <option value="">{modelFamily?.builtInName} (built-in)</option>
+              {familyModels.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+            {activeModel && mode === 'image' && (
+              <p className="style-picker__preview">
+                {activeModel.sampler.steps} steps, CFG {activeModel.sampler.cfg}, {activeModel.sampler.sampler} / {activeModel.sampler.scheduler}
+              </p>
+            )}
+          </div>
 
           {startPad && (
             <p className="style-picker__preview" style={{ marginTop: 12 }}>
