@@ -24,6 +24,8 @@ export interface Job {
   error?: string;
   /** A failed job the user has cleared from the queue panel (it stays a slot in the viewer). */
   dismissed?: boolean;
+  /** A finished result the user has cleared from the queue's "Recently completed" list (it stays a slot in the viewer). */
+  cleared?: boolean;
   /** Not a run at all: an existing record put on screen by Re-rack (see showRecord). It is a slot in the
    * viewer only - never listed as completed, merged into the Library, or counted as finished work. */
   isRecall?: boolean;
@@ -244,6 +246,11 @@ export function useGenerationQueue() {
     setJobs((prev) => prev.filter((j) => j.status !== 'queued'));
   }, []);
 
+  /** Hides every finished result from the queue's recent list. The pictures themselves stay in the Library. */
+  const clearRecent = useCallback(() => {
+    setJobs((prev) => prev.map((j) => (j.status === 'done' && !j.cleared ? { ...j, cleared: true } : j)));
+  }, []);
+
   const dismissFailed = useCallback((id: number) => patchJob(id, { dismissed: true }), [patchJob]);
 
   /** Puts an existing record on screen in working tab `slotId` (e.g. recalled from the Library). It is
@@ -322,6 +329,7 @@ export function useGenerationQueue() {
     enqueue,
     cancelJob,
     clearQueued,
+    clearRecent,
     dismissFailed,
     showRecord,
     updateRecord,

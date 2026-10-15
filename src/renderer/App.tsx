@@ -345,6 +345,7 @@ export default function App() {
             onToggle={() => setQueueCollapsed(!queueCollapsed)}
             onCancelJob={queue.cancelJob}
             onClearQueued={queue.clearQueued}
+            onClearRecent={queue.clearRecent}
             onDismissFailed={queue.dismissFailed}
             notice={queueNotice}
             activeDetailsId={detailsRecord ? detailsRecord.id : null}
