@@ -365,6 +365,13 @@ export default function Generate({
   // library itself (not just "the last run in this tab"), so a Re-rack, or a result from earlier, counts too.
   const [duplicate, setDuplicate] = useState<GenerationRecord | null>(null);
   const [viewingDuplicate, setViewingDuplicate] = useState(false);
+  // Whether the "extend beyond the frame" controls are unfolded. They fold away by default; extending that is already
+  // on (loaded from an earlier picture, say) opens them.
+  const [extendOpen, setExtendOpen] = useState(false);
+  const extending = startPad !== null;
+  useEffect(() => {
+    if (extending) setExtendOpen(true);
+  }, [extending]);
   // Bumped when something leaves the Library, which can turn a match into no match.
   const [libraryChanges, setLibraryChanges] = useState(0);
   useEffect(() => {
@@ -970,34 +977,43 @@ export default function Generate({
               onReject={setError}
             >
               <SourceImageField path={imageSourcePath} onChooseFile={() => void handleChooseStartPicture()} onChooseFromLibrary={() => setPicker('start')} />
-              {imageSourcePath && !startPad && (
-                <div className="mask-field">
-                  {maskPath ? (
-                    <>
+              {imageSourcePath && (
+                <>
+                  <div className="source-image-actions source-image-tools">
+                    <button
+                      type="button"
+                      onClick={() => void openMaskEditor()}
+                      disabled={extending}
+                      title={
+                        extending
+                          ? 'Extending the picture replaces a painted mask'
+                          : 'Optional: paint the spots to re-draw; everything else stays exactly as it is (inpainting)'
+                      }
+                    >
+                      🖌️ {maskPath ? 'Edit mask...' : 'Paint a mask...'}
+                    </button>
+                    <button
+                      type="button"
+                      className={extending ? 'source-image-tools__on' : undefined}
+                      aria-expanded={extendOpen}
+                      onClick={() => setExtendOpen((open) => !open)}
+                      title="Optional: add pixels beyond each edge of the picture (outpainting)"
+                    >
+                      ↔ Extend edges {extendOpen ? '▴' : '▾'}
+                    </button>
+                  </div>
+                  {maskPath && !extending && (
+                    <div className="mask-field">
                       <img className="mask-field__thumb" src={window.kvgenius.imageUrlFor(maskPath)} alt="The mask" title="White is re-drawn; black stays as it was" />
-                      <div className="mask-field__text">
-                        <strong>Only the painted spots change</strong>
-                        <div className="button-row">
-                          <button type="button" onClick={() => void openMaskEditor()}>
-                            Edit mask...
-                          </button>
-                          <button type="button" onClick={() => setMaskPath(null)}>
-                            Remove mask
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="button-row">
-                      <button type="button" onClick={() => void openMaskEditor()} title="Paint the spots to re-draw; everything else stays exactly as it is (inpainting)">
-                        🖌️ Paint a mask...
+                      <span>Only the painted spots change.</span>
+                      <button type="button" className="link-button" onClick={() => setMaskPath(null)}>
+                        Remove mask
                       </button>
-                      <span className="settings-hint" style={{ margin: 0 }}>Optional: change only some spots.</span>
                     </div>
                   )}
-                </div>
+                </>
               )}
-              {imageSourcePath && (
+              {imageSourcePath && extendOpen && (
                 <ExtendField
                   value={startPad}
                   sourceSize={sourceDims}
@@ -1015,7 +1031,7 @@ export default function Generate({
               )}
               {imageSourcePath && (
                 <>
-                  <label className="field-label" htmlFor="denoise" style={{ marginTop: 10 }}>
+                  <label className="field-label" htmlFor="denoise" style={{ marginTop: 12 }}>
                     {startPad ? 'How much to invent in the new area' : maskPath ? 'How much to change the painted spots' : 'How much to change it'}: {denoise.toFixed(2)}
                   </label>
                   <input
@@ -1028,7 +1044,7 @@ export default function Generate({
                     onChange={(e) => setDenoise(clampDenoise(Number(e.target.value)))}
                     style={{ width: '100%' }}
                   />
-                  <p className="style-picker__preview">
+                  <p className="source-image-hint">
                     {startPad
                       ? 'The new area starts as a blurred stretch of your picture and is re-drawn this much. Lower follows the picture more closely; 1 draws it from the prompt alone.'
                       : 'Low keeps most of the picture; 1 ignores it.'}
