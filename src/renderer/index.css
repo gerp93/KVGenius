@@ -2158,6 +2158,13 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+/* The style tags under the caption: lined up with its text and kept clear of the buttons below. */
+.queue-done__styles {
+  flex: none;
+  margin: 0 8px 8px;
+  min-width: 0;
+}
+
 .queue-done__actions {
   flex: none;
   display: flex;
