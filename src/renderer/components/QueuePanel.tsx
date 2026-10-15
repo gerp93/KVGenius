@@ -21,6 +21,8 @@ interface Props {
   onToggle: () => void;
   onCancelJob: (id: number) => void;
   onClearQueued: () => void;
+  /** Hide the finished results from the "Recently completed" list (they stay in the Library). */
+  onClearRecent: () => void;
   onDismissFailed: (id: number) => void;
   /** The finished result whose details panel is open, if any (its card is highlighted). */
   activeDetailsId: number | null;
@@ -49,7 +51,7 @@ type DoneJob = Job & { record: GenerationRecord; imageUrl: string; kind: JobKind
 
 function isDone(job: Job): job is DoneJob {
   // A recalled record (Re-rack) was never run, so it is not a completed job.
-  return job.status === 'done' && !job.isRecall && !!job.record && !!job.imageUrl;
+  return job.status === 'done' && !job.cleared && !job.isRecall && !!job.record && !!job.imageUrl;
 }
 
 function describe(job: Job): string {
@@ -102,6 +104,7 @@ export default function QueuePanel({
   onToggle,
   onCancelJob,
   onClearQueued,
+  onClearRecent,
   onDismissFailed,
   notice,
   activeDetailsId,
@@ -349,6 +352,14 @@ export default function QueuePanel({
                     +{olderDoneCount} more
                   </span>
                 )}
+                <button
+                  type="button"
+                  className="queue-panel__clear"
+                  onClick={onClearRecent}
+                  title="Remove these from the queue. The pictures stay in the Library."
+                >
+                  Clear recent
+                </button>
               </div>
               <div className="queue-bar__cards">
                 {done.map((job) => (
