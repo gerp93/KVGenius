@@ -3119,56 +3119,61 @@ button.button-danger--armed:hover:not(:disabled) {
   min-width: 0;
 }
 
-/* Generate > Image -> Image: the optional inpainting mask under the source image. */
+/* Generate > Image -> Image: the mask and extend buttons sit on one line under the picture (like the two pick buttons). */
+.source-image-tools {
+  margin-top: 10px;
+}
+
+.source-image-tools button {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+/* Extending is switched on: say so on the button even while its controls are folded away. */
+.source-image-tools .source-image-tools__on {
+  border-color: var(--color-accent-blue);
+}
+
+/* The painted mask, once there is one: a small thumbnail and a one-line note. */
 .mask-field {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 10px;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
 .mask-field__thumb {
   flex: none;
-  width: 56px;
-  height: 56px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-radius: 4px;
   background: #000;
-}
-
-.mask-field__text {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
 }
 
 .library-card__origin-badge--inpaint {
   background: rgba(120, 60, 160, 0.9);
 }
 
-/* Generate > Image -> Image: outpainting's per-side padding, laid out around a box standing for the picture. */
+/* Generate > Image -> Image: outpainting's four per-side numbers on one row, then its presets on another. */
 .extend-field {
-  margin-top: 10px;
+  margin-top: 8px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
 }
 
-.extend-field__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
-}
-
-.extend-field__grid {
+.extend-field__sides {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
-  grid-template-rows: auto auto auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  align-items: center;
 }
 
 .extend-field__side {
@@ -3183,40 +3188,25 @@ button.button-danger--armed:hover:not(:disabled) {
 .extend-field__side input {
   width: 100%;
   min-width: 0;
+  padding-left: 6px;
+  padding-right: 4px;
 }
 
-.extend-field__side--top {
-  grid-column: 2;
-  grid-row: 1;
+.extend-field__presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
-.extend-field__side--left {
-  grid-column: 1;
-  grid-row: 2;
+.extend-field__presets button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 6px;
+  font-size: 12px;
 }
 
-.extend-field__side--right {
-  grid-column: 3;
-  grid-row: 2;
-}
-
-.extend-field__side--bottom {
-  grid-column: 2;
-  grid-row: 3;
-}
-
-.extend-field__picture {
-  grid-column: 2;
-  grid-row: 2;
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  border: 1px dashed var(--color-border);
-  border-radius: 6px;
-  font-size: 11px;
-  color: var(--color-text-muted);
+.extend-field .source-image-hint {
+  margin: 0;
 }
 
 /* The Library's card-size slider (small card, slider, big card). */

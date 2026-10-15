@@ -13,9 +13,9 @@ const PRESET = 256;
 const SIDE_LABEL = { left: 'Left', top: 'Top', right: 'Right', bottom: 'Bottom' } as const;
 
 /**
- * Outpainting's controls: how many pixels to add beyond each edge of the source picture, laid out around a box that
- * stands for the picture itself. Every side starts at 0; with any side above 0 the run extends the picture instead
- * of re-drawing it (see shared/imageToImage.ts).
+ * Outpainting's controls: how many pixels to add beyond each edge of the source picture, as one row of four numbers
+ * and a row of presets. Every side starts at 0; with any side above 0 the run extends the picture instead of
+ * re-drawing it (see shared/imageToImage.ts). Generate shows it folded away until the user asks for it.
  */
 export default function ExtendField({ value, sourceSize, onChange }: Props) {
   const pad = value ?? { left: 0, top: 0, right: 0, bottom: 0 };
@@ -24,13 +24,9 @@ export default function ExtendField({ value, sourceSize, onChange }: Props) {
 
   return (
     <div className="extend-field">
-      <div className="extend-field__head">
-        <strong>Extend beyond the frame</strong>
-        <span className="settings-hint" style={{ margin: 0 }}>Optional: pixels to add on each side.</span>
-      </div>
-      <div className="extend-field__grid">
+      <div className="extend-field__sides">
         {OUTPAINT_SIDES.map((side) => (
-          <label key={side} className={`extend-field__side extend-field__side--${side}`}>
+          <label key={side} className="extend-field__side">
             <span>{SIDE_LABEL[side]}</span>
             <input
               type="number"
@@ -42,11 +38,8 @@ export default function ExtendField({ value, sourceSize, onChange }: Props) {
             />
           </label>
         ))}
-        <div className="extend-field__picture" aria-hidden="true">
-          picture
-        </div>
       </div>
-      <div className="button-row">
+      <div className="extend-field__presets">
         <button type="button" onClick={() => onChange({ left: PRESET, top: 0, right: PRESET, bottom: 0 })} title="Add 256 px to the left and right">
           Wider
         </button>
@@ -61,10 +54,9 @@ export default function ExtendField({ value, sourceSize, onChange }: Props) {
         </button>
       </div>
       {value && (
-        <p className="style-picker__preview" style={{ maxHeight: 'none' }}>
+        <p className="source-image-hint">
           {result ? `The result is ${result.width} × ${result.height}. ` : ''}The original stays exactly as it is; only the new area is drawn.
-          In the prompt, describe what should continue beyond the edges - a prompt describing the whole picture tends to draw the whole picture
-          again in the new area. This replaces any painted mask.
+          Describe what should continue beyond the edges, not the whole picture. Replaces any painted mask.
         </p>
       )}
     </div>
