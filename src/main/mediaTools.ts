@@ -145,6 +145,12 @@ export async function makePoster(ff: FfmpegPaths, file: string, isVideo: boolean
   return bytes.length > 0 ? bytes : null;
 }
 
+/** The first frame of a picture or animation (a GIF, say) as a full-size PNG, for the formats Electron cannot read itself. Null if ffmpeg produced nothing. */
+export async function firstFramePng(ff: FfmpegPaths, file: string): Promise<Buffer | null> {
+  const bytes = await execBuffer(ff.ffmpeg, ['-v', 'error', '-i', file, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', 'pipe:1']).catch(() => Buffer.alloc(0));
+  return bytes.length > 0 ? bytes : null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Assembling clips + a backing track
 
