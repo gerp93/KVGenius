@@ -3022,6 +3022,17 @@ button.button-danger--armed:hover:not(:disabled) {
   margin-top: 12px;
 }
 
+.library-panel__original-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.library-panel__open-original {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
 .library-panel__original-media {
   position: relative;
   display: inline-block;

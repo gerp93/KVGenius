@@ -15,6 +15,7 @@ import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
 import GalleryLightbox from '../components/GalleryLightbox';
+import { useBorrowedRecord } from '../hooks/useBorrowedRecord';
 import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
 import { justifyRows, rowSizeHint } from '../utils/justifiedRows';
 import CardSizeSlider from '../components/CardSizeSlider';
@@ -308,7 +309,9 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     TARGET_ROW_HEIGHT * cardScale,
     GRID_GAP
   );
-  const infoRecord = records.find((r) => r.id === infoId) ?? null;
+  // The original of a result opened from its panel may not be in this list (filtered out, not loaded): it is shown from here instead.
+  const borrow = useBorrowedRecord();
+  const infoRecord = records.find((r) => r.id === infoId) ?? (borrow.borrowed && borrow.borrowed.id === infoId ? borrow.borrowed : null);
   // How many things Select All would pick: items, which while stacks are shown is not what the tab counts.
   const selectableTotal = stacking ? (itemCounts?.[tab] ?? null) : counts[tab];
 
@@ -484,6 +487,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       return;
     }
     setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, pinned } : r)));
+    borrow.patch(record.id, { pinned });
     setSelection((prev) => {
       const ref = prev.get(record.id);
       return ref ? new Map(prev).set(record.id, { ...ref, pinned }) : prev;
@@ -580,6 +584,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     } else {
       setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, favorite, imagePath } : r)));
     }
+    borrow.patch(record.id, { favorite, imagePath });
     setSelection((prev) => {
       const ref = prev.get(record.id);
       return ref ? new Map(prev).set(record.id, { ...ref, imagePath, favorite }) : prev;
@@ -645,6 +650,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     } else {
       setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, hidden } : r)));
     }
+    borrow.patch(record.id, { hidden });
   }
 
   // Delete moves to the Trash with no confirmation: it can be undone right here, or restored later from
@@ -1066,7 +1072,15 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
               keepView.hold();
               setInfoId(null);
             }}
-            onExpand={() => setLightboxIndex(records.findIndex((r) => r.id === infoRecord.id))}
+            onOpenRecord={(target) => {
+              borrow.borrow(target);
+              setInfoId(target.id);
+            }}
+            onExpand={() => {
+              const index = records.findIndex((r) => r.id === infoRecord.id);
+              if (index >= 0) setLightboxIndex(index);
+              else borrow.setExpanded(true);
+            }}
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}
             onToggleHidden={handleToggleHidden}
@@ -1094,6 +1108,20 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             // A favorite, pin or trash made in there: show the list as it now is.
             if (changed) setReloadKey((k) => k + 1);
           }}
+        />
+      )}
+
+      {borrow.expanded && infoRecord && (
+        <GalleryLightbox
+          src={window.kvgenius.imageUrlFor(infoRecord.imagePath)}
+          kind={kindOf(infoRecord)}
+          filePath={infoRecord.imagePath}
+          alt={infoRecord.prompt}
+          hasPrev={false}
+          hasNext={false}
+          onPrev={() => undefined}
+          onNext={() => undefined}
+          onClose={() => borrow.setExpanded(false)}
         />
       )}
 

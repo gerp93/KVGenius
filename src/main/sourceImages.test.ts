@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { getGenerationById, initDatabase, insertGeneration, listKeptSources } from './db';
-import { keepSourceImage, releaseSourceImage } from './sourceImages';
+import { findOriginalOf, keepSourceImage, releaseSourceImage } from './sourceImages';
 
 const temp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-src-'));
 const params = (seed = 1) => ({ prompt: 'p', width: 64, height: 64, seed, steps: 4, cfg: 1, length: 81 });
@@ -184,4 +184,37 @@ test('a kept copy is not deleted while a waiting or running job still needs it, 
   db.prepare("UPDATE jobs SET status = 'failed' WHERE id = ?").run(job.id);
   assert.equal(releaseSourceImage(db, kept, sources), true, 'a failed job no longer does');
   assert.ok(!fs.existsSync(kept));
+});
+
+test('the original of a result is the Library picture its kept source copies', () => {
+  const dir = temp();
+  const sources = path.join(dir, 'sources');
+  const db = initDatabase(':memory:');
+  const lib = path.join(dir, 'lib.png');
+  const decoy = path.join(dir, 'decoy.png');
+  fs.writeFileSync(lib, 'same-bytes');
+  fs.writeFileSync(decoy, 'other-bytes');
+  const original = insertGeneration(db, params(1), 'z-image', lib);
+  insertGeneration(db, params(2), 'z-image', decoy);
+
+  const kept = keepSourceImage(lib, sources)!;
+  const video = insertGeneration(db, params(3), 'wan22-i2v', path.join(dir, 'v.mp4'), null, false, kept);
+  assert.equal(findOriginalOf(db, video, sources)?.id, original.id);
+
+  // A source from outside the app has no original.
+  const outside = path.join(dir, 'outside.png');
+  fs.writeFileSync(outside, 'from-elsewhere');
+  const other = insertGeneration(db, params(4), 'wan22-i2v', path.join(dir, 'v2.mp4'), null, false, keepSourceImage(outside, sources));
+  assert.equal(findOriginalOf(db, other, sources), null);
+
+  // An original that has gone to the Trash is not offered; one that was deleted from disk is not either.
+  db.prepare('UPDATE generations SET trashed_at = ? WHERE id = ?').run(new Date().toISOString(), original.id);
+  assert.equal(findOriginalOf(db, video, sources), null);
+});
+
+test('the original of a video to video result is the Library video it reads', () => {
+  const db = initDatabase(':memory:');
+  const source = insertGeneration(db, params(1), 'wan22-i2v', '/out/src.mp4');
+  const result = insertGeneration(db, { ...params(2), sourceVideoPath: '/out/src.mp4' }, 'wan22-v2v', '/out/v2v.mp4');
+  assert.equal(findOriginalOf(db, result, '/out/sources')?.id, source.id);
 });

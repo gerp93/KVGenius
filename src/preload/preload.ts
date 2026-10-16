@@ -67,6 +67,7 @@ const api: KVGeniusAPI = {
   getImageSize: (filePath: string) => ipcRenderer.invoke('getImageSize', filePath),
   chooseSourceImages: () => ipcRenderer.invoke('chooseSourceImages'),
   sourceImagesMissing: (paths: string[]) => ipcRenderer.invoke('sourceImagesMissing', paths),
+  findOriginalGeneration: (id: number) => ipcRenderer.invoke('findOriginalGeneration', id),
   listSourceImages: () => ipcRenderer.invoke('listSourceImages'),
   droppedImagePaths: (files: unknown[]) => {
     const paths = files.flatMap((file) => {

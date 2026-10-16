@@ -100,7 +100,7 @@ import { saveMaskPng } from './maskStore';
 import { checkModelFile, importModelFile, ModelImportError } from './modelImport';
 import { readFolderTraits } from './modelTraitsReader';
 import { canonicalFamily } from '../shared/families';
-import { keepJobSources, keepSourceImage, keptFilesOfParams, releaseSourceImage } from './sourceImages';
+import { findOriginalOf, keepJobSources, keepSourceImage, keptFilesOfParams, releaseSourceImage } from './sourceImages';
 import { isExtendableFamily } from '../shared/textToVideo';
 import { settingsFromPng } from './imageMetadata';
 import { runModelTest } from './modelTest';
@@ -783,6 +783,13 @@ function registerIpcHandlers(): void {
       if (!fs.existsSync(resolved)) missing.push(candidate);
     }
     return missing;
+  });
+
+  // The Library item a result was made from, when the app generated it (the details panel's "open the original").
+  ipcMain.handle('findOriginalGeneration', (_event, id: number) => {
+    if (!db) throw new Error('Database not initialized');
+    const record = getGenerationById(db, id);
+    return record ? findOriginalOf(db, record, getSourcesDir()) : null;
   });
 
   // Library > Sources: every picture kept for the videos and upscales made from it.

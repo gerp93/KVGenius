@@ -7,6 +7,7 @@ import GalleryLightbox from '../components/GalleryLightbox';
 import DetailsDock from '../components/DetailsDock';
 import OriginBadge from '../components/OriginBadge';
 import LibraryDetails from '../components/LibraryDetails';
+import { useBorrowedRecord } from '../hooks/useBorrowedRecord';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
 import { announceGenerationChange, useGenerationChanges } from '../utils/generationChanges';
@@ -221,7 +222,9 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     TARGET_ROW_HEIGHT * cardScale,
     GRID_GAP
   );
-  const infoRecord = records.find((r) => r.id === infoId) ?? null;
+  // The original of a result opened from its panel may not be pinned (so not in this list): it is shown from here instead.
+  const borrow = useBorrowedRecord();
+  const infoRecord = records.find((r) => r.id === infoId) ?? (borrow.borrowed && borrow.borrowed.id === infoId ? borrow.borrowed : null);
 
   const fail = (err: unknown) => setError(err instanceof Error ? err.message : String(err));
 
@@ -236,6 +239,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
 
   function patch(id: number, changes: Partial<GenerationRecord>) {
     setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...changes } : r)));
+    borrow.patch(id, changes);
   }
 
   // Changed from the queue bar: bring this list in line with it.
@@ -459,7 +463,15 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
               keepView.hold();
               setInfoId(null);
             }}
-            onExpand={() => setLightboxIndex(visible.findIndex((r) => r.id === infoRecord.id))}
+            onOpenRecord={(target) => {
+              borrow.borrow(target);
+              setInfoId(target.id);
+            }}
+            onExpand={() => {
+              const index = visible.findIndex((r) => r.id === infoRecord.id);
+              if (index >= 0) setLightboxIndex(index);
+              else borrow.setExpanded(true);
+            }}
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}
             onToggleHidden={handleToggleHidden}
@@ -477,6 +489,20 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             onNotice={setNotice}
           />
         </DetailsDock>
+      )}
+
+      {borrow.expanded && infoRecord && (
+        <GalleryLightbox
+          src={window.kvgenius.imageUrlFor(infoRecord.imagePath)}
+          kind={kindOf(infoRecord)}
+          filePath={infoRecord.imagePath}
+          alt={infoRecord.prompt}
+          hasPrev={false}
+          hasNext={false}
+          onPrev={() => undefined}
+          onNext={() => undefined}
+          onClose={() => borrow.setExpanded(false)}
+        />
       )}
 
       {lightboxIndex !== null && visible[lightboxIndex] && (
