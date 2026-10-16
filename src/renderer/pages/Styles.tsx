@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   MAX_STYLE_NAME_LENGTH,
   MAX_STYLE_TEXT_LENGTH,
@@ -95,16 +96,19 @@ function SamplePicture({
  * movie poster, bold lithograph"; one per picture) and an Element (a part of the picture used again and
  * again - an outfit, a character; any number). Every one has an example picture, all made from the same
  * standard prompt and seed (and one with nothing added, the baseline), so what each does is easy to compare.
- * About three quarters of the page is the examples; the editor is a side panel.
+ * About three quarters of the page is the examples; the editor is a side panel. Styles and elements each
+ * have their own tab (kept in the URL as `?tab=elements`), so the list shows one kind at a time.
  */
 export default function Styles({ onChanged }: Props) {
+  const [params, setParams] = useSearchParams();
+  const tab: StyleKind = params.get("tab") === "elements" ? "element" : "style";
   const [styles, setStyles] = useState<PromptStyle[] | null>(null);
   const [samples, setSamples] = useState<StyleSamplesView | null>(null);
   // The style being edited, or null while writing a new one.
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [text, setText] = useState("");
-  const [kind, setKind] = useState<StyleKind>("style");
+  const [kind, setKind] = useState<StyleKind>(tab);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -173,14 +177,22 @@ export default function Styles({ onChanged }: Props) {
     (promptDraft.trim() !== samples.settings.prompt ||
       seedDraft.trim() !== String(samples.settings.seed));
 
-  function select(style: PromptStyle | null) {
+  /** Opens a style for editing, or (with null) a blank one of the given kind - the open tab's, unless told otherwise. */
+  function select(style: PromptStyle | null, newKind: StyleKind = tab) {
     setSelectedId(style ? style.id : null);
     setName(style?.name ?? "");
     setText(style?.text ?? "");
-    setKind(style?.kind ?? "style");
+    setKind(style?.kind ?? newKind);
     setError(null);
     setNotice(null);
     setConfirmingDelete(false);
+  }
+
+  function showTab(k: StyleKind) {
+    if (k === tab) return;
+    setParams(k === "element" ? { tab: "elements" } : {}, { replace: true });
+    // What was open belongs to the other tab; start a blank one here.
+    select(null, k);
   }
 
   async function handleSave() {
@@ -197,6 +209,12 @@ export default function Styles({ onChanged }: Props) {
       setName(saved.name);
       setText(saved.text);
       setKind(saved.kind);
+      // Changing its kind moves it to the other tab: follow it.
+      if (saved.kind !== tab) {
+        setParams(saved.kind === "element" ? { tab: "elements" } : {}, {
+          replace: true,
+        });
+      }
       setNotice("Saved.");
       onChanged();
     } catch (err) {
@@ -313,6 +331,8 @@ export default function Styles({ onChanged }: Props) {
   }
 
   const baseline = sampleOf.get(BASELINE_ID);
+  const tabItems = (styles ?? []).filter((s) => s.kind === tab);
+  const tabLabel = STYLE_KIND_LABEL[tab].toLowerCase();
 
   const baselineCard = (
     <div className="style-card style-card--baseline">
@@ -445,42 +465,52 @@ export default function Styles({ onChanged }: Props) {
             </section>
 
             <section className="styles-page__group">
-              <div className="styles-page__group-head">
-                <h3 className="panel__title">
-                  Your styles and elements{styles ? ` (${styles.length})` : ""}
-                </h3>
+              <div className="tab-strip styles-page__tabs" role="tablist">
+                {STYLE_KINDS.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="tab"
+                    id={`styles-tab-${k}`}
+                    aria-selected={tab === k}
+                    aria-controls="styles-panel"
+                    className={`tab-strip__tab${tab === k ? " active" : ""}`}
+                    onClick={() => showTab(k)}
+                  >
+                    {STYLE_KIND_LABEL[k]}s
+                    {styles
+                      ? ` (${styles.filter((s) => s.kind === k).length})`
+                      : ""}
+                  </button>
+                ))}
                 <button
                   type="button"
-                  className="primary"
+                  className="primary styles-page__new"
                   onClick={() => select(null)}
                   disabled={selectedId === null && !dirty}
                 >
-                  + New
+                  + New {tabLabel}
                 </button>
               </div>
-              {styles === null ? (
-                <p className="styles-page__empty">Loading...</p>
-              ) : styles.length === 0 ? (
-                <p className="styles-page__empty">
-                  Nothing yet. Write your first one in the panel on the right.
-                </p>
-              ) : (
-                STYLE_KINDS.map((k) => {
-                  const items = styles.filter((s) => s.kind === k);
-                  if (items.length === 0 && k !== "style") return null;
-                  return (
-                    <div key={k}>
-                      <h4 className="styles-page__section">
-                        {STYLE_KIND_LABEL[k]}s ({items.length})
-                      </h4>
-                      <div className="style-grid">
-                        {k === "style" && baselineCard}
-                        {items.map(card)}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+              <div
+                id="styles-panel"
+                role="tabpanel"
+                aria-labelledby={`styles-tab-${tab}`}
+              >
+                {styles === null ? (
+                  <p className="styles-page__empty">Loading...</p>
+                ) : tabItems.length === 0 && tab === "element" ? (
+                  <p className="styles-page__empty">
+                    No elements yet. Write your first one in the panel on the
+                    right.
+                  </p>
+                ) : (
+                  <div className="style-grid">
+                    {tab === "style" && baselineCard}
+                    {tabItems.map(card)}
+                  </div>
+                )}
+              </div>
             </section>
           </div>
 

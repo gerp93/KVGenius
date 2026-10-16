@@ -2520,7 +2520,6 @@ button.button-danger--armed:hover:not(:disabled) {
   gap: 8px;
 }
 
-.styles-page__group-head,
 .styles-page__editor-head,
 .styles-page__field-head {
   display: flex;
@@ -2529,7 +2528,14 @@ button.button-danger--armed:hover:not(:disabled) {
   gap: 8px;
 }
 
-.styles-page__group-head button {
+/* The Styles / Elements tabs: the "+ New" button sits at the right end of the strip. */
+.styles-page__tabs {
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.styles-page__new {
+  margin-left: auto;
   min-height: 32px;
   padding: 4px 12px;
 }
