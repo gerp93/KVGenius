@@ -77,6 +77,7 @@ import {
   generate as comfyGenerate,
   listUpscaleModels,
   listInstalledModels,
+  getFolderPaths,
   listSamplerChoices,
   GenerationCancelledError,
   DEFAULT_COMFYUI_HOST,
@@ -98,14 +99,14 @@ import { importSlot } from '../shared/modelFamilies';
 import { isModelFileName, ModelImportOutcome } from '../shared/modelCheck';
 import { saveMaskPng } from './maskStore';
 import { checkModelFile, importModelFile, ModelImportError } from './modelImport';
-import { readFolderTraits } from './modelTraitsReader';
+import { folderRoots, readTraitsInRoots } from './modelTraitsReader';
 import { canonicalFamily } from '../shared/families';
 import { findOriginalOf, keepJobSources, keepSourceImage, keptFilesOfParams, releaseSourceImage } from './sourceImages';
 import { isExtendableFamily } from '../shared/textToVideo';
 import { settingsFromPng } from './imageMetadata';
 import { runModelTest } from './modelTest';
 import { solidPng } from './solidPng';
-import { manifestFeature } from '../shared/modelManifest';
+import { MODEL_FOLDERS, manifestFeature } from '../shared/modelManifest';
 import { DownloadPlanInfo, DownloadStartResult } from '../shared/modelDownloads';
 import { planDownloads } from './downloadScript';
 import { startDownloads } from './downloadLauncher';
@@ -1007,11 +1008,14 @@ function registerIpcHandlers(): void {
     return checkModelFile(resolved, { folder: slot.folder, modelsDir: dir.valid ? dir.effective : null, referenceFile: slot.defaultFile });
   });
   // What the installed files in one models folder are (see shared/modelTraits.ts), so the editor can offer only files that fit together.
-  // Empty when the models folder is not usable from this computer.
+  // The files are looked for where ComfyUI looks (its own answer when it is up, which covers legacy and extra folders), then under the
+  // models folder the app knows; names found in neither are answered null.
   ipcMain.handle('getModelFileTraits', async (_event, folder: string, files: string[]) => {
+    if (typeof folder !== 'string' || !(MODEL_FOLDERS as readonly string[]).includes(folder) || !Array.isArray(files)) return {};
     const dir = modelsDirInfo();
-    if (!dir.valid || !dir.effective || typeof folder !== 'string' || !Array.isArray(files)) return {};
-    return readFolderTraits(dir.effective, folder, files);
+    const fromComfy = (await getFolderPaths())[folder] ?? [];
+    const own = dir.valid && dir.effective ? folderRoots(dir.effective, folder) : [];
+    return readTraitsInRoots([...fromComfy, ...own.filter((root) => !fromComfy.includes(root))], files);
   });
   ipcMain.handle('importModelFile', async (event, filePath: string, family: string, slotKey: string, options: { move?: boolean; overwrite?: boolean }): Promise<ModelImportOutcome> => {
     if (modelImportAbort) return { ok: false, code: 'failed', message: 'Another import is already running.' };

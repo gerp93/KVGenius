@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { readFileTraits, readFolderTraits } from './modelTraitsReader';
+import { folderRoots, readFileTraits, readFolderTraits, readTraitsInRoots } from './modelTraitsReader';
 
 /** A real .safetensors layout (8-byte length, JSON header, data) holding tensors of the given shapes with no data in them. */
 function writeSafetensors(file: string, shapes: Record<string, number[]>): void {
@@ -32,6 +32,40 @@ test('a file is read by its header only, a folder name decides where, and nothin
     assert.equal(found['../../secret.safetensors'], null, 'a name that leaves the folder is never read');
     assert.deepEqual(await readFolderTraits(path.join(root, 'models'), '../..', ['x']), {}, 'only known folders');
     assert.equal((await readFileTraits(path.join(root, 'models', 'vae', 'ae.safetensors')))?.arch, 'latent-vae');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('files are found where ComfyUI looks: the legacy unet and clip folders, and any extra folder, first match winning', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-traits-'));
+  try {
+    const models = path.join(root, 'models');
+    const extra = path.join(root, 'elsewhere');
+    for (const dir of ['diffusion_models', 'unet', 'text_encoders', 'clip']) fs.mkdirSync(path.join(models, dir), { recursive: true });
+    fs.mkdirSync(extra, { recursive: true });
+    const wan = { 'patch_embedding.weight': [5120, 16, 1, 2, 2], 'text_embedding.0.weight': [5120, 4096] };
+    writeSafetensors(path.join(models, 'unet', 'wan_in_unet.safetensors'), wan);
+    writeSafetensors(path.join(extra, 'wan_extra.safetensors'), wan);
+    writeSafetensors(path.join(models, 'clip', 'old_encoder.safetensors'), { 'shared.weight': [256384, 4096], 'encoder.block.0.layer.0.SelfAttention.q.weight': [4096, 4096] });
+    // the same name in two folders: the first one searched is the one read
+    writeSafetensors(path.join(models, 'diffusion_models', 'both.safetensors'), { 'decoder.conv_in.weight': [512, 16, 3, 3] });
+    writeSafetensors(path.join(models, 'unet', 'both.safetensors'), wan);
+
+    assert.deepEqual(folderRoots(models, 'diffusion_models'), [path.join(models, 'diffusion_models'), path.join(models, 'unet')]);
+    assert.deepEqual(folderRoots(models, 'vae'), [path.join(models, 'vae')]);
+    assert.deepEqual(folderRoots(models, '../..'), []);
+
+    const found = await readFolderTraits(models, 'diffusion_models', ['wan_in_unet.safetensors', 'both.safetensors', 'nowhere.safetensors']);
+    assert.equal(found['wan_in_unet.safetensors']?.arch, 'wan-dit', 'a file in the legacy unet folder is read');
+    assert.equal(found['both.safetensors']?.arch, 'latent-vae', 'the first folder searched wins');
+    assert.equal(found['nowhere.safetensors'], null);
+    assert.equal((await readFolderTraits(models, 'text_encoders', ['old_encoder.safetensors']))['old_encoder.safetensors']?.arch, 'umt5-encoder');
+
+    const viaExtra = await readTraitsInRoots([extra, ...folderRoots(models, 'diffusion_models')], ['wan_extra.safetensors', 'wan_in_unet.safetensors', '../models/unet/wan_in_unet.safetensors']);
+    assert.equal(viaExtra['wan_extra.safetensors']?.arch, 'wan-dit', 'a folder ComfyUI reports is searched too');
+    assert.equal(viaExtra['wan_in_unet.safetensors']?.arch, 'wan-dit');
+    assert.equal(viaExtra['../models/unet/wan_in_unet.safetensors'], null, 'a name that leaves its folder is never read');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
