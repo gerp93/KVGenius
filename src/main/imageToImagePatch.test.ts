@@ -149,7 +149,7 @@ test('the outpainting template pads the picture and takes its mask from the padd
   assert.equal(t['op-init'].class_type, 'ImageCompositeMasked');
   assert.deepEqual(t['op-init'].inputs.destination, ['op-bgblur', 0]);
   assert.deepEqual(t['op-init'].inputs.source, ['i2i-scale', 0]);
-  assert.deepEqual(t['op-keepmask'].inputs.mask, ['ip-img2mask', 0]);
+  assert.deepEqual(t['op-keepmask'].inputs.mask, ['op-hardmask', 0], 'the start picture keeps the original up to the exact seam, so the sampler sees real pixels (not a blur of them) there');
   assert.deepEqual(t['i2i-encode'].inputs.pixels, ['op-init', 0]);
   assert.deepEqual(t['ip-composite'].inputs.destination, ['op-init', 0]);
   for (const [id, node] of Object.entries(t)) {
@@ -157,6 +157,26 @@ test('the outpainting template pads the picture and takes its mask from the padd
       if (Array.isArray(value) && typeof value[0] === 'string') assert.ok(t[value[0]], `${id} refers to ${value[0]}`);
     }
   }
+});
+
+test('the outpainting seam: the blend band is built at the output size and lies inside the original, never over the new area', () => {
+  const t = JSON.parse(JSON.stringify(outpaintTemplate)) as Template;
+  assert.equal(t['op-pad'].inputs.feathering, 0, 'the padding mask is exact; a feather there mixes the blurred stand-in into the original');
+  assert.deepEqual(t['op-hardmask'].inputs.image, ['ip-maskscale', 0]);
+  // exact mask -> grown into the original -> softened -> the mask the sampler and the final paste-back use
+  assert.equal(t['op-grow'].class_type, 'GrowMask');
+  assert.deepEqual(t['op-grow'].inputs.mask, ['op-hardmask', 0]);
+  assert.deepEqual(t['op-grow2img'].inputs.mask, ['op-grow', 0]);
+  assert.deepEqual(t['ip-maskblur'].inputs.image, ['op-grow2img', 0]);
+  assert.deepEqual(t['ip-img2mask'].inputs.image, ['ip-maskblur', 0]);
+  assert.deepEqual(t['ip-setmask'].inputs.mask, ['ip-img2mask', 0]);
+  assert.deepEqual(t['ip-composite'].inputs.mask, ['ip-img2mask', 0]);
+  // the soft edge must be fully "new area" (mask ~1) by the seam, or the model repaints a ribbon of the new area half-heartedly:
+  // a gaussian reaches ~1 at 3 sigma from its midpoint, which sits `expand` pixels inside the original
+  const grow = t['op-grow'].inputs.expand as number;
+  const sigma = t['ip-maskblur'].inputs.sigma as number;
+  assert.ok(grow >= 3 * sigma, `grown ${grow}px must be at least 3 sigma (${3 * sigma}px)`);
+  assert.ok((t['ip-maskblur'].inputs.blur_radius as number) >= 3 * sigma - 1, 'the blur kernel must be wide enough for its sigma');
 });
 
 test('filling the outpainting template sets the padding, the canvas size and a full-strength sampler', () => {

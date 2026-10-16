@@ -192,21 +192,21 @@
     },
     "class_type": "ImageScale",
     "_meta": {
-      "title": "Fit the mask to the output size"
+      "title": "Fit the new-area mask to the output size"
     }
   },
   "ip-maskblur": {
     "inputs": {
-      "blur_radius": 8,
-      "sigma": 4.0,
+      "blur_radius": 15,
+      "sigma": 5.0,
       "image": [
-        "ip-maskscale",
+        "op-grow2img",
         0
       ]
     },
     "class_type": "ImageBlur",
     "_meta": {
-      "title": "Soften the mask edge"
+      "title": "Soften the blend band"
     }
   },
   "ip-img2mask": {
@@ -268,7 +268,7 @@
       "top": 0,
       "right": 0,
       "bottom": 0,
-      "feathering": 40,
+      "feathering": 0,
       "image": [
         "i2i-load",
         0
@@ -303,7 +303,7 @@
     "class_type": "InvertMask",
     "inputs": {
       "mask": [
-        "ip-img2mask",
+        "op-hardmask",
         0
       ]
     }
@@ -326,6 +326,45 @@
         "op-keepmask",
         0
       ]
+    }
+  },
+  "op-hardmask": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "image": [
+        "ip-maskscale",
+        0
+      ],
+      "channel": "red"
+    },
+    "_meta": {
+      "title": "New area, exact edge"
+    }
+  },
+  "op-grow": {
+    "class_type": "GrowMask",
+    "inputs": {
+      "mask": [
+        "op-hardmask",
+        0
+      ],
+      "expand": 20,
+      "tapered_corners": false
+    },
+    "_meta": {
+      "title": "Reach into the original"
+    }
+  },
+  "op-grow2img": {
+    "class_type": "MaskToImage",
+    "inputs": {
+      "mask": [
+        "op-grow",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Mask to image"
     }
   }
 }
