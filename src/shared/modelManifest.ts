@@ -42,6 +42,9 @@ function hf(repo: string, folder: ModelFolder, file: string): string {
 
 const Z_IMAGE_REPO = 'Comfy-Org/z_image_turbo';
 const WAN_REPO = 'Comfy-Org/Wan_2.2_ComfyUI_Repackaged';
+const QWEN_IMAGE_REPO = 'Comfy-Org/Qwen-Image_ComfyUI';
+const HIDREAM_REPO = 'Comfy-Org/HiDream-I1_ComfyUI';
+const OVIS_REPO = 'Comfy-Org/Ovis-Image';
 
 export interface ManifestFeature {
   id: string;
@@ -69,6 +72,62 @@ export const MODEL_MANIFEST: ManifestFeature[] = [
       { file: 'ae.safetensors', folder: 'vae', role: 'VAE', url: hf(Z_IMAGE_REPO, 'vae', 'ae.safetensors') },
     ],
     source: { label: 'Z Image Turbo model page', url: 'https://docs.comfy.org/tutorials/image/z-image/z-image-turbo' },
+  },
+  {
+    id: 'qwen-image',
+    title: 'Images (Qwen-Image)',
+    summary: 'Text to image. Strong at text inside the picture and at long, detailed prompts; slower than Z Image.',
+    family: 'qwen-image',
+    files: [
+      { file: 'qwen_image_2512_fp8_e4m3fn.safetensors', folder: 'diffusion_models', role: 'Image model', url: hf(QWEN_IMAGE_REPO, 'diffusion_models', 'qwen_image_2512_fp8_e4m3fn.safetensors') },
+      { file: 'qwen_2.5_vl_7b_fp8_scaled.safetensors', folder: 'text_encoders', role: 'Text encoder', url: hf(QWEN_IMAGE_REPO, 'text_encoders', 'qwen_2.5_vl_7b_fp8_scaled.safetensors') },
+      { file: 'qwen_image_vae.safetensors', folder: 'vae', role: 'VAE', url: hf(QWEN_IMAGE_REPO, 'vae', 'qwen_image_vae.safetensors') },
+    ],
+    source: { label: 'Qwen-Image files (Hugging Face)', url: 'https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI' },
+    note: 'The original Qwen-Image model (qwen_image_fp8_e4m3fn.safetensors) works in the same slots: add it as a model on the Models page.',
+  },
+  {
+    id: 'flux-dev',
+    title: 'Images (Flux.1 dev)',
+    summary: 'Text to image. High detail and good prompt following; slower than Z Image.',
+    family: 'flux-dev',
+    files: [
+      { file: 'flux1-dev.safetensors', folder: 'diffusion_models', role: 'Image model', url: 'https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev.safetensors' },
+      { file: 'clip_l.safetensors', folder: 'text_encoders', role: 'CLIP-L text encoder', url: 'https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors' },
+      { file: 't5xxl_fp16.safetensors', folder: 'text_encoders', role: 'T5 text encoder', url: 'https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors' },
+      { file: 'ae.safetensors', folder: 'vae', role: 'VAE', url: hf(Z_IMAGE_REPO, 'vae', 'ae.safetensors') },
+    ],
+    source: { label: 'Flux.1 dev files (Hugging Face)', url: 'https://huggingface.co/Comfy-Org/flux1-dev' },
+    note: 'The VAE is the same file Z Image uses. The model is released under a non-commercial licence.',
+  },
+  {
+    id: 'hidream',
+    title: 'Images (HiDream I1 Full)',
+    summary: 'Text to image with four text encoders. A large model: the slowest picture family here.',
+    family: 'hidream',
+    files: [
+      { file: 'hidream_i1_full_fp8.safetensors', folder: 'diffusion_models', role: 'Image model', url: hf(HIDREAM_REPO, 'diffusion_models', 'hidream_i1_full_fp8.safetensors') },
+      { file: 'clip_l_hidream.safetensors', folder: 'text_encoders', role: 'CLIP-L text encoder', url: hf(HIDREAM_REPO, 'text_encoders', 'clip_l_hidream.safetensors') },
+      { file: 'clip_g_hidream.safetensors', folder: 'text_encoders', role: 'CLIP-G text encoder', url: hf(HIDREAM_REPO, 'text_encoders', 'clip_g_hidream.safetensors') },
+      { file: 't5xxl_fp8_e4m3fn_scaled.safetensors', folder: 'text_encoders', role: 'T5 text encoder', url: hf(HIDREAM_REPO, 'text_encoders', 't5xxl_fp8_e4m3fn_scaled.safetensors') },
+      { file: 'llama_3.1_8b_instruct_fp8_scaled.safetensors', folder: 'text_encoders', role: 'Llama text encoder', url: hf(HIDREAM_REPO, 'text_encoders', 'llama_3.1_8b_instruct_fp8_scaled.safetensors') },
+      { file: 'ae.safetensors', folder: 'vae', role: 'VAE', url: hf(Z_IMAGE_REPO, 'vae', 'ae.safetensors') },
+    ],
+    source: { label: 'HiDream I1 files (Hugging Face)', url: 'https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI' },
+    note: 'Needs all four text encoders. The VAE is the same file Z Image uses.',
+  },
+  {
+    id: 'ovis-image',
+    title: 'Images (Ovis-Image)',
+    summary: 'Text to image. Good at rendering text inside the picture.',
+    family: 'ovis-image',
+    files: [
+      { file: 'ovis_image_bf16.safetensors', folder: 'diffusion_models', role: 'Image model', url: hf(OVIS_REPO, 'diffusion_models', 'ovis_image_bf16.safetensors') },
+      { file: 'ovis_2.5.safetensors', folder: 'text_encoders', role: 'Text encoder', url: hf(OVIS_REPO, 'text_encoders', 'ovis_2.5.safetensors') },
+      { file: 'ae.safetensors', folder: 'vae', role: 'VAE', url: hf(Z_IMAGE_REPO, 'vae', 'ae.safetensors') },
+    ],
+    source: { label: 'Ovis-Image files (Hugging Face)', url: 'https://huggingface.co/Comfy-Org/Ovis-Image' },
+    note: 'The VAE is the same file Z Image uses.',
   },
   {
     id: 'wan22-i2v',

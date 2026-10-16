@@ -27,11 +27,40 @@ export const SLOT_NODES: Record<string, Record<string, { node: string; input: st
     textEncoder: { node: '57:30', input: 'clip_name' },
     vae: { node: '57:29', input: 'vae_name' },
   },
+  // The four newer image families share one node layout (see their templates): 2 model, 3 text encoder(s), 4 VAE.
+  'qwen-image': {
+    diffusionModel: { node: '2', input: 'unet_name' },
+    textEncoder: { node: '3', input: 'clip_name' },
+    vae: { node: '4', input: 'vae_name' },
+  },
+  'flux-dev': {
+    diffusionModel: { node: '2', input: 'unet_name' },
+    clipL: { node: '3', input: 'clip_name1' },
+    textEncoder: { node: '3', input: 'clip_name2' },
+    vae: { node: '4', input: 'vae_name' },
+  },
+  hidream: {
+    diffusionModel: { node: '2', input: 'unet_name' },
+    clipL: { node: '3', input: 'clip_name1' },
+    clipG: { node: '3', input: 'clip_name2' },
+    textEncoder: { node: '3', input: 'clip_name3' },
+    llama: { node: '3', input: 'clip_name4' },
+    vae: { node: '4', input: 'vae_name' },
+  },
+  'ovis-image': {
+    diffusionModel: { node: '2', input: 'unet_name' },
+    textEncoder: { node: '3', input: 'clip_name' },
+    vae: { node: '4', input: 'vae_name' },
+  },
 };
 
-/** The sampler nodes a profile sets (KSampler's sampler_name / scheduler, ModelSamplingAuraFlow's shift). */
-export const SAMPLER_NODES: Record<string, { sampler: string; shift: string }> = {
+/** The sampler nodes a profile sets (KSampler's sampler_name / scheduler, and the shift node's shift - absent when the graph has none). */
+export const SAMPLER_NODES: Record<string, { sampler: string; shift?: string }> = {
   'z-image': { sampler: '57:3', shift: '57:11' },
+  'qwen-image': { sampler: '10', shift: '5' },
+  'flux-dev': { sampler: '10' },
+  hidream: { sampler: '10', shift: '5' },
+  'ovis-image': { sampler: '10', shift: '5' },
 };
 
 function nodeInputs(workflow: Workflow, node: string): Record<string, unknown> {
@@ -66,5 +95,5 @@ export function applyModelSettings(workflow: Workflow, family: string, settings:
   const samplerInputs = nodeInputs(workflow, sampler.sampler);
   samplerInputs.sampler_name = settings.sampler;
   samplerInputs.scheduler = settings.scheduler;
-  nodeInputs(workflow, sampler.shift).shift = settings.shift;
+  if (sampler.shift) nodeInputs(workflow, sampler.shift).shift = settings.shift;
 }

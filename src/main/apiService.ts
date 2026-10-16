@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { FAMILY_KIND, GenerationParams, GenerationProgress } from '../shared/types';
-import { canonicalFamily, Z_IMAGE_FAMILY } from '../shared/families';
+import { canonicalFamily, TEXT_TO_IMAGE_FAMILIES, Z_IMAGE_FAMILY } from '../shared/families';
 import { I2V_FAMILY, T2V_FAMILY, videoFamilyFor } from '../shared/textToVideo';
 import { V2V_FAMILY } from '../shared/videoToVideo';
 import { PROFILE_FAMILIES, profileFamily, profileFamilyKey, SAMPLER_LIMITS } from '../shared/modelFamilies';
@@ -44,6 +44,10 @@ export interface ApiServiceDeps {
 
 const FAMILIES: Record<string, { kind: 'image' | 'video'; description: string }> = {
   'z-image': { kind: 'image', description: 'Fast text-to-image (Z Image Turbo).' },
+  'qwen-image': { kind: 'image', description: 'Text-to-image (Qwen-Image): strong at text in the picture and at following long prompts. Slower than z-image.' },
+  'flux-dev': { kind: 'image', description: 'Text-to-image (Flux.1 dev): high detail and prompt following. Slower than z-image.' },
+  hidream: { kind: 'image', description: 'Text-to-image (HiDream I1 Full): a large model with four text encoders. The slowest image family.' },
+  'ovis-image': { kind: 'image', description: 'Text-to-image (Ovis-Image): good at rendering text in the picture.' },
   'wan22-i2v': { kind: 'video', description: 'Image-to-video (Wan 2.2): animates a source image into a short clip at 16 fps.' },
   'wan22-t2v': { kind: 'video', description: 'Text-to-video (Wan 2.2): a short clip at 16 fps from a prompt alone.' },
 };
@@ -206,6 +210,25 @@ export class ApiService {
             cfg: { min: 0.5, max: 3, default: 1, note: 'up to 30 with a model' },
           },
         },
+        ...TEXT_TO_IMAGE_FAMILIES.map((key) => {
+          const sampler = profileFamily(key)?.sampler;
+          return {
+            family: key,
+            ...FAMILIES[key],
+            tool: 'generate_image',
+            fields: {
+              prompt: 'text',
+              style: 'optional name of a saved style (see list_styles), added after the prompt',
+              width: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
+              height: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
+              seed: 'integer, random by default',
+              model: 'optional name of a saved model variant of this family (see list_models); its steps and cfg become the defaults',
+              steps: { min: SAMPLER_LIMITS.steps.min, max: SAMPLER_LIMITS.steps.max, default: sampler?.steps },
+              cfg: { min: SAMPLER_LIMITS.cfg.min, max: SAMPLER_LIMITS.cfg.max, default: sampler?.cfg, ...(key === 'flux-dev' ? { note: 'the guidance value of the model (its sampler CFG stays 1)' } : {}) },
+              source: 'not available: this family has text to image only',
+            },
+          };
+        }),
         {
           family: 'wan22-i2v',
           ...FAMILIES['wan22-i2v'],
@@ -301,7 +324,10 @@ export class ApiService {
 
   private generateImage(args: Args) {
     const prompt = reqString(args, 'prompt');
-    const family = canonicalFamily(optString(args, 'family', 64) ?? Z_IMAGE_FAMILY);
+    // With no family given, a saved model decides it (the user named a Flux model: that is the Flux family); otherwise Z-Image.
+    const named = optString(args, 'model', 200);
+    const namedProfile = named ? findModelProfileByName(this.deps.db, named.trim()) : null;
+    const family = canonicalFamily(optString(args, 'family', 64) ?? (namedProfile && FAMILY_KIND[namedProfile.family] === 'image' ? namedProfile.family : Z_IMAGE_FAMILY));
     if (family === INPAINT_FAMILY) fail('Inpainting is not available here yet - it needs a painted mask, which only the app can make.');
     if (family === OUTPAINT_FAMILY) fail('Outpainting is not a family of its own here: use family "z-image" and pass `source` (a library picture) with `extend` (pixels to add on each side).');
     if (family === I2I_FAMILY) fail('Image to image is not a family of its own here: use family "z-image" and pass `source` (a library picture to start from).');
@@ -311,10 +337,15 @@ export class ApiService {
     const { style, elements } = this.resolveWording(args);
     // With a `source` picture this is image to image: same model, but the sampler starts from that picture.
     const sourceId = optString(args, 'source', 64);
+    if ((sourceId !== undefined || (args.extend !== undefined && args.extend !== null)) && family !== Z_IMAGE_FAMILY) {
+      fail(`"${family}" does text to image only: \`source\` and \`extend\` (image to image, outpainting) are available with family "z-image".`);
+    }
     const source = sourceId === undefined ? null : this.requireItem(sourceId, ['image'], 'source');
     // A saved model swaps the files and sampler inside the family's graph; it is resolved here, so the job and
     // the Library record carry exactly what runs (the profile may change or go away later).
     const model = this.resolveModel(optString(args, 'model', 200), family);
+    // A family other than Z-Image has no "built-in" limits of its own: the built-in run uses the family's own steps and CFG.
+    const samplerDefaults = model?.sampler ?? (TEXT_TO_IMAGE_FAMILIES.includes(family) ? profileFamily(family)?.sampler : null) ?? null;
     // Without a width or height of its own, the picture's shape decides the size (long side 1024), like Generate does.
     const sourceSize = source ? (source.width && source.height ? { width: source.width, height: source.height } : this.deps.imageSize(source.path)) : null;
     const fit = sourceSize ? 1024 / Math.max(sourceSize.width, sourceSize.height) : 1;
@@ -332,8 +363,8 @@ export class ApiService {
       width: extendedSize ? extendedSize.width : snap(optNumber(args, 'width', 64, 8192, true) ?? defaultWidth, 64, 256, 2048),
       height: extendedSize ? extendedSize.height : snap(optNumber(args, 'height', 64, 8192, true) ?? defaultHeight, 64, 256, 2048),
       seed: optNumber(args, 'seed', 0, 2 ** 32 - 1, true) ?? Math.floor(Math.random() * 2 ** 32),
-      steps: model ? (optNumber(args, 'steps', SAMPLER_LIMITS.steps.min, SAMPLER_LIMITS.steps.max, true) ?? model.sampler.steps) : (optNumber(args, 'steps', 1, 20, true) ?? 8),
-      cfg: model ? (optNumber(args, 'cfg', SAMPLER_LIMITS.cfg.min, SAMPLER_LIMITS.cfg.max) ?? model.sampler.cfg) : (optNumber(args, 'cfg', 0.5, 3) ?? 1),
+      steps: samplerDefaults ? (optNumber(args, 'steps', SAMPLER_LIMITS.steps.min, SAMPLER_LIMITS.steps.max, true) ?? samplerDefaults.steps) : (optNumber(args, 'steps', 1, 20, true) ?? 8),
+      cfg: samplerDefaults ? (optNumber(args, 'cfg', SAMPLER_LIMITS.cfg.min, SAMPLER_LIMITS.cfg.max) ?? samplerDefaults.cfg) : (optNumber(args, 'cfg', 0.5, 3) ?? 1),
       ...(model ? { modelName: model.name, modelSettings: profileSettings(model) } : {}),
       ...(source && extend ? { sourceImagePath: source.path, outpaint: extend, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max), OUTPAINT_DEFAULT_DENOISE) } : {}),
       ...(source && !extend ? { sourceImagePath: source.path, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max)) } : {}),

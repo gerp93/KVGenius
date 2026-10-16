@@ -375,7 +375,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
     { kind: 'video', label: 'Video' },
   ];
   const sub = (family: string, sampler: SamplerSettings | null) =>
-    profileFamily(family)?.sampler && sampler ? `${sampler.steps} steps, CFG ${sampler.cfg}` : profileFamily(family)?.sampler ? '' : 'Fast / High';
+    profileFamily(family)?.sampler && sampler ? `${sampler.steps} steps, ${profileFamily(family)?.cfgLabel ?? 'CFG'} ${sampler.cfg}` : profileFamily(family)?.sampler ? '' : 'Fast / High';
 
   // ---- the new-model wizard: type -> (family, when the type has several) -> name and files -> settings -> test and save ----
   const kindFamilies = PROFILE_FAMILIES.filter((f) => FAMILY_KIND[f.family] === newType);
@@ -531,13 +531,15 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
           <input type="number" disabled={starter} min={SAMPLER_LIMITS.steps.min} max={SAMPLER_LIMITS.steps.max} value={draft.steps} onChange={(e) => setField('steps', e.target.value)} />
         </label>
         <label>
-          <span className="field-label">CFG</span>
+          <span className="field-label">{def.cfgLabel ?? 'CFG'}</span>
           <input type="number" disabled={starter} step={0.1} min={SAMPLER_LIMITS.cfg.min} max={SAMPLER_LIMITS.cfg.max} value={draft.cfg} onChange={(e) => setField('cfg', e.target.value)} />
         </label>
-        <label>
-          <span className="field-label">Shift</span>
-          <input type="number" disabled={starter} step={0.5} min={SAMPLER_LIMITS.shift.min} max={SAMPLER_LIMITS.shift.max} value={draft.shift} onChange={(e) => setField('shift', e.target.value)} />
-        </label>
+        {!def.noShift && (
+          <label>
+            <span className="field-label">Shift</span>
+            <input type="number" disabled={starter} step={0.5} min={SAMPLER_LIMITS.shift.min} max={SAMPLER_LIMITS.shift.max} value={draft.shift} onChange={(e) => setField('shift', e.target.value)} />
+          </label>
+        )}
         <label>
           <span className="field-label">Sampler</span>
           <ChoiceField disabled={starter} value={draft.sampler} choices={choices.samplers} onChange={(v) => setField('sampler', v)} />
@@ -549,7 +551,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
       </div>
       {!starter && suggestion && (
         <p className="settings-hint">
-          Suggested for these files: {suggestion.settings.steps} steps, CFG {suggestion.settings.cfg}. {suggestion.reason}{' '}
+          Suggested for these files: {suggestion.settings.steps} steps, {def.cfgLabel ?? 'CFG'} {suggestion.settings.cfg}. {suggestion.reason}{' '}
           {matchesSuggestion ? (
             '(These are already set.)'
           ) : (

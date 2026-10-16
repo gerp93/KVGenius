@@ -7,12 +7,16 @@ import zImageTemplate from './templates/z-image.json';
 import i2iTemplate from './templates/z-image-i2i.json';
 import inpaintTemplate from './templates/z-image-inpaint.json';
 import outpaintTemplate from './templates/z-image-outpaint.json';
+import qwenTemplate from './templates/qwen-image.json';
+import fluxTemplate from './templates/flux-dev.json';
+import hiDreamTemplate from './templates/hidream.json';
+import ovisTemplate from './templates/ovis-image.json';
 import wanTemplate from './templates/wan22-i2v.json';
 import wanTextTemplate from './templates/wan22-t2v.json';
 import wanVideoTemplate from './templates/wan22-v2v.json';
 
 type Template = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
-const templates: Record<string, Template> = { 'z-image': zImageTemplate as unknown as Template, 'z-image-i2i': i2iTemplate as unknown as Template, 'z-image-inpaint': inpaintTemplate as unknown as Template, 'z-image-outpaint': outpaintTemplate as unknown as Template, 'wan22-i2v': wanTemplate as unknown as Template, 'wan22-t2v': wanTextTemplate as unknown as Template, 'wan22-v2v': wanVideoTemplate as unknown as Template };
+const templates: Record<string, Template> = { 'z-image': zImageTemplate as unknown as Template, 'qwen-image': qwenTemplate as unknown as Template, 'flux-dev': fluxTemplate as unknown as Template, hidream: hiDreamTemplate as unknown as Template, 'ovis-image': ovisTemplate as unknown as Template, 'z-image-i2i': i2iTemplate as unknown as Template, 'z-image-inpaint': inpaintTemplate as unknown as Template, 'z-image-outpaint': outpaintTemplate as unknown as Template, 'wan22-i2v': wanTemplate as unknown as Template, 'wan22-t2v': wanTextTemplate as unknown as Template, 'wan22-v2v': wanVideoTemplate as unknown as Template };
 
 test('every profile slot is wired to a template node whose current file is the slot default - in every template that uses the family', () => {
   for (const [templateFamily, template] of Object.entries(templates)) {
@@ -34,10 +38,37 @@ test('the sampler nodes are the ones that carry the shipped sampler values', () 
     const nodes = SAMPLER_NODES[family.family];
     const ksampler = template[nodes.sampler].inputs;
     assert.equal(ksampler.steps, family.sampler.steps);
-    assert.equal(ksampler.cfg, family.sampler.cfg);
+    // Flux's "CFG" is the FluxGuidance value; its sampler's own CFG stays 1.
+    if (family.family === 'flux-dev') assert.equal(template['7'].inputs.guidance, family.sampler.cfg);
+    else assert.equal(ksampler.cfg, family.sampler.cfg);
     assert.equal(ksampler.sampler_name, family.sampler.sampler);
     assert.equal(ksampler.scheduler, family.sampler.scheduler);
-    assert.equal(template[nodes.shift].inputs.shift, family.sampler.shift);
+    // A family with no shift node (Flux) has none to check.
+    if (nodes.shift) assert.equal(template[nodes.shift].inputs.shift, family.sampler.shift);
+    else assert.equal(family.noShift, true, `${family.family} has no shift node`);
+  }
+});
+
+test('the newer image families patch their loaders by slot, including the multi-file text encoder loaders', () => {
+  const files = (family: string) => Object.fromEntries(PROFILE_FAMILIES.find((f) => f.family === family)!.slots.map((s) => [s.key, `picked-${s.key}.safetensors`]));
+  const run = (family: string) => {
+    const copy = JSON.parse(JSON.stringify(templates[family])) as Template;
+    applyModelSettings(copy, family, { files: files(family), sampler: 'euler', scheduler: 'beta', shift: 4 });
+    return copy;
+  };
+  const flux = run('flux-dev');
+  assert.equal(flux['2'].inputs.unet_name, 'picked-diffusionModel.safetensors');
+  assert.equal(flux['3'].inputs.clip_name1, 'picked-clipL.safetensors');
+  assert.equal(flux['3'].inputs.clip_name2, 'picked-textEncoder.safetensors');
+  assert.equal(flux['10'].inputs.scheduler, 'beta');
+  const hi = run('hidream');
+  assert.deepEqual([hi['3'].inputs.clip_name1, hi['3'].inputs.clip_name2, hi['3'].inputs.clip_name3, hi['3'].inputs.clip_name4], ['picked-clipL.safetensors', 'picked-clipG.safetensors', 'picked-textEncoder.safetensors', 'picked-llama.safetensors']);
+  assert.equal(hi['5'].inputs.shift, 4);
+  for (const family of ['qwen-image', 'ovis-image']) {
+    const copy = run(family);
+    assert.equal(copy['3'].inputs.clip_name, 'picked-textEncoder.safetensors', family);
+    assert.equal(copy['4'].inputs.vae_name, 'picked-vae.safetensors', family);
+    assert.equal(copy['5'].inputs.shift, 4, family);
   }
 });
 

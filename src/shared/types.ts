@@ -244,6 +244,10 @@ export interface VideoSourceRequest {
  * renderer shows an <img> or a <video> for a given record's output/result. */
 export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'z-image': 'image',
+  'qwen-image': 'image',
+  'flux-dev': 'image',
+  hidream: 'image',
+  'ovis-image': 'image',
   'z-image-i2i': 'image',
   'z-image-inpaint': 'image',
   'z-image-outpaint': 'image',
