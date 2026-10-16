@@ -83,6 +83,8 @@ import {
   DEFAULT_COMFYUI_HOST,
 } from './comfyui';
 import { JobQueue } from './jobQueue';
+import { BackgroundWork, NO_BACKGROUND_WORK, isBackgroundJob, sameBackgroundWork, summarizeBackgroundWork } from '../shared/backgroundWork';
+import { isTerminalJobStatus } from '../shared/jobs';
 import { createGenerationRunner, getLastRunFamily } from './generationService';
 import { AssemblyManager } from './assembly';
 import { ApiService } from './apiService';
@@ -192,6 +194,21 @@ process.on('uncaughtException', (error) => {
 let mainWindow: BrowserWindow | null = null;
 let db: DatabaseSync | null = null;
 let jobQueue: JobQueue | null = null;
+let lastBackgroundWork: BackgroundWork = NO_BACKGROUND_WORK;
+
+/** What is waiting or running in the queue that the window did not queue itself (see shared/backgroundWork.ts). */
+function currentBackgroundWork(): BackgroundWork {
+  if (!jobQueue) return NO_BACKGROUND_WORK;
+  return summarizeBackgroundWork([...jobQueue.list({ status: 'running' }), ...jobQueue.list({ status: 'queued', limit: 500 })]);
+}
+
+/** Tells the window when the background work changed. */
+function publishBackgroundWork(): void {
+  const work = currentBackgroundWork();
+  if (sameBackgroundWork(work, lastBackgroundWork)) return;
+  lastBackgroundWork = work;
+  mainWindow?.webContents.send('backgroundWork', work);
+}
 let assemblies: AssemblyManager | null = null;
 let apiService: ApiService | null = null;
 let localApi: LocalApi | null = null;
@@ -530,6 +547,8 @@ function registerIpcHandlers(): void {
     if (!db) throw new Error('Database not initialized');
     clearTimingStats(db);
   });
+
+  ipcMain.handle('getBackgroundWork', () => currentBackgroundWork());
 
   ipcMain.handle('cancelGeneration', async () => {
     await jobQueue?.cancelRunning();
@@ -1340,7 +1359,16 @@ app
         for (const file of keptFilesOfParams(job.family, job.params)) releaseSourceImage(db, file, getSourcesDir());
       },
     });
-    jobQueue.onProgress((_jobId, progress) => {
+    // The Styles page's examples (and outside clients' requests) share the queue but are not the window's own jobs: the
+    // window is only told how much of them there is, and gets none of their step-by-step progress as if it were its own.
+    const backgroundJobIds = new Set<number>();
+    jobQueue.onJobChanged((job) => {
+      if (isBackgroundJob(job) && !isTerminalJobStatus(job.status)) backgroundJobIds.add(job.id);
+      else backgroundJobIds.delete(job.id);
+      publishBackgroundWork();
+    });
+    jobQueue.onProgress((jobId, progress) => {
+      if (backgroundJobIds.has(jobId)) return;
       mainWindow?.webContents.send('generationProgress', progress);
     });
     if (getApiEnabled()) {

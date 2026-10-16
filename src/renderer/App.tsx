@@ -9,6 +9,7 @@ import DetailsDock, { DetailsSlotContext } from './components/DetailsDock';
 import GalleryLightbox from './components/GalleryLightbox';
 import { useBorrowedRecord } from './hooks/useBorrowedRecord';
 import { useGenerationQueue } from './hooks/useGenerationQueue';
+import { useBackgroundWork } from './hooks/useBackgroundWork';
 import LibraryLayout from './pages/LibraryLayout';
 import LibraryOutput from './pages/LibraryOutput';
 import LibraryPrompts from './pages/LibraryPrompts';
@@ -64,6 +65,7 @@ export default function App() {
   const [queueNotice, setQueueNotice] = useState<string | null>(null);
   // One queue for the whole app: Generate and the Library's Upscale both feed it.
   const queue = useGenerationQueue();
+  const backgroundWork = useBackgroundWork();
   // The finished queue result whose details panel is open (the panel docks to the right of any page).
   const [detailsId, setDetailsId] = useState<number | null>(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -344,6 +346,7 @@ export default function App() {
             jobs={queue.jobs}
             now={queue.now}
             progressInfo={queue.progressInfo}
+            backgroundWork={backgroundWork}
             collapsed={queueCollapsed}
             onToggle={() => setQueueCollapsed(!queueCollapsed)}
             onCancelJob={queue.cancelJob}

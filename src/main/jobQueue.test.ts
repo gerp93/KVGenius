@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { JobQueue, JobRunner, MAX_QUEUED_JOBS } from './jobQueue';
 import { JOBS_SCHEMA, getJob, insertJob, markJobRunning } from './jobStore';
 import { JobRequest } from '../shared/jobs';
+import { STYLE_SAMPLES_BATCH } from '../shared/backgroundWork';
 
 class CancelledError extends Error {}
 
@@ -226,4 +227,25 @@ test('onUnfinished hears of failed and cancelled jobs, not finished ones', async
   await queue.wait(failing.id);
   await queue.cancel(waiting.id);
   assert.deepEqual(heard, ['failed', 'cancelled']);
+});
+
+test('style examples wait behind every other job, even ones queued after them', async () => {
+  const c = controlledRunner();
+  const q = new JobQueue(newDb(), c.runner, { cancelRunning: async () => undefined });
+  const first = q.submit(request({ source: 'ui' }));
+  await tick();
+  const exampleA = q.submit(request({ source: 'ui', batch: STYLE_SAMPLES_BATCH }));
+  const exampleB = q.submit(request({ source: 'ui', batch: STYLE_SAMPLES_BATCH }));
+  const own = q.submit(request({ source: 'ui' }));
+  const outside = q.submit(request({ source: 'mcp' }));
+
+  const order: number[] = [];
+  for (const id of [first.id, own.id, outside.id, exampleA.id, exampleB.id]) {
+    await tick();
+    assert.equal(c.calls[c.calls.length - 1].id, id);
+    order.push(id);
+    c.calls[c.calls.length - 1].release();
+    await q.wait(id);
+  }
+  assert.deepEqual(order, [first.id, own.id, outside.id, exampleA.id, exampleB.id]);
 });

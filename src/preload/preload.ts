@@ -4,6 +4,7 @@ import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
 import { ModelProfileInput } from '../shared/modelProfiles';
 import type { ModelImportProgress } from '../shared/modelCheck';
+import type { BackgroundWork } from '../shared/backgroundWork';
 
 // Videos are served by a local HTTP server, everything else by the kvimage:// protocol - the same
 // rule as imageUrlFor() in main.ts (the sandboxed preload can't import it).
@@ -33,6 +34,12 @@ const api: KVGeniusAPI = {
     const listener = (_event: Electron.IpcRendererEvent, progress: GenerationProgress) => callback(progress);
     ipcRenderer.on('generationProgress', listener);
     return () => ipcRenderer.removeListener('generationProgress', listener);
+  },
+  getBackgroundWork: () => ipcRenderer.invoke('getBackgroundWork'),
+  onBackgroundWork: (callback: (work: BackgroundWork) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, work: BackgroundWork) => callback(work);
+    ipcRenderer.on('backgroundWork', listener);
+    return () => ipcRenderer.removeListener('backgroundWork', listener);
   },
   getTimingStats: () => ipcRenderer.invoke('getTimingStats'),
   clearTimingStats: () => ipcRenderer.invoke('clearTimingStats'),

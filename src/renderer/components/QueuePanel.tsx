@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { GenerationRecord } from '../../shared/types';
+import { BackgroundWork, describeBackgroundWork } from '../../shared/backgroundWork';
 import { sourceMissingMessage } from '../../shared/sourceFamilies';
 import { UPSCALE_FAMILY, isUpscaleFamily } from '../../shared/upscale';
 import { keptFilesOf, useMissingSources } from '../hooks/useMissingSources';
@@ -17,6 +18,8 @@ interface Props {
   jobs: Job[];
   now: number;
   progressInfo: ProgressInfo | null;
+  /** Other work using the queue that is not listed here (style examples, outside requests). */
+  backgroundWork: BackgroundWork;
   collapsed: boolean;
   onToggle: () => void;
   onCancelJob: (id: number) => void;
@@ -100,6 +103,7 @@ export default function QueuePanel({
   jobs,
   now,
   progressInfo,
+  backgroundWork,
   collapsed,
   onToggle,
   onCancelJob,
@@ -169,9 +173,17 @@ export default function QueuePanel({
     }
   }
 
+  // What is holding up the pictures waiting here: work that uses the same queue but is not listed (style examples,
+  // outside requests). Said only while there is something of ours to make. A job of ours counts as "running" in the
+  // window as soon as it is handed over, so while the one actually running is not ours it has not really started.
+  const backgroundNote = pending > 0 ? describeBackgroundWork(backgroundWork) : null;
+  const waitingOnBackground = backgroundNote !== null && backgroundWork.running !== null;
+
   // The one line the folded bar shows: what the running job is doing, or how things stand.
   let statusText = pending > 0 ? '' : failed.length > 0 ? `${failed.length} failed` : 'Nothing queued';
-  if (runningDisplay) {
+  if (waitingOnBackground) {
+    statusText = backgroundNote;
+  } else if (runningDisplay) {
     statusText = runningDisplay.label;
     if (runningDisplay.overrunning) statusText += ' · taking longer than usual';
     else if (runningDisplay.remainingMs !== null) statusText += ` · about ${formatDuration(runningDisplay.remainingMs)} left`;
@@ -302,6 +314,8 @@ export default function QueuePanel({
 
       {!collapsed && (
         <div className="queue-bar__body">
+          {backgroundNote && <p className="queue-panel__background">{backgroundNote}.</p>}
+
           {!running && queued.length === 0 && failed.length === 0 && done.length === 0 && (
             <p className="queue-panel__empty">
               Nothing queued. While something is generating, use "Queue Another" - or set a batch size to queue several at

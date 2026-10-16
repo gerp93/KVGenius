@@ -807,6 +807,13 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   color: var(--color-text-muted);
 }
 
+/* What is holding the queue up: work that uses it but is not listed (style examples, outside requests). */
+.queue-panel__background {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
 .queue-panel__section-title {
   flex: none;
   display: flex;

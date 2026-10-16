@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { GenerationParams, GenerationRecord } from '../shared/types';
 import { JobInfo, JobRequest } from '../shared/jobs';
+import { STYLE_SAMPLES_BATCH } from '../shared/backgroundWork';
 import { Z_IMAGE_FAMILY } from '../shared/families';
 import { PromptStyle, combinePrompt } from '../shared/styles';
 import {
@@ -20,7 +21,8 @@ import {
 
 /**
  * The Styles page's example pictures (see shared/styleSamples.ts). Each is an ordinary Library item - made through the
- * normal queue, hidden from the Library's lists unless "Show hidden" is on - that this table points at, with the wording and
+ * normal queue (last in line: a picture from the Generate tab always goes first, see nextQueuedJob; and not listed in the
+ * queue panel, which only says they are using the queue - see shared/backgroundWork.ts), hidden from the Library's lists unless "Show hidden" is on - that this table points at, with the wording and
  * standard prompt it was made from, so a later change shows up as "outdated".
  */
 export const STYLE_SAMPLES_SCHEMA = `
@@ -117,8 +119,7 @@ export function sampleRequest(settings: StyleSampleSettings, style: PromptStyle 
   return { family: Z_IMAGE_FAMILY, params, source: 'ui', batch: STYLE_SAMPLES_BATCH };
 }
 
-/** The queue batch label of every example job, so they are recognisable in the queue. */
-export const STYLE_SAMPLES_BATCH = 'style-examples';
+export { STYLE_SAMPLES_BATCH };
 
 export interface StyleSamplesQueue {
   submit(request: JobRequest): JobInfo;
