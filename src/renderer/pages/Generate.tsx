@@ -985,7 +985,12 @@ export default function Generate({
               onPaths={(paths) => void useStartPicture(paths[0] ?? null)}
               onReject={setError}
             >
-              <SourceImageField path={imageSourcePath} onChooseFile={() => void handleChooseStartPicture()} onChooseFromLibrary={() => setPicker('start')} />
+              <SourceImageField
+                path={imageSourcePath}
+                onChooseFile={() => void handleChooseStartPicture()}
+                onChooseFromLibrary={() => setPicker('start')}
+                extend={startPad && sourceDims ? { width: sourceDims.width, height: sourceDims.height, pad: startPad } : null}
+              />
               {imageSourcePath && (
                 <>
                   <div className="source-image-actions source-image-tools">
