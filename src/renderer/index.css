@@ -356,6 +356,26 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   background: var(--color-bg-hover);
 }
 
+/* The extended picture's canvas: the source sits where it will end up and the hatched blank around it is what gets drawn. */
+.source-image-canvas {
+  --canvas-height: 220px;
+  position: relative;
+  box-sizing: border-box;
+  width: min(100%, calc(var(--canvas-height) * var(--ratio)));
+  margin: 0 auto;
+  border-radius: 6px;
+  outline: 1px dashed var(--color-accent-blue);
+  outline-offset: -1px;
+  background: repeating-linear-gradient(45deg, var(--color-border) 0 2px, transparent 2px 10px), var(--color-surface);
+  overflow: hidden;
+}
+
+.source-image-canvas img {
+  position: absolute;
+  display: block;
+  object-fit: fill;
+}
+
 .generate-preview {
   display: flex;
   background: var(--color-surface);
