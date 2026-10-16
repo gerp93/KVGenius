@@ -67,7 +67,7 @@ export interface PromptSlot {
 }
 
 /** A generous cap, not a real limit anyone should hit - just a guard against an unbounded list. */
-export const MAX_PROMPT_SLOTS = 12;
+export const MAX_PROMPT_SLOTS = 30;
 
 export const MAX_SLOT_NAME_LENGTH = 40;
 
