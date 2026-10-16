@@ -38,6 +38,8 @@ interface Props {
   record: GenerationRecord;
   queue: GenerationQueue;
   onClose: () => void;
+  /** Show another Library item in this panel instead (the original of this result). */
+  onOpenRecord: (record: GenerationRecord) => void;
   /** Open the picture in the full-window viewer. */
   onExpand: () => void;
   onToggleFavorite: (record: GenerationRecord) => void;
@@ -71,6 +73,7 @@ export default function LibraryDetails({
   record,
   queue,
   onClose,
+  onOpenRecord,
   onExpand,
   onToggleFavorite,
   onTogglePinned,
@@ -104,6 +107,28 @@ export default function LibraryDetails({
   }
   // A video or upscale made from a picture keeps a copy of it; if that copy is gone it cannot be re-run.
   const sourceMissing = useSourceMissing(record);
+  // The Library item this was made from, when the app generated it and it is still there.
+  const [original, setOriginal] = useState<GenerationRecord | null>(null);
+  const hasSourceRef = record.modelFamily === V2V_FAMILY ? !!record.sourceVideoPath : !!record.sourceImagePath;
+  useEffect(() => {
+    setOriginal(null);
+    if (!hasSourceRef) return;
+    let cancelled = false;
+    window.kvgenius
+      .findOriginalGeneration(record.id)
+      .then((found) => {
+        if (!cancelled) setOriginal(found);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [record.id, hasSourceRef]);
+  const openOriginalButton = original && (
+    <button type="button" className="library-panel__open-original" title="Show the original in this panel" onClick={() => onOpenRecord(original)}>
+      Open original
+    </button>
+  );
   // Upscale controls: the models come from ComfyUI when the panel opens.
   const [upscaleModels, setUpscaleModels] = useState<string[] | null>(null);
   const [upscaleModel, setUpscaleModelState] = useState(lastUpscaleModel);
@@ -513,15 +538,20 @@ export default function LibraryDetails({
         {record.modelFamily === V2V_FAMILY && record.sourceVideoPath && (
           <>
             <dt>Source video</dt>
-            <dd title={record.sourceVideoPath}>{record.sourceVideoPath.split(/[\\/]/).pop()}</dd>
+            <dd title={record.sourceVideoPath}>
+              {record.sourceVideoPath.split(/[\\/]/).pop()} {openOriginalButton}
+            </dd>
           </>
         )}
       </dl>
       {record.sourceImagePath && (
         <div className="library-panel__original">
-          <span className="field-label" style={{ margin: 0 }}>
-            Original
-          </span>
+          <div className="library-panel__original-head">
+            <span className="field-label" style={{ margin: 0 }}>
+              Original
+            </span>
+            {openOriginalButton}
+          </div>
           {sourceMissing ? (
             <p className="library-panel__warning">The original is no longer there - the kept copy was deleted.</p>
           ) : (

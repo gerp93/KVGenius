@@ -7,6 +7,7 @@ import TopBar from './components/TopBar';
 import LibraryDetails from './components/LibraryDetails';
 import DetailsDock, { DetailsSlotContext } from './components/DetailsDock';
 import GalleryLightbox from './components/GalleryLightbox';
+import { useBorrowedRecord } from './hooks/useBorrowedRecord';
 import { useGenerationQueue } from './hooks/useGenerationQueue';
 import LibraryLayout from './pages/LibraryLayout';
 import LibraryOutput from './pages/LibraryOutput';
@@ -70,7 +71,9 @@ export default function App() {
   const [detailsSlot, setDetailsSlot] = useState<HTMLElement | null>(null);
   // Looked up in the queue each time, so favorites / pins made in the panel show at once, and the
   // panel closes by itself if the result goes away.
-  const detailsRecord = queue.jobs.find((j) => j.record?.id === detailsId)?.record ?? null;
+  // The original of a result, opened from its panel, need not be in the queue: it is shown from here.
+  const borrow = useBorrowedRecord();
+  const detailsRecord = queue.jobs.find((j) => j.record?.id === detailsId)?.record ?? (borrow.borrowed && borrow.borrowed.id === detailsId ? borrow.borrowed : null);
   // Only one details panel at a time: a Library page opening its own closes this one.
   useGenerationChanges((change) => {
     if (change.kind === 'libraryDetailsOpened') setDetailsId(null);
@@ -367,6 +370,10 @@ export default function App() {
               record={detailsRecord}
               queue={queue}
               onClose={() => setDetailsId(null)}
+              onOpenRecord={(target) => {
+                borrow.borrow(target);
+                setDetailsId(target.id);
+              }}
               onExpand={() => setDetailsExpanded(true)}
               onToggleFavorite={handleQueueFavorite}
               onTogglePinned={handleQueuePin}

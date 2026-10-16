@@ -403,6 +403,8 @@ export interface KVGeniusAPI {
   /** A kept mask as a PNG data URL (only files in the app's sources folder), to carry on painting it. */
   readMaskImage: (filePath: string) => Promise<string>;
   sourceImagesMissing: (paths: string[]) => Promise<string[]>;
+  /** The Library item this result was made from, if the app generated that picture and it is still in the Library. */
+  findOriginalGeneration: (id: number) => Promise<GenerationRecord | null>;
   /** Every kept source image with what was made from it (Library > Sources). */
   listSourceImages: () => Promise<SourceImageEntry[]>;
   /** The local paths of picture files dropped onto the window (pass the dropped `File` objects).
