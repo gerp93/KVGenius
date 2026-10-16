@@ -14,7 +14,8 @@ import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import type { PromptTabsModel } from '../utils/promptTabs';
 import { PromptStyle, combinePrompt, extraWording, splitStyledPrompt, styleLabel } from '../../shared/styles';
 import { Link } from 'react-router-dom';
-import { SAMPLER_LIMITS, profileFamily, profileFamilyKey } from '../../shared/modelFamilies';
+import { PROFILE_FAMILIES, SAMPLER_LIMITS, profileFamily, profileFamilyKey } from '../../shared/modelFamilies';
+import { TEXT_TO_IMAGE_FAMILIES } from '../../shared/families';
 import { DENOISE_LIMITS, INPAINT_FAMILY, OUTPAINT_DEFAULT_DENOISE, clampDenoise, imageFamilyFor, isPictureStartFamily, normalizeOutpaint, outpaintOutputSize, serializeOutpaint } from '../../shared/imageToImage';
 import { ModelProfile, ModelSettings, profileMatchesSettings, profileSettings, serializeModelSettings } from '../../shared/modelProfiles';
 import { formatDuration, formatElapsed, formatEstimate } from '../utils/format';
@@ -168,6 +169,8 @@ export default function Generate({
     setStyleId,
     profileId,
     setProfileId,
+    imageFamily,
+    setImageFamily,
     imageSourcePath,
     setImageSourcePath,
     imageFromPicture,
@@ -281,10 +284,16 @@ export default function Generate({
       cancelled = true;
     };
   }, [modelsVersion]);
+  // Which image family runs: a saved model's own, else the built-in picked (Z-Image unless another family's built-in is).
+  const pickedImageModel = mode === 'image' ? (models.find((m) => m.id === profileId && FAMILY_KIND[m.family] === 'image') ?? null) : null;
+  const imageBase = pickedImageModel?.family ?? (imageFamily && TEXT_TO_IMAGE_FAMILIES.includes(imageFamily) ? imageFamily : FAMILY_FOR_MODE.image);
+  // Image to image, inpainting and outpainting have a workflow for Z-Image only; another family is text to image.
+  const pictureStartAllowed = imageBase === FAMILY_FOR_MODE.image;
+  const imageFromPictureOn = imageFromPicture && pictureStartAllowed;
   // Image mode with a source image is image to image: its own workflow, the same model (so profiles still apply).
-  const startPicture = mode === 'image' && imageFromPicture ? imageSourcePath : null;
+  const startPicture = mode === 'image' && imageFromPictureOn ? imageSourcePath : null;
   // Image -> Image chosen but no picture yet: nothing to run until one is picked.
-  const needsStartPicture = mode === 'image' && imageFromPicture && !imageSourcePath;
+  const needsStartPicture = mode === 'image' && imageFromPictureOn && !imageSourcePath;
   // A mask painted on that source image makes it inpainting: only the painted spots are re-drawn.
   // Extending the picture beyond its frame (outpainting) is its own run, and replaces a mask.
   const startPad = startPicture ? normalizeOutpaint(outpaint) : null;
@@ -325,21 +334,27 @@ export default function Generate({
   const needsVideoPicture = mode === 'video' && videoFromPicture && !videoFromVideo && !sourceImagePath;
   // Extending a video: the source image is its last frame and the finished clip is joined onto it (only while that picture is still the source).
   const activeExtendId = videoStartPicture !== null ? extendFromId : null;
-  const runFamily = mode === 'image' ? imageFamilyFor(FAMILY_FOR_MODE.image, startPicture !== null, startMask !== null, startPad !== null) : videoFamilyFor(videoFromPicture, videoFromVideo);
+  const runFamily = mode === 'image' ? imageFamilyFor(imageBase, startPicture !== null, startMask !== null, startPad !== null) : videoFamilyFor(videoFromPicture, videoFromVideo);
   // The family whose saved models apply (image to image and inpainting share text to image's).
-  const modelBase = mode === 'image' ? FAMILY_FOR_MODE.image : profileFamilyKey(runFamily);
+  const modelBase = mode === 'image' ? imageBase : profileFamilyKey(runFamily);
   const modelFamily = profileFamily(modelBase);
   const familyModels = models.filter((m) => m.family === modelBase);
-  const activeModel = familyModels.find((m) => m.id === profileId) ?? null;
+  const activeModel = mode === 'image' ? pickedImageModel : (familyModels.find((m) => m.id === profileId) ?? null);
+  // The built-in Z-Image model is limited to the few steps and low CFG it was made for; any other model or family takes the full range.
+  const wideLimits = activeModel !== null || (mode === 'image' && imageBase !== FAMILY_FOR_MODE.image);
   const modelSettings: ModelSettings | undefined = activeModel ? profileSettings(activeModel) : undefined;
 
   /** Picking an image model also sets steps and CFG to what it is set up for (still editable under Advanced). A video
    * model only swaps files: its quality comes from the Fast / High choice. */
-  function handleModelChange(id: number | null) {
+  function handleModelChange(id: number | null, builtInFamily: string | null = null) {
     setProfileId(id);
     if (mode !== 'image') return;
-    const picked = familyModels.find((m) => m.id === id);
-    const sampler = picked?.sampler ?? modelFamily?.sampler;
+    const picked = id === null ? undefined : models.find((m) => m.id === id);
+    const family = picked?.family ?? builtInFamily ?? FAMILY_FOR_MODE.image;
+    setImageFamily(picked ? null : builtInFamily);
+    // The newer families have a text to image workflow only, so an Image -> Image choice does not carry over to them.
+    if (family !== FAMILY_FOR_MODE.image) setImageFromPicture(false);
+    const sampler = picked?.sampler ?? profileFamily(family)?.sampler;
     if (sampler) {
       setSteps(sampler.steps);
       setCfg(sampler.cfg);
@@ -594,6 +609,8 @@ export default function Generate({
       }
       // The model it was made with: picked again if a saved model still means exactly that, otherwise the built-in
       // model is picked and the user is told, so a re-run never quietly uses different files.
+      // A built-in run of one of the newer families is picked again by its family.
+      setImageFamily(recalledMode === 'image' && TEXT_TO_IMAGE_FAMILIES.includes(record.modelFamily) ? record.modelFamily : null);
       if (record.modelSettings) {
         const match = modelsRef.current.find((m) => profileMatchesSettings(m, record.modelSettings));
         setProfileId(match ? match.id : null);
@@ -698,7 +715,7 @@ export default function Generate({
     const timer = setTimeout(() => {
       window.kvgenius
         .estimateGeneration(
-          mode === 'video' ? runFamily : FAMILY_FOR_MODE.image,
+          mode === 'video' ? runFamily : imageBase,
           {
             prompt: '',
             width,
@@ -714,7 +731,7 @@ export default function Generate({
         .catch(() => setCurrentEstimate(null));
     }, 250);
     return () => clearTimeout(timer);
-  }, [mode, runFamily, width, height, runSteps, runCfg, lengthSeconds, lastActiveFamily, finishedRuns]);
+  }, [mode, runFamily, imageBase, width, height, runSteps, runCfg, lengthSeconds, lastActiveFamily, finishedRuns]);
 
   const sizePresets = mode === 'image' ? IMAGE_SIZE_PRESETS : VIDEO_SIZE_PRESETS;
   const presetIndex = sizePresets.findIndex((preset) => preset.width === width && preset.height === height);
@@ -977,15 +994,15 @@ export default function Generate({
           {mode === 'image' && (
             <div role="radiogroup" aria-label="Image type" className="radio-row" style={{ marginBottom: 12 }}>
               <label>
-                <input type="radio" name="image-type" checked={!imageFromPicture} onChange={() => setImageFromPicture(false)} /> Text → Image
+                <input type="radio" name="image-type" checked={!imageFromPictureOn} onChange={() => setImageFromPicture(false)} /> Text → Image
               </label>
-              <label>
-                <input type="radio" name="image-type" checked={imageFromPicture} onChange={() => setImageFromPicture(true)} /> Image → Image
+              <label title={pictureStartAllowed ? undefined : 'Only Z-Image models can start from a picture'}>
+                <input type="radio" name="image-type" disabled={!pictureStartAllowed} checked={imageFromPictureOn} onChange={() => setImageFromPicture(true)} /> Image → Image
               </label>
             </div>
           )}
 
-          {mode === 'image' && imageFromPicture && (
+          {mode === 'image' && imageFromPictureOn && (
             <ImageDropZone
               style={{ marginBottom: 12 }}
               onPaths={(paths) => void useStartPicture(paths[0] ?? null)}
@@ -1172,23 +1189,56 @@ export default function Generate({
                 ⚙ Model settings
               </Link>
             </div>
-            <select
-              id="model-select"
-              value={activeModel ? String(activeModel.id) : ''}
-              onChange={(e) => handleModelChange(e.target.value === '' ? null : Number(e.target.value))}
-              style={{ width: '100%' }}
-            >
-              <option value="">{modelFamily?.builtInName} (built-in)</option>
-              {familyModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
+            {mode === 'image' ? (
+              <select
+                id="model-select"
+                value={activeModel ? String(activeModel.id) : `built-in:${imageBase}`}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value.startsWith('built-in:')) {
+                    const family = value.slice('built-in:'.length);
+                    handleModelChange(null, family === FAMILY_FOR_MODE.image ? null : family);
+                  } else {
+                    handleModelChange(Number(value));
+                  }
+                }}
+                style={{ width: '100%' }}
+              >
+                {PROFILE_FAMILIES.filter((f) => FAMILY_KIND[f.family] === 'image').map((f) => (
+                  <optgroup key={f.family} label={f.label}>
+                    <option value={`built-in:${f.family}`}>{f.builtInName} (built-in)</option>
+                    {models
+                      .filter((m) => m.family === f.family)
+                      .map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+            ) : (
+              <select
+                id="model-select"
+                value={activeModel ? String(activeModel.id) : ''}
+                onChange={(e) => handleModelChange(e.target.value === '' ? null : Number(e.target.value))}
+                style={{ width: '100%' }}
+              >
+                <option value="">{modelFamily?.builtInName} (built-in)</option>
+                {familyModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            )}
             {activeModel && mode === 'image' && (
               <p className="style-picker__preview">
-                {activeModel.sampler.steps} steps, CFG {activeModel.sampler.cfg}, {activeModel.sampler.sampler} / {activeModel.sampler.scheduler}
+                {activeModel.sampler.steps} steps, {modelFamily?.cfgLabel ?? 'CFG'} {activeModel.sampler.cfg}, {activeModel.sampler.sampler} / {activeModel.sampler.scheduler}
               </p>
+            )}
+            {mode === 'image' && !pictureStartAllowed && (
+              <p className="style-picker__preview">{modelFamily?.builtInName} makes pictures from text only. Choose a Z-Image model for Image → Image.</p>
             )}
           </div>
 
@@ -1359,8 +1409,8 @@ export default function Generate({
                     id="steps"
                     type="number"
                     value={steps}
-                    min={activeModel ? SAMPLER_LIMITS.steps.min : 1}
-                    max={activeModel ? SAMPLER_LIMITS.steps.max : 20}
+                    min={wideLimits ? SAMPLER_LIMITS.steps.min : 1}
+                    max={wideLimits ? SAMPLER_LIMITS.steps.max : 20}
                     onChange={(e) => setSteps(Number(e.target.value))}
                     style={{ width: 100 }}
                   />
@@ -1373,8 +1423,8 @@ export default function Generate({
                     id="cfg"
                     type="number"
                     value={cfg}
-                    min={activeModel ? SAMPLER_LIMITS.cfg.min : 0.5}
-                    max={activeModel ? SAMPLER_LIMITS.cfg.max : 3}
+                    min={wideLimits ? SAMPLER_LIMITS.cfg.min : 0.5}
+                    max={wideLimits ? SAMPLER_LIMITS.cfg.max : 3}
                     step={0.1}
                     onChange={(e) => setCfg(Number(e.target.value))}
                     style={{ width: 100 }}

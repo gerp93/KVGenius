@@ -61,10 +61,14 @@ test('unknown tools and non-object arguments are rejected', async () => {
   await rejects(service.callTool('list_jobs', [1]), 'invalid_argument');
 });
 
-test('list_capabilities describes both families', async () => {
+test('list_capabilities describes every family', async () => {
   const caps = await call('list_capabilities');
   assert.equal(caps.comfyui_reachable, true);
-  assert.deepEqual(caps.families.map((f: any) => f.family), ['z-image', 'wan22-i2v', 'wan22-t2v']);
+  assert.deepEqual(caps.families.map((f: any) => f.family), ['z-image', 'qwen-image', 'flux-dev', 'hidream', 'ovis-image', 'wan22-i2v', 'wan22-t2v']);
+  const flux = caps.families.find((f: any) => f.family === 'flux-dev');
+  assert.equal(flux.tool, 'generate_image');
+  assert.equal(flux.fields.steps.default, 20);
+  assert.equal(flux.fields.cfg.default, 3.5);
 });
 
 test('import_folder imports media in natural filename order, ignores the rest, and labels the batch', async () => {
@@ -165,9 +169,40 @@ test('generate_image without a model, or with the built-in one, sends the templa
 test('an unknown model is refused with the saved names, and list_models shows what there is', async () => {
   await assert.rejects(() => call('generate_image', { prompt: 'a red fox', model: 'Nope' }), /No model named "Nope".*"Photoreal"/);
   const listed = await call('list_models', {});
-  assert.deepEqual(listed.models.map((m: { name: string }) => m.name), ['Z Image Turbo', 'Wan 2.2 image to video', 'Wan 2.2 text to video', 'Photoreal']);
+  assert.deepEqual(listed.models.map((m: { name: string }) => m.name), ['Z Image Turbo', 'Qwen-Image', 'Flux.1 dev', 'HiDream I1 Full', 'Ovis-Image', 'Wan 2.2 image to video', 'Wan 2.2 text to video', 'Photoreal']);
   assert.equal(listed.models[0].built_in, true);
-  assert.equal(listed.models[1].tool, 'generate_video');
+  assert.equal(listed.models[2].tool, 'generate_image');
+  assert.equal(listed.models[5].tool, 'generate_video');
+});
+
+test('the newer image families: built-in runs use the family\'s own steps and cfg, text to image only, and a named model picks its family', async () => {
+  const flux = await call('generate_image', { prompt: 'a red fox', family: 'flux-dev' });
+  assert.equal(flux.family, 'flux-dev');
+  assert.deepEqual([lastJobParams().steps, lastJobParams().cfg, lastJobParams().modelSettings], [20, 3.5, undefined]);
+  released.shift()?.();
+  await call('get_job', { job_id: flux.job_id, wait_seconds: 5 });
+  // the wider limits apply with no model too (HiDream runs 50 steps)
+  const hi = await call('generate_image', { prompt: 'a red fox', family: 'hidream', steps: 40 });
+  assert.equal(lastJobParams().steps, 40);
+  released.shift()?.();
+  await call('get_job', { job_id: hi.job_id, wait_seconds: 5 });
+  // only Z-Image starts from a picture
+  const src = (await call('list_library', { origin: 'imported', kind: 'image' })).items[0];
+  await assert.rejects(() => call('generate_image', { prompt: 'a fox', family: 'qwen-image', source: src.id }), /text to image only/);
+  // a saved Qwen-Image model needs no family: it decides it
+  saveModelProfile(db, {
+    family: 'qwen-image',
+    name: 'Qwen sharp',
+    files: { diffusionModel: 'q.safetensors', textEncoder: 'qwen_2.5_vl_7b.safetensors', vae: 'qwen_image_vae.safetensors' },
+    sampler: { steps: 30, cfg: 3, sampler: 'euler', scheduler: 'simple', shift: 3.1 },
+  });
+  const qwen = await call('generate_image', { prompt: 'a red fox', model: 'Qwen sharp' });
+  assert.equal(qwen.family, 'qwen-image');
+  assert.equal(lastJobParams().steps, 30);
+  released.shift()?.();
+  await call('get_job', { job_id: qwen.job_id, wait_seconds: 5 });
+  // a model of another family is refused when the family is named
+  await assert.rejects(() => call('generate_image', { prompt: 'a red fox', family: 'flux-dev', model: 'Qwen sharp' }), /not "flux-dev"/);
 });
 
 test('generate_image with a library picture as source is image to image: its shape, the strength and the picture are sent', async () => {

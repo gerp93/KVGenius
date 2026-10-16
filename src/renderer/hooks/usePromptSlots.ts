@@ -43,6 +43,7 @@ export function usePromptSlots() {
   const [styleId, setStyleId] = useState<number | null>(null);
   const [elementIds, setElementIds] = useState<number[]>([]);
   const [profileId, setProfileId] = useState<number | null>(null);
+  const [imageFamily, setImageFamily] = useState<string | null>(null);
   const [imageSourcePath, setImageSourcePath] = useState<string | null>(null);
   const [imageFromPicture, setImageFromPicture] = useState(false);
   const [denoise, setDenoise] = useState(DEFAULT_DENOISE);
@@ -73,6 +74,7 @@ export function usePromptSlots() {
     setStyleId(data.styleId ?? null);
     setElementIds(data.elementIds ?? []);
     setProfileId(data.profileId ?? null);
+    setImageFamily(data.imageFamily ?? null);
     setImageSourcePath(data.imageSourcePath ?? null);
     setImageFromPicture(data.imageFromPicture ?? (data.imageSourcePath ?? null) !== null);
     setDenoise(clampDenoise(data.denoise));
@@ -133,6 +135,7 @@ export function usePromptSlots() {
       styleId,
       elementIds,
       profileId,
+      imageFamily,
       imageSourcePath,
       imageFromPicture,
       denoise,
@@ -181,6 +184,7 @@ export function usePromptSlots() {
     styleId,
     elementIds,
     profileId,
+    imageFamily,
     imageSourcePath,
     imageFromPicture,
     denoise,
@@ -311,6 +315,8 @@ export function usePromptSlots() {
     setElementIds,
     profileId,
     setProfileId,
+    imageFamily,
+    setImageFamily,
     imageSourcePath,
     setImageSourcePath,
     imageFromPicture,

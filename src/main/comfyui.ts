@@ -7,6 +7,10 @@ import { videoQualityFromCfg } from '../shared/videoQuality';
 import { ComfyMessage, ProgressTracker, RunTimings } from './progressTracker';
 import { getEffectiveComfyUIHost } from './dbLocation';
 import zImageTurboTemplate from './templates/z-image.json';
+import qwenImageTemplate from './templates/qwen-image.json';
+import fluxDevTemplate from './templates/flux-dev.json';
+import hiDreamTemplate from './templates/hidream.json';
+import ovisImageTemplate from './templates/ovis-image.json';
 import wan22I2vTemplate from './templates/wan22-i2v.json';
 import wan22T2vTemplate from './templates/wan22-t2v.json';
 import wan22V2vTemplate from './templates/wan22-v2v.json';
@@ -23,6 +27,7 @@ import { fillImageToImage, fillInpaint, fillOutpaint } from './imageToImagePatch
 import { fillVideoToVideo } from './videoToVideoPatch';
 import { V2V_FAMILY } from '../shared/videoToVideo';
 import { applyModelSettings } from './modelPatch';
+import { fillTextToImage } from './textToImagePatch';
 import { FOLDER_LOADERS, MODEL_FOLDERS } from '../shared/modelManifest';
 import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/modelStatus';
 
@@ -34,6 +39,10 @@ import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/mode
 // model family template; add to this map as more templates are added.
 const TEMPLATES: Record<string, Record<string, unknown>> = {
   'z-image': zImageTurboTemplate,
+  'qwen-image': qwenImageTemplate,
+  'flux-dev': fluxDevTemplate,
+  hidream: hiDreamTemplate,
+  'ovis-image': ovisImageTemplate,
   [I2I_FAMILY]: zImageI2iTemplate,
   [INPAINT_FAMILY]: zImageInpaintTemplate,
   [OUTPAINT_FAMILY]: zImageOutpaintTemplate,
@@ -47,18 +56,6 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
 // ComfyUI Desktop (the Electron distribution this app targets) defaults to port 8000, not
 // the classic standalone ComfyUI server's 8188 - different implementations, different defaults.
 export const DEFAULT_COMFYUI_HOST = 'http://localhost:8000';
-
-/**
- * Node IDs in src/main/templates/z-image.json that patchTemplate() fills in.
- * If that file changes, keep these in sync - see its README-equivalent comment
- * block at the top of comfyui-templates.md (to be written once a second
- * template exists and this needs a real per-family map).
- */
-const Z_IMAGE_TURBO_NODE_MAP = {
-  prompt: '57:27',
-  sampler: '57:3',
-  latent: '57:13',
-};
 
 /**
  * Node IDs in src/main/templates/wan22-i2v.json. This is a 2-stage (high-noise then
@@ -336,17 +333,7 @@ async function patchTemplate(
     return workflow;
   }
 
-  const promptNode = workflow[Z_IMAGE_TURBO_NODE_MAP.prompt] as { inputs: Record<string, unknown> };
-  promptNode.inputs.text = params.prompt;
-
-  const samplerNode = workflow[Z_IMAGE_TURBO_NODE_MAP.sampler] as { inputs: Record<string, unknown> };
-  samplerNode.inputs.seed = params.seed;
-  samplerNode.inputs.steps = params.steps;
-  samplerNode.inputs.cfg = params.cfg;
-
-  const latentNode = workflow[Z_IMAGE_TURBO_NODE_MAP.latent] as { inputs: Record<string, unknown> };
-  latentNode.inputs.width = params.width;
-  latentNode.inputs.height = params.height;
+  fillTextToImage(workflow, canonicalFamily(family), params);
 
   // A model profile swaps the loader files and sampler values inside this same graph.
   if (params.modelSettings) applyModelSettings(workflow, canonicalFamily(family), params.modelSettings);

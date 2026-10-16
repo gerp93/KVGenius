@@ -35,6 +35,11 @@ implementation here is exactly the kind of drift it exists to prevent.
   primitives it selects between, including the CFG=1 feeding the second
   KSampler pass, are left as the template author set them - matching the
   curated-field philosophy below.
+- The text-to-image families other than Z-Image (`qwen-image`, `flux-dev`, `hidream`, `ovis-image`) share one node-id
+  layout in their templates (2 model, 3 text encoder(s), 4 VAE, 6 prompt, 9 latent, 10 KSampler, 5 shift where there is
+  one) - `textToImagePatch.ts` and `modelPatch.ts` hold the maps, and `modelPatch.test.ts` / `textToImagePatch.test.ts`
+  fail if a template drifts. They have text to image only (no image to image, inpaint or outpaint). Flux's "CFG" is its
+  FluxGuidance value (the sampler's own stays 1).
 - `src/shared/types.ts`'s `FAMILY_KIND` map says whether a family produces
   an image or a video - the renderer uses it to decide `<img>` vs `<video>`
   for a given record, without needing a separate DB column for it.

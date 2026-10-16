@@ -43,6 +43,9 @@ export interface PromptSlotData {
    * built-in. Absent in configs saved before models existed - read as null. A model that has since been deleted
    * is treated as the built-in by the Generate page. */
   profileId?: number | null;
+  /** Image mode only: the family of the built-in model picked when no saved model is (a family other than Z-Image has a built-in
+   * entry too). null or absent: Z-Image. Ignored while a saved model is picked - that model's own family applies. */
+  imageFamily?: string | null;
   /** Image mode only: a picture to start from (image to image), or null for text to image. Kept apart from a
    * video's `sourceImagePath` so switching modes never turns one into the other. Absent in older configs - null. */
   imageSourcePath?: string | null;
@@ -95,6 +98,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     styleId: null,
     elementIds: [],
     profileId: null,
+    imageFamily: null,
     imageSourcePath: null,
     imageFromPicture: false,
     denoise: DEFAULT_DENOISE,
@@ -161,6 +165,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     (d.styleId === undefined || d.styleId === null || typeof d.styleId === 'number') &&
     (d.elementIds === undefined || (Array.isArray(d.elementIds) && d.elementIds.every((id) => typeof id === 'number'))) &&
     (d.profileId === undefined || d.profileId === null || typeof d.profileId === 'number') &&
+    (d.imageFamily === undefined || d.imageFamily === null || typeof d.imageFamily === 'string') &&
     (d.imageSourcePath === undefined || d.imageSourcePath === null || typeof d.imageSourcePath === 'string') &&
     (d.imageFromPicture === undefined || typeof d.imageFromPicture === 'boolean') &&
     (d.denoise === undefined || typeof d.denoise === 'number') &&

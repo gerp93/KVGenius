@@ -6,6 +6,9 @@
  */
 export const Z_IMAGE_FAMILY = 'z-image';
 
+/** The other text-to-image families. They have a text-to-image workflow only (no image to image, inpainting or outpainting). */
+export const TEXT_TO_IMAGE_FAMILIES: readonly string[] = ['qwen-image', 'flux-dev', 'hidream', 'ovis-image'];
+
 /** Old key -> current key. */
 export const LEGACY_FAMILY_KEYS: Readonly<Record<string, string>> = {
   'z-image-turbo': Z_IMAGE_FAMILY,

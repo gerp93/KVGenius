@@ -1,4 +1,4 @@
-import { canonicalFamily, LEGACY_FAMILY_KEYS, Z_IMAGE_FAMILY } from './families';
+import { canonicalFamily, LEGACY_FAMILY_KEYS, TEXT_TO_IMAGE_FAMILIES, Z_IMAGE_FAMILY } from './families';
 import { GIF_FAMILY } from './gif';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY } from './imageToImage';
 import { I2V_FAMILY, T2V_FAMILY } from './textToVideo';
@@ -36,7 +36,7 @@ export function generationOrigin(modelFamily: string): GenerationOrigin | null {
   let kind: OriginKind | null = null;
   if (isUpscaleFamily(modelFamily)) kind = 'upscale';
   else if (modelFamily === GIF_FAMILY) kind = 'gif';
-  else if (modelFamily === Z_IMAGE_FAMILY) kind = 'text-to-image';
+  else if (modelFamily === Z_IMAGE_FAMILY || TEXT_TO_IMAGE_FAMILIES.includes(modelFamily)) kind = 'text-to-image';
   else if (modelFamily === I2I_FAMILY) kind = 'image-to-image';
   else if (modelFamily === INPAINT_FAMILY) kind = 'inpaint';
   else if (modelFamily === OUTPAINT_FAMILY) kind = 'outpaint';
@@ -52,7 +52,7 @@ export const ORIGIN_KINDS: OriginKind[] = ['text-to-image', 'image-to-image', 'i
 /** The model families that make an item of this origin - what a "show only these" filter selects. */
 export const FAMILIES_BY_ORIGIN: Record<OriginKind, string[]> = {
   // The retired key is listed too, so a row the startup migration has not reached still matches the filter.
-  'text-to-image': [Z_IMAGE_FAMILY, ...Object.keys(LEGACY_FAMILY_KEYS)],
+  'text-to-image': [Z_IMAGE_FAMILY, ...TEXT_TO_IMAGE_FAMILIES, ...Object.keys(LEGACY_FAMILY_KEYS)],
   'image-to-image': [I2I_FAMILY],
   inpaint: [INPAINT_FAMILY],
   outpaint: [OUTPAINT_FAMILY],

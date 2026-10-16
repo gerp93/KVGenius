@@ -35,6 +35,10 @@ export interface ProfileFamily {
   slots: ModelSlot[];
   /** null: the app does not drive this family's sampler (a profile carries files only). */
   sampler: SamplerDefaults | null;
+  /** What the CFG field means here, when it is not classifier-free guidance (Flux: its distilled guidance value). */
+  cfgLabel?: string;
+  /** True when the workflow has no shift to set (Flux), so the field is not offered. */
+  noShift?: boolean;
 }
 
 export const WAN_FAMILY = {
@@ -68,6 +72,62 @@ export const WAN_T2V_FAMILY = {
   sampler: null,
 } satisfies ProfileFamily;
 
+export const QWEN_IMAGE_FAMILY = {
+  family: 'qwen-image',
+  label: 'Qwen-Image (text to image)',
+  builtInName: 'Qwen-Image',
+  slots: [
+    { key: 'diffusionModel', label: 'Image model', folder: 'diffusion_models', defaultFile: 'qwen_image_2512_fp8_e4m3fn.safetensors' },
+    { key: 'textEncoder', label: 'Text encoder', folder: 'text_encoders', defaultFile: 'qwen_2.5_vl_7b_fp8_scaled.safetensors' },
+    { key: 'vae', label: 'VAE', folder: 'vae', defaultFile: 'qwen_image_vae.safetensors' },
+  ],
+  // ComfyUI's own Qwen-Image workflow (not its Lightning one): 50 steps at CFG 4, shift 3.1.
+  sampler: { steps: 50, cfg: 4, sampler: 'euler', scheduler: 'simple', shift: 3.1 },
+} satisfies ProfileFamily;
+
+export const FLUX_DEV_FAMILY = {
+  family: 'flux-dev',
+  label: 'Flux.1 dev (text to image)',
+  builtInName: 'Flux.1 dev',
+  slots: [
+    { key: 'diffusionModel', label: 'Image model', folder: 'diffusion_models', defaultFile: 'flux1-dev.safetensors' },
+    { key: 'clipL', label: 'CLIP-L text encoder', folder: 'text_encoders', defaultFile: 'clip_l.safetensors' },
+    { key: 'textEncoder', label: 'T5 text encoder', folder: 'text_encoders', defaultFile: 't5xxl_fp16.safetensors' },
+    { key: 'vae', label: 'VAE', folder: 'vae', defaultFile: 'ae.safetensors' },
+  ],
+  // Flux dev is guidance-distilled: the sampler's CFG stays 1 and the "CFG" here is the FluxGuidance value (3.5 is its default).
+  sampler: { steps: 20, cfg: 3.5, sampler: 'euler', scheduler: 'simple', shift: 0 },
+  cfgLabel: 'Guidance',
+  noShift: true,
+} satisfies ProfileFamily;
+
+export const HIDREAM_FAMILY = {
+  family: 'hidream',
+  label: 'HiDream I1 (text to image)',
+  builtInName: 'HiDream I1 Full',
+  slots: [
+    { key: 'diffusionModel', label: 'Image model', folder: 'diffusion_models', defaultFile: 'hidream_i1_full_fp8.safetensors' },
+    { key: 'clipL', label: 'CLIP-L text encoder', folder: 'text_encoders', defaultFile: 'clip_l_hidream.safetensors' },
+    { key: 'clipG', label: 'CLIP-G text encoder', folder: 'text_encoders', defaultFile: 'clip_g_hidream.safetensors' },
+    { key: 'textEncoder', label: 'T5 text encoder', folder: 'text_encoders', defaultFile: 't5xxl_fp8_e4m3fn_scaled.safetensors' },
+    { key: 'llama', label: 'Llama text encoder', folder: 'text_encoders', defaultFile: 'llama_3.1_8b_instruct_fp8_scaled.safetensors' },
+    { key: 'vae', label: 'VAE', folder: 'vae', defaultFile: 'ae.safetensors' },
+  ],
+  sampler: { steps: 50, cfg: 5, sampler: 'uni_pc', scheduler: 'simple', shift: 3 },
+} satisfies ProfileFamily;
+
+export const OVIS_IMAGE_FAMILY = {
+  family: 'ovis-image',
+  label: 'Ovis-Image (text to image)',
+  builtInName: 'Ovis-Image',
+  slots: [
+    { key: 'diffusionModel', label: 'Image model', folder: 'diffusion_models', defaultFile: 'ovis_image_bf16.safetensors' },
+    { key: 'textEncoder', label: 'Text encoder', folder: 'text_encoders', defaultFile: 'ovis_2.5.safetensors' },
+    { key: 'vae', label: 'VAE', folder: 'vae', defaultFile: 'ae.safetensors' },
+  ],
+  sampler: { steps: 20, cfg: 5, sampler: 'euler', scheduler: 'simple', shift: 3 },
+} satisfies ProfileFamily;
+
 /** What a profile of a family with no app-driven sampler stores in its (never used) sampler columns. */
 export const NO_SAMPLER: SamplerDefaults = { steps: 1, cfg: 0, sampler: '', scheduler: '', shift: 0 };
 
@@ -83,6 +143,10 @@ export const PROFILE_FAMILIES: ProfileFamily[] = [
     ],
     sampler: { steps: 8, cfg: 1, sampler: 'res_multistep', scheduler: 'simple', shift: 3 },
   },
+  QWEN_IMAGE_FAMILY,
+  FLUX_DEV_FAMILY,
+  HIDREAM_FAMILY,
+  OVIS_IMAGE_FAMILY,
   WAN_FAMILY,
   WAN_T2V_FAMILY,
 ];
