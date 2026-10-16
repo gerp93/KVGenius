@@ -12,7 +12,7 @@
  */
 
 /** What a file is, as far as its tensors say. */
-export type ModelArch = 'z-image-dit' | 'wan-dit' | 'qwen3-encoder' | 'umt5-encoder' | 'latent-vae' | 'unknown';
+export type ModelArch = 'z-image-dit' | 'wan-dit' | 'qwen-image-dit' | 'qwen3-encoder' | 'umt5-encoder' | 'latent-vae' | 'unknown';
 
 export interface ModelTraits {
   arch: ModelArch;
@@ -74,6 +74,16 @@ export function readTraits(shapes: TensorShapes): ModelTraits {
     };
   }
 
+  // Qwen-Image (a different model from Z-Image, though Z-Image's text encoder is also a Qwen): image and text projections in the
+  // diffusers layout, with a text norm Flux and Z-Image do not have. It is recognised only so it can be told apart from what the
+  // app's families need.
+  const qwenImgIn = find(shapes, 'img_in.weight');
+  const qwenTxtIn = find(shapes, 'txt_in.weight');
+  if (qwenImgIn && qwenTxtIn && find(shapes, 'txt_norm.weight')) {
+    const patchIn = wide(qwenImgIn, 1);
+    return { arch: 'qwen-image-dit', textWidth: wide(qwenTxtIn, 1), latentChannels: patchIn && patchIn % 4 === 0 ? patchIn / 4 : undefined };
+  }
+
   // Qwen3 (Z-Image's text encoder): token embeddings plus the per-head q/k norms Qwen2 does not have.
   const qwenEmbed = find(shapes, 'model.embed_tokens.weight');
   if (qwenEmbed && find(shapes, 'layers.0.self_attn.q_norm.weight')) {
@@ -98,6 +108,10 @@ export function readTraits(shapes: TensorShapes): ModelTraits {
 /** What each family's slots must be. */
 interface FamilyRule {
   dit: ModelArch;
+  /** The width of text embeddings the family's workflow takes, which only one text encoder size gives (Z-Image: Qwen3 4B; Wan: UMT5 XXL). */
+  textWidth: number;
+  /** The latent channels the family works in, which its VAE must decode. */
+  latentChannels: number;
   /** For a diffusion model that comes in kinds (Wan). */
   variant?: 't2v' | 'i2v';
   encoder: ModelArch;
@@ -105,9 +119,9 @@ interface FamilyRule {
 }
 
 const FAMILY_RULES: Record<string, FamilyRule> = {
-  'z-image': { dit: 'z-image-dit', encoder: 'qwen3-encoder', vaeDims: 2 },
-  'wan22-i2v': { dit: 'wan-dit', variant: 'i2v', encoder: 'umt5-encoder', vaeDims: 3 },
-  'wan22-t2v': { dit: 'wan-dit', variant: 't2v', encoder: 'umt5-encoder', vaeDims: 3 },
+  'z-image': { dit: 'z-image-dit', textWidth: 2560, latentChannels: 16, encoder: 'qwen3-encoder', vaeDims: 2 },
+  'wan22-i2v': { dit: 'wan-dit', textWidth: 4096, latentChannels: 16, variant: 'i2v', encoder: 'umt5-encoder', vaeDims: 3 },
+  'wan22-t2v': { dit: 'wan-dit', textWidth: 4096, latentChannels: 16, variant: 't2v', encoder: 'umt5-encoder', vaeDims: 3 },
 };
 
 export type SlotRole = 'diffusion' | 'encoder' | 'vae';
@@ -123,6 +137,7 @@ export function slotRole(slotKey: string): SlotRole | null {
 const ARCH_NAMES: Record<ModelArch, string> = {
   'z-image-dit': 'a Z-Image model',
   'wan-dit': 'a Wan video model',
+  'qwen-image-dit': 'a Qwen-Image model',
   'qwen3-encoder': 'a Qwen3 text encoder',
   'umt5-encoder': 'a UMT5 text encoder',
   'latent-vae': 'a VAE',
@@ -131,23 +146,45 @@ const ARCH_NAMES: Record<ModelArch, string> = {
 
 const ROLE_NAMES: Record<SlotRole, string> = { diffusion: 'the image or video model', encoder: 'the text encoder', vae: 'the VAE' };
 
-export type Fit = { status: 'fits' } | { status: 'unknown' } | { status: 'conflict'; reason: string };
+/**
+ * 'conflict': the file is positively something else, or disagrees with the family or with what is picked - it cannot work.
+ * 'unrecognised': its header was read and the app could not tell what it is - hidden from the lists, but only a warning, since the
+ * rules are written from knowledge of the model code and a real file may name its tensors differently.
+ * 'unknown': nothing could be read (not a .safetensors file, or the folder is not reachable), so nothing is known either way.
+ */
+export type Fit = { status: 'fits' } | { status: 'unknown' } | { status: 'conflict'; reason: string } | { status: 'unrecognised'; reason: string };
 
 /** What the other slots of the editor have picked, by role (a Wan model has two diffusion slots). */
 export type ChosenTraits = Partial<Record<SlotRole, ModelTraits[]>>;
 
+/** ComfyUI lists these in its VAE loader, but they are placeholders and live previews, not VAE files. */
+const BUILT_IN_VAE_NAMES = new Set(['pixel_space', 'taesd', 'taesdxl', 'taesd3', 'taef1']);
+
 /**
  * Whether `candidate` (the traits of a file offered in slot `slotKey` of `family`) fits what the family needs there and what is
- * already picked in the other slots. A file whose traits are not known (not read, not recognised) is 'unknown' and stays on offer.
+ * already picked in the other slots. `fileName` (as ComfyUI lists it) catches built-in names that are not files at all.
  */
-export function checkFit(family: string, slotKey: string, candidate: ModelTraits | null, chosen: ChosenTraits): Fit {
+export function checkFit(family: string, slotKey: string, candidate: ModelTraits | null, chosen: ChosenTraits, fileName?: string): Fit {
   const rule = FAMILY_RULES[family];
   const role = slotRole(slotKey);
-  if (!rule || !role || !candidate || candidate.arch === 'unknown') return { status: 'unknown' };
+  if (!rule || !role) return { status: 'unknown' };
+  if (role === 'vae' && fileName && BUILT_IN_VAE_NAMES.has(fileName.toLowerCase())) {
+    return { status: 'conflict', reason: `"${fileName}" is a built-in entry in ComfyUI's list, not a VAE file.` };
+  }
+  if (!candidate) return { status: 'unknown' };
 
   const wantArch = role === 'diffusion' ? rule.dit : role === 'encoder' ? rule.encoder : 'latent-vae';
+  if (candidate.arch === 'unknown') return { status: 'unrecognised', reason: `The app cannot tell that this is ${ARCH_NAMES[wantArch]}.` };
   if (candidate.arch !== wantArch) return { status: 'conflict', reason: `This looks like ${ARCH_NAMES[candidate.arch]}, not ${ARCH_NAMES[wantArch]}.` };
-
+  if (role === 'encoder' && candidate.outputWidth && candidate.outputWidth !== rule.textWidth) {
+    return { status: 'conflict', reason: `This encoder gives ${candidate.outputWidth}-wide text, but this kind of model needs ${rule.textWidth}. It is a different size of the same encoder.` };
+  }
+  if (role === 'diffusion' && candidate.textWidth && candidate.textWidth !== rule.textWidth) {
+    return { status: 'conflict', reason: `This model takes ${candidate.textWidth}-wide text, but this family's workflow gives ${rule.textWidth}.` };
+  }
+  if ((role === 'vae' || role === 'diffusion') && candidate.latentChannels && candidate.latentChannels !== rule.latentChannels) {
+    return { status: 'conflict', reason: `This works in ${candidate.latentChannels} latent channels, but this kind of model uses ${rule.latentChannels}.` };
+  }
   if (role === 'diffusion' && rule.variant && candidate.variant && candidate.variant !== rule.variant) {
     return { status: 'conflict', reason: candidate.variant === 't2v' ? 'This is a text-to-video model; this needs an image-to-video one.' : 'This is an image-to-video model; this needs a text-to-video one.' };
   }

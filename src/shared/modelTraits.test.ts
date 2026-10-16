@@ -9,6 +9,8 @@ const qwen3 = (width: number): TensorShapes => ({ 'model.embed_tokens.weight': [
 const picVae = (channels: number): TensorShapes => ({ 'encoder.conv_in.weight': [128, 3, 3, 3], 'decoder.conv_in.weight': [512, channels, 3, 3] });
 const wanModel = (inChannels: number): TensorShapes => ({ 'patch_embedding.weight': [5120, inChannels, 1, 2, 2], 'text_embedding.0.weight': [5120, 4096] });
 const umt5: TensorShapes = { 'shared.weight': [256384, 4096], 'encoder.block.0.layer.0.SelfAttention.q.weight': [4096, 4096], 'encoder.final_layer_norm.weight': [4096] };
+// Qwen-Image (diffusers layout): a different model from Z-Image. Its VAE is Wan 2.1's, a video-style one.
+const qwenImageModel: TensorShapes = { 'img_in.weight': [3072, 64], 'txt_in.weight': [3072, 3584], 'txt_norm.weight': [3584], 'transformer_blocks.0.attn.add_q_proj.weight': [3072, 3072] };
 const wanVae: TensorShapes = { 'encoder.conv1.weight': [96, 3, 3, 3, 3], 'decoder.conv1.weight': [384, 16, 3, 3, 3], 'conv2.weight': [16, 16, 1, 1, 1] };
 
 test('a Z-Image model reports the text width it takes and the latent channels it works in', () => {
@@ -39,10 +41,10 @@ test('Wan models are told apart by their input channels', () => {
   assert.equal(readTraits(wanModel(36)).textWidth, 4096);
 });
 
-test('a file nothing recognises is unknown, and an unknown file is never in conflict', () => {
+test('a file nothing recognises is unrecognised (hidden, a warning); a file that could not be read is unknown (left on offer)', () => {
   assert.deepEqual(readTraits({ 'something.weight': [1, 2] }), { arch: 'unknown' });
   assert.deepEqual(readTraits({}), { arch: 'unknown' });
-  assert.equal(checkFit('z-image', 'vae', { arch: 'unknown' }, {}).status, 'unknown');
+  assert.equal(checkFit('z-image', 'vae', { arch: 'unknown' }, {}).status, 'unrecognised');
   assert.equal(checkFit('z-image', 'vae', null, {}).status, 'unknown');
   assert.equal(checkFit('z-image', 'unknownSlot', readTraits(picVae(16)), {}).status, 'unknown');
 });
@@ -64,7 +66,7 @@ test('the picked image model decides which encoders and VAEs fit, and the revers
   assert.equal(checkFit('z-image', 'textEncoder', t(qwen3(2560)), chosen).status, 'fits');
   const wide = checkFit('z-image', 'textEncoder', t(qwen3(4096)), chosen);
   assert.equal(wide.status, 'conflict');
-  assert.match((wide as { reason: string }).reason, /gives 4096-wide text.*takes 2560/);
+  assert.match((wide as { reason: string }).reason, /gives 4096-wide text.*needs 2560/);
   assert.equal(checkFit('z-image', 'vae', t(picVae(16)), chosen).status, 'fits');
   assert.equal(checkFit('z-image', 'vae', t(picVae(4)), chosen).status, 'conflict');
   // the other way round: a picked 4-channel VAE rules out the 16-channel model
@@ -75,7 +77,36 @@ test('the picked image model decides which encoders and VAEs fit, and the revers
 
 test('an unrecognised pick constrains nothing', () => {
   const chosen: ChosenTraits = { diffusion: [{ arch: 'unknown' }] };
-  assert.equal(checkFit('z-image', 'textEncoder', t(qwen3(4096)), chosen).status, 'fits');
+  assert.equal(checkFit('z-image', 'textEncoder', t(qwen3(2560)), chosen).status, 'fits');
+});
+
+test('the family decides what fits even when nothing is picked: a small Qwen3 encoder is the wrong size for Z-Image', () => {
+  // e.g. the 0.6B Qwen3 that ACE-Step uses: the right kind of encoder, the wrong size
+  const small = checkFit('z-image', 'textEncoder', t(qwen3(1024)), {});
+  assert.equal(small.status, 'conflict');
+  assert.match((small as { reason: string }).reason, /1024-wide.*needs 2560/);
+  assert.equal(checkFit('z-image', 'textEncoder', t(qwen3(2560)), {}).status, 'fits');
+  assert.equal(checkFit('z-image', 'vae', t(picVae(4)), {}).status, 'conflict');
+});
+
+test('a Qwen-Image model is recognised, so it is told apart from a Z-Image one', () => {
+  assert.deepEqual(readTraits(qwenImageModel), { arch: 'qwen-image-dit', textWidth: 3584, latentChannels: 16 });
+  const fit = checkFit('z-image', 'diffusionModel', t(qwenImageModel), {});
+  assert.equal(fit.status, 'conflict');
+  assert.match((fit as { reason: string }).reason, /Qwen-Image model, not a Z-Image model/);
+  assert.equal(checkFit('wan22-i2v', 'highNoiseModel', t(qwenImageModel), {}).status, 'conflict');
+});
+
+test('the built-in VAE entries in ComfyUI are not VAE files', () => {
+  assert.equal(checkFit('z-image', 'vae', null, {}, 'pixel_space').status, 'conflict');
+  assert.equal(checkFit('z-image', 'vae', null, {}, 'taesd').status, 'conflict');
+  assert.equal(checkFit('z-image', 'vae', null, {}, 'ae.safetensors').status, 'unknown');
+  // only a VAE slot is asked
+  assert.equal(checkFit('z-image', 'textEncoder', null, {}, 'pixel_space').status, 'unknown');
+});
+
+test('what is already picked still narrows the rest (a Z-Image pick next to a wrong-size encoder)', () => {
+  assert.equal(checkFit('z-image', 'textEncoder', t(qwen3(2560)), { diffusion: [t(zModel)] }).status, 'fits');
 });
 
 test('Wan: text to video and image to video models do not swap, nor do picture and video VAEs', () => {

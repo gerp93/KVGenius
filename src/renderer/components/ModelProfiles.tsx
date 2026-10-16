@@ -4,7 +4,7 @@ import { MAX_PROFILE_NAME_LENGTH, ModelProfile, SamplerSettings } from '../../sh
 import { MODEL_MANIFEST, manifestFeature } from '../../shared/modelManifest';
 import { ModelStatusReport, readinessLabel, summarize, summarizeSlots } from '../../shared/modelStatus';
 import { FAMILY_KIND } from '../../shared/types';
-import { ChosenTraits, ModelTraits, SlotRole, checkFit, slotRole } from '../../shared/modelTraits';
+import { ChosenTraits, Fit, ModelTraits, SlotRole, checkFit, slotRole } from '../../shared/modelTraits';
 import { ImageSettingsResult, ModelTestResult } from '../../shared/modelCheck';
 import './Stepper.css';
 import ModelFileImport from './ModelFileImport';
@@ -175,6 +175,17 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
     return chosen;
   }
 
+  /** Whether `file` fits `slot` of the model being edited: what the family needs there, and what the other slots picked. */
+  function fitOf(slot: { key: string; folder: string }, file: string): Fit {
+    return checkFit(def.family, slot.key, traits[slot.folder]?.[file] ?? null, pickedBesides(slot.key), file);
+  }
+  /** Why a slot's current pick cannot work (a file that is definitely something else or does not fit), or null. */
+  const pickProblems = def.slots.flatMap((slot) => {
+    const file = draft.files[slot.key] ?? '';
+    const fit = file ? fitOf(slot, file) : null;
+    return fit && fit.status === 'conflict' ? [`${slot.label}: ${fit.reason}`] : [];
+  });
+
   function selectStarter(family: string) {
     const next = newDraft(family);
     setMode('starter');
@@ -330,7 +341,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
     }
   }
 
-  const canSave = dirty && draft.name.trim() !== '';
+  const canSave = dirty && draft.name.trim() !== '' && pickProblems.length === 0;
   const count = profiles?.length ?? 0;
   const starter = mode === 'starter';
   const creating = mode === 'edit' && selectedId === null;
@@ -411,13 +422,13 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
         const options = installed ? installed[slot.folder] : null;
         const value = draft.files[slot.key] ?? '';
         const missing = options !== null && value !== '' && !options.includes(value);
-        // Which installed files fit this slot and what is picked in the others (files that cannot be told stay on offer).
+        // Which installed files fit this slot and what is picked in the others. A file that is something else, or that the app cannot
+        // recognise at all, is hidden; a file nothing could be read from stays on offer.
         const fits = new Map<string, string | null>();
         if (options && slotRole(slot.key)) {
-          const others = pickedBesides(slot.key);
           for (const file of options) {
-            const fit = checkFit(def.family, slot.key, traits[slot.folder]?.[file] ?? null, others);
-            fits.set(file, fit.status === 'conflict' ? fit.reason : null);
+            const fit = fitOf(slot, file);
+            fits.set(file, fit.status === 'conflict' || fit.status === 'unrecognised' ? fit.reason : null);
           }
         }
         const hidden = options ? options.filter((file) => fits.get(file) && file !== value) : [];
@@ -439,13 +450,13 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
                   </option>
                 ))}
                 {options.length === 0 && !missing && <option value="">No files found in {slot.folder}</option>}
-                {options.length > 0 && shown.length === 0 && !missing && <option value="">No file here fits what is picked</option>}
+                {options.length > 0 && shown.length === 0 && !missing && <option value="">No file here fits this kind of model</option>}
               </select>
             )}
             {valueProblem && <p className="models-profile__warn">⚠ {valueProblem}</p>}
             {hidden.length > 0 && !showAllFiles && (
               <p className="settings-hint" style={{ margin: '4px 0 0' }}>
-                {hidden.length} file{hidden.length === 1 ? '' : 's'} hidden because {hidden.length === 1 ? 'it does' : 'they do'} not fit what is picked.{' '}
+                {hidden.length} file{hidden.length === 1 ? '' : 's'} hidden because {hidden.length === 1 ? 'it does' : 'they do'} not fit this kind of model or what is picked.{' '}
                 <button type="button" className="link-button" onClick={() => setShowAllFiles(true)}>
                   Show every file
                 </button>
@@ -466,7 +477,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
       })}
       {showAllFiles && (
         <p className="settings-hint">
-          Showing every file; ⚠ marks the ones that do not fit what is picked.{' '}
+          Showing every file; ⚠ marks the ones that do not fit this kind of model or what is picked.{' '}
           <button type="button" className="link-button" onClick={() => setShowAllFiles(false)}>
             Hide those
           </button>
@@ -634,7 +645,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
   );
 
   const lastStep = stepIndex === stepIds.length - 1;
-  const canNext = stepId === 'files' ? filesComplete : true;
+  const canNext = stepId === 'files' ? filesComplete && pickProblems.length === 0 : true;
 
   return (
     <section className="settings-section">
@@ -755,6 +766,9 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
                   </button>
                 )}
                 {stepId === 'files' && !filesComplete && <span className="settings-hint" style={{ margin: 0 }}>Give it a name and a file for each slot.</span>}
+                {stepId === 'files' && filesComplete && pickProblems.length > 0 && (
+                  <span className="models-profile__warn" style={{ margin: 0 }}>These files cannot work together - see the warnings above.</span>
+                )}
                 {saveMessages}
               </div>
             </>
