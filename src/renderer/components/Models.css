@@ -239,9 +239,43 @@
   white-space: pre;
 }
 
-/* The unified Models list: kinds as small captions, each entry with a readiness word on its right. */
+/* The Models page: a narrow list (a quarter) beside a wide detail panel (three quarters). */
+.models-page__body {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 3fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .models-page__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The Models list: a table with a section for each kind of model; each row is a name, what it is set up for, and its readiness. */
+.models-list {
+  min-width: 0;
+}
+
+.models-list__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.models-list__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
 .models-list__group {
-  margin: 12px 4px 4px;
+  padding: 14px 8px 4px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -249,12 +283,50 @@
   color: var(--color-accent-blue);
 }
 
-/* Beats the list item's own one-line clamp so the status can sit at the right. */
-.styles-page__item-text.models-list__sub {
-  display: flex;
-  -webkit-line-clamp: unset;
-  justify-content: space-between;
-  gap: 8px;
+.models-list__row {
+  cursor: pointer;
+}
+
+.models-list__row td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.models-list__row:hover {
+  background: var(--color-bg-hover);
+}
+
+.models-list__row--active,
+.models-list__row--active:hover {
+  background: var(--color-bg-hover);
+  box-shadow: inset 3px 0 0 var(--color-accent-blue);
+}
+
+.models-list__name {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-weight: 600;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.models-list__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.models-list__cell-status {
+  white-space: nowrap;
+  text-align: right;
+  font-size: 12px;
 }
 
 .models-list__ok {

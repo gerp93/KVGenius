@@ -644,18 +644,22 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
         a different checkpoint - and pick it on the Generate page. Steps and CFG are the settings a model was set up for; it is up to you
         to set what suits it.
       </p>
-      <div className="styles-page__body">
-        <aside className="panel styles-page__list">
-          <div className="styles-page__list-head">
+      <div className="models-page__body">
+        <aside className="panel models-list">
+          <div className="models-list__head">
             <h4 className="panel__title">Models{profiles ? ` (${totalModels - 1})` : ''}</h4>
             <button type="button" className="primary" onClick={() => select(null)} disabled={creating && newStep === 0 && !dirty}>
               + New
             </button>
           </div>
-          {KINDS.map(({ kind, label }) => (
-            <div key={kind}>
-              <div className="models-list__group">{label}</div>
-              <ul>
+          <table className="models-list__table">
+            {KINDS.map(({ kind, label }) => (
+              <tbody key={kind}>
+                <tr>
+                  <th colSpan={2} scope="colgroup" className="models-list__group">
+                    {label}
+                  </th>
+                </tr>
                 {PROFILE_FAMILIES.filter((f) => FAMILY_KIND[f.family] === kind).map((f) => (
                   <Entry
                     key={f.family}
@@ -678,12 +682,14 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
                       status={readiness(p.family, p.files)}
                     />
                   ))}
-              </ul>
-            </div>
-          ))}
-          <div>
-            <div className="models-list__group">Upscaling</div>
-            <ul>
+              </tbody>
+            ))}
+            <tbody>
+              <tr>
+                <th colSpan={2} scope="colgroup" className="models-list__group">
+                  Upscaling
+                </th>
+              </tr>
               <Entry
                 active={mode === 'upscale'}
                 onClick={selectUpscale}
@@ -691,8 +697,8 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
                 text="you choose"
                 status={upscaleModels ? { ok: upscaleModels.length > 0, text: upscaleModels.length > 0 ? `${upscaleModels.length} installed` : 'none installed' } : null}
               />
-            </ul>
-          </div>
+            </tbody>
+          </table>
         </aside>
 
         <div className="panel styles-page__editor">
@@ -811,15 +817,17 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
 /** One row of the models list: name, what it is set up for, and whether its files are all there. */
 function Entry({ active, onClick, name, text, status }: { active: boolean; onClick: () => void; name: string; text: string; status: { ok: boolean; text: string } | null }) {
   return (
-    <li>
-      <button type="button" className={`styles-page__item${active ? ' styles-page__item--active' : ''}`} onClick={onClick}>
-        <span className="styles-page__item-name">{name}</span>
-        <span className="styles-page__item-text models-list__sub">
-          <span>{text}</span>
-          {status && <span className={status.ok ? 'models-list__ok' : 'models-list__bad'}>{status.ok ? '✓' : '✗'} {status.text}</span>}
-        </span>
-      </button>
-    </li>
+    <tr className={`models-list__row${active ? ' models-list__row--active' : ''}`} onClick={onClick}>
+      <td className="models-list__cell-name">
+        <button type="button" className="models-list__name" aria-current={active ? 'true' : undefined}>
+          {name}
+        </button>
+        {text && <span className="models-list__sub">{text}</span>}
+      </td>
+      <td className="models-list__cell-status">
+        {status && <span className={status.ok ? 'models-list__ok' : 'models-list__bad'}>{status.ok ? '✓' : '✗'} {status.text}</span>}
+      </td>
+    </tr>
   );
 }
 
