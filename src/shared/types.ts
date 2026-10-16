@@ -234,6 +234,8 @@ export interface VideoSourceRequest {
   /** 'restyle' (video to video): the Library video to re-draw, and the prompt it was made with. */
   videoPath?: string;
   prompt?: string;
+  /** 'image' (image to image, inpainting, outpainting): the Library result the picture came from, so the new run starts with its prompt, style and elements. */
+  from?: GenerationRecord;
   /** The image's own dimensions, used to pick a video size that keeps its aspect ratio. */
   width: number;
   height: number;

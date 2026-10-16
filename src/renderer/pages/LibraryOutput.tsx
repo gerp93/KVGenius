@@ -512,7 +512,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   }
 
   function handleImageToImage(record: GenerationRecord) {
-    onImageToVideo({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height });
+    onImageToVideo({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height, from: record });
     navigate('/');
   }
 

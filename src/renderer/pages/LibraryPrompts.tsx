@@ -289,7 +289,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
   }
 
   function handleImageToImage(record: GenerationRecord) {
-    onImageToVideo({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height });
+    onImageToVideo({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height, from: record });
     navigate('/');
   }
 
