@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { STYLE_SAMPLES_BATCH } from '../shared/backgroundWork';
 import { canonicalFamily } from '../shared/families';
 import { GenerationParams } from '../shared/types';
 import { JobFilter, JobInfo, JobRequest, JobSource, JobStatus } from '../shared/jobs';
@@ -92,9 +93,12 @@ export function listJobs(db: DatabaseSync, filter: JobFilter = {}): JobInfo[] {
   return (db.prepare(sql).all(...args) as unknown as JobRow[]).map(rowToJob);
 }
 
-/** The oldest job still waiting, i.e. what runs next. */
+/** The oldest job still waiting, i.e. what runs next - except that the Styles page's examples only run when nothing else is
+ * waiting, so a picture made from the Generate tab (or asked for from outside) always goes ahead of them. */
 export function nextQueuedJob(db: DatabaseSync): JobInfo | null {
-  const row = db.prepare("SELECT * FROM jobs WHERE status = 'queued' ORDER BY id LIMIT 1").get() as unknown as
+  const row = db
+    .prepare("SELECT * FROM jobs WHERE status = 'queued' ORDER BY (batch IS ?) , id LIMIT 1")
+    .get(STYLE_SAMPLES_BATCH) as unknown as
     | JobRow
     | undefined;
   return row ? rowToJob(row) : null;

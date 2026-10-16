@@ -1,3 +1,4 @@
+import type { BackgroundWork } from './backgroundWork';
 import type { CleanupSettings, TrashEmptyResult, TrashMoveResult, TrashStats } from './cleanup';
 import type { GpuInfo } from './gpuInfo';
 import type { DownloadPlanInfo, DownloadStartResult } from './modelDownloads';
@@ -333,6 +334,10 @@ export interface KVGeniusAPI {
   ) => Promise<TimeEstimate | null>;
   /** Live stage/step updates for the generation in progress. Returns an unsubscribe function. */
   onGenerationProgress: (callback: (progress: GenerationProgress) => void) => () => void;
+  /** What else is using the queue that the queue panel does not list (the Styles page's examples, outside clients). */
+  getBackgroundWork: () => Promise<BackgroundWork>;
+  /** Called whenever that changes. Returns an unsubscribe function. */
+  onBackgroundWork: (callback: (work: BackgroundWork) => void) => () => void;
   /** Every recorded timing (estimate vs actual), newest first. Holds no prompt or image data. */
   getTimingStats: () => Promise<TimingStatRow[]>;
   clearTimingStats: () => Promise<void>;
