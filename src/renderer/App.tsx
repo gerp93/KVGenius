@@ -193,7 +193,7 @@ export default function App() {
   }
 
   function handleQueueImageToImage(record: GenerationRecord) {
-    setVideoSource({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height });
+    setVideoSource({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height, from: record });
     navigate('/');
   }
 

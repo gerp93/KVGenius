@@ -492,13 +492,30 @@ export default function Generate({
     }
   }
 
-  /** Switch to image mode with `request.imagePath` as the source image (image to image), sized to its shape. */
+  /** Puts a past generation's prompt in the box and picks its style and elements again, so the form reads as it did. A stored
+   * prompt has its style's and elements' words already in it; they are taken back off first. If that cannot be done exactly
+   * (renamed, deleted or reworded since), the full prompt is kept with nothing picked, which sends the same words. `isImage`
+   * false (a video) just takes the prompt. */
+  function restoreStyledPrompt(record: GenerationRecord, isImage: boolean) {
+    const split = isImage && record.styleName ? splitStyledPrompt(record.prompt, record.styleName, stylesRef.current) : null;
+    setStyleId(split?.style?.id ?? null);
+    setElementIds(split ? split.elements.map((e) => e.id) : []);
+    setPrompt(split ? split.prompt : record.prompt);
+    if (isImage && record.styleName && !split) {
+      setNotice(`The style "${record.styleName}" has changed or been removed, so it could not be picked again - its words are in the prompt instead.`);
+      setTimeout(() => setNotice(null), 8000);
+    }
+  }
+
+  /** Switch to image mode with `request.imagePath` as the source image (image to image), sized to its shape. When the picture
+   * came from a past image result (`request.from`), its prompt, style and elements come along, so the new run carries on from them. */
   function setUpImageToImage(request: VideoSourceRequest) {
     setMode('image');
     setImageSourcePath(request.imagePath);
     setMaskPath(null);
     setImageFromPicture(true);
     setSizeToPicture(request.width, request.height);
+    if (request.from && FAMILY_KIND[request.from.modelFamily] === 'image') restoreStyledPrompt(request.from, true);
     setError(null);
   }
 
@@ -583,7 +600,11 @@ export default function Generate({
     setPicker(null);
     if (target === 'restyle') setUpVideoToVideo({ target: 'restyle', imagePath: record.imagePath, videoPath: record.imagePath, width: record.width, height: record.height });
     else if (target === 'video') setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
-    else if (target === 'start') setUpImageToImage({ imagePath: record.imagePath, width: record.width, height: record.height });
+    else if (target === 'start') {
+      // Picking from the Library in the middle of writing a prompt must not wipe it: the picture's own prompt comes along only into an empty form.
+      const emptyForm = prompt.trim() === '' && styleId === null && elementIds.length === 0;
+      setUpImageToImage({ imagePath: record.imagePath, width: record.width, height: record.height, ...(emptyForm ? { from: record } : {}) });
+    }
   }
 
   async function handleChooseStartPicture() {
@@ -597,16 +618,7 @@ export default function Generate({
     (record: GenerationRecord, slotId: string) => {
       const recalledMode: Mode = FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
       setMode(recalledMode);
-      // A past generation's stored prompt has its style's and elements' words already in it. Take them back off and pick the style and
-      // elements again, so the form is as it was. If that cannot be done exactly (renamed, deleted or reworded since), the full prompt
-      // is kept with nothing picked, which sends the same words.
-      const split = recalledMode === 'image' && record.styleName ? splitStyledPrompt(record.prompt, record.styleName, stylesRef.current) : null;
-      setStyleId(split?.style?.id ?? null);
-      setElementIds(split ? split.elements.map((e) => e.id) : []);
-      if (recalledMode === 'image' && record.styleName && !split) {
-        setNotice(`The style "${record.styleName}" has changed or been removed, so it could not be picked again - its words are in the prompt instead.`);
-        setTimeout(() => setNotice(null), 8000);
-      }
+      restoreStyledPrompt(record, recalledMode === 'image');
       // The model it was made with: picked again if a saved model still means exactly that, otherwise the built-in
       // model is picked and the user is told, so a re-run never quietly uses different files.
       // A built-in run of one of the newer families is picked again by its family.
@@ -621,7 +633,6 @@ export default function Generate({
       } else {
         setProfileId(null);
       }
-      setPrompt(split ? split.prompt : record.prompt);
       setWidth(record.width);
       setHeight(record.height);
       setSeed(record.seed);
@@ -861,7 +872,7 @@ export default function Generate({
   // The result viewer's 🎨 Image to Image and 🎬 Convert to Video each start in their own tab, like the same buttons in the Library.
   function handleConvertToImage(record: GenerationRecord) {
     openNewTab();
-    setUpImageToImage({ imagePath: record.imagePath, width: record.width, height: record.height });
+    setUpImageToImage({ imagePath: record.imagePath, width: record.width, height: record.height, from: record });
   }
 
   function handleConvertToVideo(record: GenerationRecord) {
