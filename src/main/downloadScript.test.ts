@@ -23,7 +23,9 @@ test('every manifest file with fixed files has a Hugging Face link that matches 
       const url = new URL(file.url as string);
       assert.equal(url.protocol, 'https:');
       assert.equal(url.hostname, 'huggingface.co');
-      assert.ok(url.pathname.endsWith(`/split_files/${file.folder}/${file.file}`), file.url);
+      // ComfyUI's repackaged repos keep files under split_files/<folder>/; a few official repos (Flux's) keep them at the top. Either way the name ends the link.
+      assert.ok(url.pathname.endsWith(`/${file.file}`), file.url);
+      if (url.pathname.includes('/split_files/')) assert.ok(url.pathname.endsWith(`/split_files/${file.folder}/${file.file}`), file.url);
     }
   }
 });
