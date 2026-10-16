@@ -70,6 +70,11 @@ export function fillInpaint(workflow: Workflow, params: GenerationParams, imageN
  * -> scale to the output size without cropping. The sampler does not start from the grey: the new area is filled from a heavily blurred
  * stretch of the whole picture (`bg`, `bgBlur`), composited under the original (`init`), so the model starts from the picture's own colours and
  * layout at the edges and only partly re-draws them. Everything after is the inpainting chain.
+ *
+ * The seam: the padding's own mask is exact (no feathering - feathering it would blend the blurred stand-in into the original's edge, which
+ * showed up as a blurred line). `hardMask` is that exact mask at the output size; the start picture keeps the original up to it. The mask the
+ * sampler and the final paste-back use is that mask grown into the original (`op-grow`) and softened, so the blend band lies wholly
+ * inside the original, where the sampler starts from the real pixels and the paste-back mixes the model's redraw with them.
  */
 export const Z_IMAGE_OUTPAINT_NODE_MAP = {
   ...Z_IMAGE_I2I_NODE_MAP,

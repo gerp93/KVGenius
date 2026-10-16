@@ -345,7 +345,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   `ExtendField.tsx`). Under the source image on Generate, "Extend beyond the frame" sets pixels to add per side (left/top/right/bottom,
   `GenerationParams.outpaint`, stored on `generations.outpaint` as `"l,t,r,b"`); any side above 0 makes the run outpainting
   (`imageFamilyFor`'s fourth argument, which wins over a mask - setting one clears the other). The workflow is the inpainting graph with the
-  painted-mask loader replaced by `ImagePadForOutpaint` (grey padding plus a mask of exactly the new area, feathered 40 px into the original),
+  painted-mask loader replaced by `ImagePadForOutpaint` (grey padding plus a mask of exactly the new area - **not feathered**: `feathering` 0),
   both scaled to the output size **without cropping** and the result pasted back over the padded original, so the original is untouched.
   The output size is the *whole extended canvas* (`outpaintOutputSize`: long side kept within 1024-1536, sides in 64s), set by Generate from the
   source's size - the Size menu is replaced by a note. **The new area does not start from grey**: it starts from a heavily blurred stretch of the whole
@@ -353,7 +353,11 @@ implementation here is exactly the kind of drift it exists to prevent.
   invent in the new area", default 0.8 (`OUTPAINT_DEFAULT_DENOISE`), on the same slider as image to image. At 1 the model ignores that start and
   draws the area from the prompt alone, which produced an unrelated picture in the margin (the first version did exactly that); a prompt that
   describes the whole scene has the same effect, so the form says to describe what continues beyond the edges (the noise mask keeps the original
-  in place while the new area is drawn). It follows the supplied-picture pattern (`SOURCE_IMAGE_FAMILIES`: kept copy, "Original", Library > Sources, Re-rack disabled once
+  in place while the new area is drawn). **The seam**: the start picture keeps the original up to the *exact* edge (`op-hardmask` -> `op-keepmask`);
+  the mask the sampler and the final paste-back use is that mask grown 20 px into the original (`GrowMask`) and Gaussian-softened (sigma 5), so the
+  blend band lies inside the original and is fully "new" by the seam. An earlier version feathered the padding node 40 source px and used that one
+  soft mask for everything, which mixed the blurred stand-in into the original's edge (a blurred line) and let the model repaint a wide band of the
+  original (ghosting/overlap); `imageToImagePatch.test.ts` pins the chain (grow >= 3 sigma). It follows the supplied-picture pattern (`SOURCE_IMAGE_FAMILIES`: kept copy, "Original", Library > Sources, Re-rack disabled once
   the copy is gone; the details panel says how far it was extended), has its own origin tag (Outpainted), uses Z-Image's profiles, and the duplicate
   guard compares the padding and strength. MCP: `generate_image` with `source`, `extend` ({left,top,right,bottom}) and optionally `strength`; naming the family directly is refused.
   Unverified against a real ComfyUI: that the graph is accepted and how well Z-Image Turbo continues a picture at the edge.
