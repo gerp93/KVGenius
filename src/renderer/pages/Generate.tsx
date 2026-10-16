@@ -517,10 +517,7 @@ export default function Generate({
     if (!videoSource) return;
     // A picture or video sent here from the Library (🎬 Video, 🎨 Image, Extend, Video → Video, Sources) gets its own tab, just like a
     // Re-rack, so whatever is being worked on in the current tab is left alone. With every tab in use it is loaded into this one.
-    if (addSlot() === null) {
-      setNotice(`All ${MAX_PROMPT_SLOTS} tabs are in use - loaded into this one.`);
-      setTimeout(() => setNotice(null), 4000);
-    }
+    openNewTab();
     if (videoSource.target === 'image') setUpImageToImage(videoSource);
     else if (videoSource.target === 'restyle') setUpVideoToVideo(videoSource);
     else setUpVideoFromImage(videoSource);
@@ -641,6 +638,15 @@ export default function Generate({
     [showRecord]
   );
 
+  /** Opens a fresh working tab for what is about to be loaded, so the current tab is left alone. With every tab in use the
+   * current one is reused, and the notice says so. */
+  function openNewTab() {
+    if (addSlot() === null) {
+      setNotice(`All ${MAX_PROMPT_SLOTS} tabs are in use - loaded into this one.`);
+      setTimeout(() => setNotice(null), 4000);
+    }
+  }
+
   /** "Re-rack": opens a past generation (prompt, settings and picture) in a new working tab, so
    * what is in the current tab is left alone. With every tab in use it reuses the current one. */
   function rerackInNewTab(record: GenerationRecord) {
@@ -659,10 +665,7 @@ export default function Generate({
 
   /** A prompt picked in Library > Prompts goes into a new tab too (or this one, if all are in use). */
   function openPromptInNewTab(text: string) {
-    if (addSlot() === null) {
-      setNotice(`All ${MAX_PROMPT_SLOTS} tabs are in use - loaded into this one.`);
-      setTimeout(() => setNotice(null), 4000);
-    }
+    openNewTab();
     // A prompt from Library > Prompts already has any style's words in it (see applyRecord).
     setStyleId(null);
     setElementIds([]);
@@ -838,11 +841,14 @@ export default function Generate({
     }
   }
 
+  // The result viewer's 🎨 Image to Image and 🎬 Convert to Video each start in their own tab, like the same buttons in the Library.
   function handleConvertToImage(record: GenerationRecord) {
+    openNewTab();
     setUpImageToImage({ imagePath: record.imagePath, width: record.width, height: record.height });
   }
 
   function handleConvertToVideo(record: GenerationRecord) {
+    openNewTab();
     setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
   }
 
