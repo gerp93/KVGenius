@@ -178,6 +178,24 @@ export async function listInstalledModels(): Promise<InstalledModels> {
   return installed;
 }
 
+/**
+ * The directories ComfyUI searches for each kind of model file, in the order it searches them (its `diffusion_models` list also covers
+ * `unet` and an output folder, for instance), or {} when it cannot be asked. This is where the names in its dropdowns actually are.
+ */
+export async function getFolderPaths(): Promise<Record<string, string[]>> {
+  try {
+    const resp = await comfyRequest('/internal/folder_paths', { signal: AbortSignal.timeout(5000) });
+    const body = (await resp.json()) as Record<string, unknown>;
+    const result: Record<string, string[]> = {};
+    for (const [folder, paths] of Object.entries(body)) {
+      if (Array.isArray(paths)) result[folder] = paths.filter((p): p is string => typeof p === 'string');
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
 /** The compute devices ComfyUI is using (name and memory), or none if it cannot be asked. This is the card that
  * actually runs generations - which is also right for a ComfyUI on another machine. */
 export async function getGpuInfo(): Promise<GpuInfo[]> {

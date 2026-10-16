@@ -4,6 +4,7 @@ import { MAX_PROFILE_NAME_LENGTH, ModelProfile, SamplerSettings } from '../../sh
 import { MODEL_MANIFEST, manifestFeature } from '../../shared/modelManifest';
 import { ModelStatusReport, readinessLabel, summarize, summarizeSlots } from '../../shared/modelStatus';
 import { FAMILY_KIND } from '../../shared/types';
+import { suggestSettings } from '../../shared/settingsSuggestion';
 import { ChosenTraits, Fit, ModelTraits, SlotRole, checkFit, slotRole } from '../../shared/modelTraits';
 import { ImageSettingsResult, ModelTestResult } from '../../shared/modelCheck';
 import './Stepper.css';
@@ -42,8 +43,6 @@ function cleanError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 }
-
-const DISTILLED_NAME = /turbo|lightning|lcm|distill|hyper/i;
 
 interface Draft {
   name: string;
@@ -114,6 +113,8 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
   // list of installed files changes. Empty when this computer cannot read the models folder; nothing is then filtered.
   const [traits, setTraits] = useState<Record<string, Record<string, ModelTraits | null>>>({});
   const [showAllFiles, setShowAllFiles] = useState(false);
+  // The sampler settings were changed by hand (or read from an image), so moving on from the files no longer replaces them with suggestions.
+  const [settingsEdited, setSettingsEdited] = useState(false);
 
   // A test result describes the settings as they were; once anything changes it no longer applies.
   const draftKey = JSON.stringify(draft);
@@ -140,8 +141,6 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
   const selected = profiles?.find((p) => p.id === selectedId) ?? null;
   const dirty = !sameDraft(draft, saved);
   const installed = report && report.source !== 'none' ? report.installed : null;
-  const builtInFile = def.slots[0].defaultFile;
-  const diffusionFile = draft.files[def.slots[0].key] ?? '';
 
   // Read the headers of what is installed in the folders this model uses.
   const installedKey = installed ? JSON.stringify([installed.diffusion_models, installed.text_encoders, installed.vae]) : '';
@@ -208,6 +207,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
   function select(profile: ModelProfile | null) {
     const next = profile ? draftFrom(profile) : newDraft();
     setMode('edit');
+    setSettingsEdited(false);
     setNewStep(0);
     setNewType('image');
     setSelectedId(profile ? profile.id : null);
@@ -219,7 +219,16 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
   }
 
   function setField<K extends keyof Draft>(key: K, value: Draft[K]) {
+    if (key === 'steps' || key === 'cfg' || key === 'shift' || key === 'sampler' || key === 'scheduler') setSettingsEdited(true);
     setDraft((d) => ({ ...d, [key]: value }));
+  }
+
+  /** Fills steps, CFG, shift, sampler and scheduler with what suits the files picked (see shared/settingsSuggestion.ts). */
+  function applySuggestion() {
+    const found = suggestSettings(draft.family, draft.files);
+    if (!found) return;
+    const v = found.settings;
+    setDraft((d) => ({ ...d, steps: String(v.steps), cfg: String(v.cfg), shift: String(v.shift), sampler: v.sampler, scheduler: v.scheduler }));
   }
 
   function setFile(slotKey: string, file: string) {
@@ -288,6 +297,7 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
       setImageNote(`${result.fileName} has no settings saved in it (many sites remove them). An image saved straight from ComfyUI or KVGenius has them.`);
       return;
     }
+    setSettingsEdited(true);
     const known = (value: string | undefined, list: string[]) => value !== undefined && (list.length === 0 || list.includes(value));
     const parts: string[] = [];
     setDraft((d) => {
@@ -434,6 +444,8 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
         const hidden = options ? options.filter((file) => fits.get(file) && file !== value) : [];
         const shown = options ? options.filter((file) => showAllFiles || !hidden.includes(file)) : [];
         const valueProblem = fits.get(value) ?? null;
+        // Files whose header could not be read (not found on this computer, or not a .safetensors file): offered, but not checked.
+        const unchecked = options && slotRole(slot.key) ? shown.filter((file) => fitOf(slot, file).status === 'unknown') : [];
         return (
           <div className="styles-page__field" key={slot.key}>
             <label className="field-label" htmlFor={`slot-${slot.key}`}>
@@ -462,6 +474,13 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
                 </button>
               </p>
             )}
+            {unchecked.length > 0 && (
+              <p className="settings-hint" style={{ margin: '4px 0 0' }}>
+                {value !== '' && unchecked.includes(value)
+                  ? `The app could not read ${value} to check it, so it cannot say whether it fits.`
+                  : `${unchecked.length} file${unchecked.length === 1 ? '' : 's'} listed here could not be read to check, so ${unchecked.length === 1 ? 'it is' : 'they are'} offered as they are.`}
+              </p>
+            )}
             {missing && <p className="models-profile__warn">ComfyUI does not list this file. Put it in {slot.folder} and use Check Again above.</p>}
             <ModelFileImport
               family={draft.family}
@@ -486,6 +505,15 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
       <FilesNote installed={installed} />
     </>
   );
+
+  const suggestion = suggestSettings(draft.family, draft.files);
+  const matchesSuggestion =
+    suggestion !== null &&
+    draft.steps === String(suggestion.settings.steps) &&
+    draft.cfg === String(suggestion.settings.cfg) &&
+    draft.shift === String(suggestion.settings.shift) &&
+    draft.sampler === suggestion.settings.sampler &&
+    draft.scheduler === suggestion.settings.scheduler;
 
   const settingsBlock = def.sampler ? (
     <>
@@ -519,11 +547,16 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
           <ChoiceField disabled={starter} value={draft.scheduler} choices={choices.schedulers} onChange={(v) => setField('scheduler', v)} />
         </label>
       </div>
-      {!starter && diffusionFile && diffusionFile !== builtInFile && (
+      {!starter && suggestion && (
         <p className="settings-hint">
-          {DISTILLED_NAME.test(diffusionFile)
-            ? 'The file name suggests a distilled model, which wants few steps and a CFG near 1 - like the starting values here.'
-            : `The starting values are ${def.builtInName}'s, which is distilled. If this model is not, it probably wants more steps and a higher CFG - check its model page for what it recommends.`}
+          Suggested for these files: {suggestion.settings.steps} steps, CFG {suggestion.settings.cfg}. {suggestion.reason}{' '}
+          {matchesSuggestion ? (
+            '(These are already set.)'
+          ) : (
+            <button type="button" className="link-button" onClick={applySuggestion}>
+              Use the suggested settings
+            </button>
+          )}
         </p>
       )}
     </>
@@ -761,7 +794,16 @@ export default function ModelProfiles({ report, onChanged, canImport, onFilesCha
                     Save model
                   </button>
                 ) : (
-                  <button type="button" className="primary" onClick={() => setNewStep(stepIndex + 1)} disabled={!canNext}>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => {
+                      // Leaving the files step: the settings start from what suits the files just picked, unless the user set their own.
+                      if (stepId === 'files' && !settingsEdited) applySuggestion();
+                      setNewStep(stepIndex + 1);
+                    }}
+                    disabled={!canNext}
+                  >
                     Next
                   </button>
                 )}
