@@ -10,6 +10,7 @@ import GalleryLightbox from '../components/GalleryLightbox';
 import { isUpscale, pinNotice } from '../utils/library';
 import { GenerationQueue, MAX_BATCH_SIZE, MAX_PENDING_JOBS } from '../hooks/useGenerationQueue';
 import { usePromptSlots } from '../hooks/usePromptSlots';
+import { useTemplatedPrompt } from '../hooks/useTemplatedPrompt';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import type { PromptTabsModel } from '../utils/promptTabs';
 import { PromptStyle, combinePrompt, extraWording, splitStyledPrompt, styleLabel } from '../../shared/styles';
@@ -44,6 +45,8 @@ interface Props {
   onVideoSourceHandled: () => void;
   /** Bumped by the Styles page when a style is added, edited or deleted, so the dropdown reloads. */
   stylesVersion: number;
+  /** Bumped by the Templates page when a prompt template is added, edited or deleted, so the dropdown reloads. */
+  templatesVersion: number;
   /** Bumped by the Models page when a model is added, edited or deleted, so the dropdown reloads. */
   modelsVersion: number;
   /** Publishes the prompt tabs (listed in the sidebar) whenever they change. */
@@ -110,6 +113,7 @@ export default function Generate({
   videoSource,
   onVideoSourceHandled,
   stylesVersion,
+  templatesVersion,
   modelsVersion,
   onTabsChange,
 }: Props) {
@@ -166,6 +170,10 @@ export default function Generate({
     styleId,
     elementIds,
     setElementIds,
+    templateId,
+    setTemplateId,
+    templateValues,
+    setTemplateValues,
     setStyleId,
     profileId,
     setProfileId,
@@ -212,6 +220,18 @@ export default function Generate({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabsKey]);
+
+  // Prompt templates (Templates page): with one picked, the prompt is written in its sections; `prompt` is still the one joined text.
+  const promptTemplates = useTemplatedPrompt({
+    templatesVersion,
+    activeSlotId,
+    prompt,
+    setPrompt,
+    templateId,
+    setTemplateId,
+    values: templateValues,
+    setValues: setTemplateValues,
+  });
 
   const [error, setError] = useState<string | null>(null);
   // A short confirmation under the buttons (pinned, or a recall that had to reuse this tab).
@@ -1105,7 +1125,7 @@ export default function Generate({
           )}
 
           <div className="field-label-row field-label-row--inline">
-            <label className="field-label" htmlFor="prompt">
+            <label className="field-label" htmlFor={promptTemplates.template ? undefined : 'prompt'}>
               Prompt
             </label>
             <CopyButton
@@ -1114,14 +1134,49 @@ export default function Generate({
               text={finalPrompt}
               title={finalPrompt !== prompt ? "Copy the prompt with the style's words added, as it will be sent" : 'Copy the prompt'}
             />
+            {(promptTemplates.templates.length > 0 || promptTemplates.template) && (
+              <select
+                className="prompt-template-select"
+                aria-label="Prompt template"
+                title="Write the prompt in separate boxes. Define templates in the Templates tab."
+                value={promptTemplates.template ? String(promptTemplates.template.id) : ''}
+                onChange={(e) => promptTemplates.pickTemplate(e.target.value === '' ? null : Number(e.target.value))}
+              >
+                <option value="">Single box</option>
+                {promptTemplates.templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
-          <textarea
-            id="prompt"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe the image you want..."
-            style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
-          />
+          {promptTemplates.template ? (
+            <div className="prompt-sections">
+              {promptTemplates.template.sections.map((section, index) => (
+                <div key={section.id} className="prompt-section">
+                  <label className="prompt-section__label" htmlFor={`prompt-section-${section.id}`}>
+                    {section.label}
+                  </label>
+                  <textarea
+                    id={`prompt-section-${section.id}`}
+                    value={templateValues[section.id] ?? ''}
+                    onChange={(e) => promptTemplates.setSection(section.id, e.target.value)}
+                    placeholder={section.hint || (index === 0 ? (mode === 'video' ? 'Describe the video you want...' : 'Describe the image you want...') : '')}
+                    rows={2}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <textarea
+              id="prompt"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe the image you want..."
+              style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
+            />
+          )}
 
           {mode === 'image' && styles.some((style) => style.kind === 'element') && (
             <div style={{ marginTop: 12 }}>

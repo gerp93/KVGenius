@@ -18,6 +18,7 @@ import Settings from './pages/Settings';
 import Hardpoint from './pages/Hardpoint';
 import Timing from './pages/Timing';
 import Styles from './pages/Styles';
+import Templates from './pages/Templates';
 import Setup from './pages/Setup';
 import LibrarySources from './pages/LibrarySources';
 import ToolsLayout from './pages/ToolsLayout';
@@ -45,6 +46,7 @@ export default function App() {
   const [recallPrompt, setRecallPrompt] = useState<string | null>(null);
   // Bumped when a style is added, edited or deleted, so Generate's Style dropdown reloads.
   const [stylesVersion, setStylesVersion] = useState(0);
+  const [templatesVersion, setTemplatesVersion] = useState(0);
   // Bumped when a saved model is added, edited or deleted, so Generate's Model dropdown reloads.
   const [modelsVersion, setModelsVersion] = useState(0);
   const [connection, setConnection] = useState<ConnectionStatus>('checking');
@@ -270,6 +272,7 @@ export default function App() {
                 videoSource={videoSource}
                 onVideoSourceHandled={() => setVideoSource(null)}
                 stylesVersion={stylesVersion}
+                templatesVersion={templatesVersion}
                 modelsVersion={modelsVersion}
                 onTabsChange={setPromptTabs}
               />
@@ -335,6 +338,7 @@ export default function App() {
                 <Route path="trash" element={<LibraryTrash />} />
               </Route>
               <Route path="/styles" element={<Styles onChanged={() => setStylesVersion((v) => v + 1)} />} />
+              <Route path="/templates" element={<Templates onChanged={() => setTemplatesVersion((v) => v + 1)} />} />
               <Route path="/timing" element={<Timing />} />
               <Route path="/hardpoint" element={<Hardpoint theme={theme} />} />
               <Route path="/setup" element={<Setup />} />

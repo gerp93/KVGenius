@@ -10,6 +10,7 @@ import { migrateFamilyKeys } from './familyMigration';
 import { IMPORTS_SCHEMA } from './library';
 import { ASSEMBLIES_SCHEMA } from './assembly';
 import { STYLES_SCHEMA } from './styles';
+import { PROMPT_TEMPLATES_SCHEMA } from './promptTemplates';
 import { STYLE_SAMPLES_SCHEMA } from './styleSamples';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, parseOutpaint, serializeOutpaint, OutpaintPadding } from '../shared/imageToImage';
 import { GIF_FAMILY } from '../shared/gif';
@@ -215,6 +216,7 @@ export function initDatabase(dbPath: string): DatabaseSync {
   db.exec(IMPORTS_SCHEMA);
   db.exec(ASSEMBLIES_SCHEMA);
   db.exec(STYLES_SCHEMA);
+  db.exec(PROMPT_TEMPLATES_SCHEMA);
   db.exec(STYLE_SAMPLES_SCHEMA);
   db.exec(MODEL_PROFILES_SCHEMA);
   migrateSchema(db);

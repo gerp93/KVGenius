@@ -18,6 +18,7 @@ const SECTIONS: NavSection[] = [
       { to: '/', icon: '✨', label: 'Image / Video', end: true },
       { to: '/tools/upscale', icon: '🔍', label: 'Upscale' },
       { to: '/styles', icon: '🎨', label: 'Styles' },
+      { to: '/templates', icon: '🧩', label: 'Templates' },
     ],
   },
   {
@@ -83,8 +84,8 @@ type Props = {
 const TAB_ROW = 28;
 /** The least height the tab list is squeezed to before it scrolls: three tabs, or fewer if that is all there are. */
 const tabsMinHeight = (count: number) => Math.min(count, 3) * TAB_ROW;
-/** The Create section's other rows (head, Image / Video, New tab, Upscale, Styles), so the rail knows when to stop squeezing the tabs. */
-const CREATE_FIXED_HEIGHT = 28 + 30 + 30 + 30 + 30 + 6;
+/** The Create section's other rows (head, Image / Video, New tab, Upscale, Styles, Templates), so the rail knows when to stop squeezing the tabs. */
+const CREATE_FIXED_HEIGHT = 28 + 30 + 30 + 30 + 30 + 30 + 6;
 
 /** The prompt tabs, nested under Image / Video. This list is the only part of the rail that scrolls (see SideNav.css), so
  * everything else stays in place; ＋ sits below it, outside the scroll, so a new tab is always one click away. */

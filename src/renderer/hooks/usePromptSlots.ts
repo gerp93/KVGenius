@@ -4,6 +4,7 @@ import type { OutpaintPadding } from '../../shared/imageToImage';
 import { GenerationKind } from '../../shared/types';
 import type { VideoQuality } from '../../shared/videoQuality';
 import { V2V_DEFAULT_STRENGTH } from '../../shared/videoToVideo';
+import type { TemplateValues } from '../../shared/promptTemplates';
 import { MAX_PROMPT_SLOTS, PromptSlot, PromptSlotData, copyOfSlot, newPromptSlot, slotLabel } from '../../shared/promptSlots';
 
 /** How long to wait after the last edit before writing the tabs to disk - typing shouldn't hit
@@ -42,6 +43,8 @@ export function usePromptSlots() {
   const [batchSize, setBatchSize] = useState(1);
   const [styleId, setStyleId] = useState<number | null>(null);
   const [elementIds, setElementIds] = useState<number[]>([]);
+  const [templateId, setTemplateId] = useState<number | null>(null);
+  const [templateValues, setTemplateValues] = useState<TemplateValues>({});
   const [profileId, setProfileId] = useState<number | null>(null);
   const [imageFamily, setImageFamily] = useState<string | null>(null);
   const [imageSourcePath, setImageSourcePath] = useState<string | null>(null);
@@ -73,6 +76,8 @@ export function usePromptSlots() {
     setBatchSize(data.batchSize);
     setStyleId(data.styleId ?? null);
     setElementIds(data.elementIds ?? []);
+    setTemplateId(data.templateId ?? null);
+    setTemplateValues(data.templateValues ?? {});
     setProfileId(data.profileId ?? null);
     setImageFamily(data.imageFamily ?? null);
     setImageSourcePath(data.imageSourcePath ?? null);
@@ -134,6 +139,8 @@ export function usePromptSlots() {
       batchSize,
       styleId,
       elementIds,
+      templateId,
+      templateValues,
       profileId,
       imageFamily,
       imageSourcePath,
@@ -183,6 +190,8 @@ export function usePromptSlots() {
     batchSize,
     styleId,
     elementIds,
+    templateId,
+    templateValues,
     profileId,
     imageFamily,
     imageSourcePath,
@@ -313,6 +322,10 @@ export function usePromptSlots() {
     setStyleId,
     elementIds,
     setElementIds,
+    templateId,
+    setTemplateId,
+    templateValues,
+    setTemplateValues,
     profileId,
     setProfileId,
     imageFamily,
