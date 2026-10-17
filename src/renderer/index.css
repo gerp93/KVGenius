@@ -1973,6 +1973,52 @@ button.copy-button.lightbox__copy {
   color: var(--color-text-muted);
 }
 
+/* Alike-prompt clustering: a "how alike" slider in the toolbar, and a heading over each cluster. */
+.prompt-library__similarity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.prompt-library__similarity input[type='range'] {
+  width: 110px;
+}
+
+.prompt-library__similarity-value {
+  min-width: 3ch;
+  text-align: right;
+}
+
+.prompt-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* A bar down the left edge in the cluster's own colour, so neighbouring clusters read as separate shades. */
+.prompt-cluster__heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+  padding: 2px 0 2px 10px;
+  border-left: 4px solid hsl(var(--cluster-hue, 0) 55% 55%);
+  font-size: 13px;
+}
+
+.prompt-cluster__heading--plain {
+  border-left-color: var(--color-border, rgba(128, 128, 128, 0.4));
+  color: var(--color-text-muted);
+}
+
+.prompt-cluster__varying {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
 /* The prompt shows over the bottom of a tile while hovering it, so the picture stays the point. */
 .prompt-tile__prompt {
   position: absolute;
