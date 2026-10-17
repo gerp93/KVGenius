@@ -3450,3 +3450,116 @@ button.style-tag:hover:not(:disabled) {
   font-size: 12px;
   color: var(--color-text-muted);
 }
+
+/* Generate's prompt template picker and, with a template picked, its sections in place of the one prompt box. */
+.prompt-template-select {
+  margin-left: auto;
+  max-width: 55%;
+  min-height: 0;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.prompt-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.prompt-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 0 auto;
+}
+
+.prompt-section__label {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.prompt-section textarea {
+  width: 100%;
+  min-height: 48px;
+  resize: vertical;
+}
+
+/* Templates page. */
+.templates-page__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.template-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.template-card--active {
+  border-color: var(--color-accent-blue);
+}
+
+.template-card__name {
+  font-weight: 600;
+}
+
+.template-card__sections {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.template-sections {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.template-section-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.template-section-row__fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.template-section-row__fields input {
+  width: 100%;
+}
+
+.template-section-row__buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.template-section-row__buttons button {
+  min-height: 0;
+  padding: 2px 6px;
+}

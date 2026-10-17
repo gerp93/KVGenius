@@ -39,6 +39,12 @@ export interface PromptSlotData {
   styleId?: number | null;
   /** Image mode only: the ids of the elements (Styles tab: reusable parts of a picture, such as an outfit) added to the prompt, in the order picked. Absent in older configs - none. */
   elementIds?: number[];
+  /** The id of the prompt template (Templates page) whose sections are shown as separate boxes instead of the one prompt box, or null for the single box. `prompt` always
+   * holds the sections joined into one prompt, so everything else treats it as an ordinary prompt. Absent in older configs - null. A template that has since been
+   * deleted is treated as none by the Generate page. */
+  templateId?: number | null;
+  /** What is typed into each section of that template, by section id. Absent in older configs - empty. */
+  templateValues?: Record<string, string>;
   /** Image mode only: the id of the saved model (Models page) used instead of the built-in one, or null for the
    * built-in. Absent in configs saved before models existed - read as null. A model that has since been deleted
    * is treated as the built-in by the Generate page. */
@@ -97,6 +103,8 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     batchSize: 1,
     styleId: null,
     elementIds: [],
+    templateId: null,
+    templateValues: {},
     profileId: null,
     imageFamily: null,
     imageSourcePath: null,
@@ -164,6 +172,8 @@ function isValidData(data: unknown): data is PromptSlotData {
     typeof d.batchSize === 'number' &&
     (d.styleId === undefined || d.styleId === null || typeof d.styleId === 'number') &&
     (d.elementIds === undefined || (Array.isArray(d.elementIds) && d.elementIds.every((id) => typeof id === 'number'))) &&
+    (d.templateId === undefined || d.templateId === null || typeof d.templateId === 'number') &&
+    (d.templateValues === undefined || (!!d.templateValues && typeof d.templateValues === 'object' && !Array.isArray(d.templateValues) && Object.values(d.templateValues).every((v) => typeof v === 'string'))) &&
     (d.profileId === undefined || d.profileId === null || typeof d.profileId === 'number') &&
     (d.imageFamily === undefined || d.imageFamily === null || typeof d.imageFamily === 'string') &&
     (d.imageSourcePath === undefined || d.imageSourcePath === null || typeof d.imageSourcePath === 'string') &&

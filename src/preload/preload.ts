@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { GenerationKind, GenerationParams, GenerationProgress, KVGeniusAPI, LibraryListOptions } from '../shared/types';
 import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
+import { PromptTemplateInput } from '../shared/promptTemplates';
 import { ModelProfileInput } from '../shared/modelProfiles';
 import type { ModelImportProgress } from '../shared/modelCheck';
 import type { BackgroundWork } from '../shared/backgroundWork';
@@ -119,6 +120,9 @@ const api: KVGeniusAPI = {
   listStyles: () => ipcRenderer.invoke('listStyles'),
   saveStyle: (input: PromptStyleInput, id?: number | null) => ipcRenderer.invoke('saveStyle', input, id ?? null),
   deleteStyle: (id: number) => ipcRenderer.invoke('deleteStyle', id),
+  listPromptTemplates: () => ipcRenderer.invoke('listPromptTemplates'),
+  savePromptTemplate: (input: PromptTemplateInput, id?: number | null) => ipcRenderer.invoke('savePromptTemplate', input, id ?? null),
+  deletePromptTemplate: (id: number) => ipcRenderer.invoke('deletePromptTemplate', id),
   getStyleSamples: () => ipcRenderer.invoke('getStyleSamples'),
   saveStyleSampleSettings: (input: { prompt: string; seed: number }) => ipcRenderer.invoke('saveStyleSampleSettings', input),
   renderStyleSamples: (ids: number[]) => ipcRenderer.invoke('renderStyleSamples', ids),

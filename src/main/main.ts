@@ -50,6 +50,8 @@ import { normalizeDays, updateCleanupSettings } from '../shared/cleanup';
 import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
 import { deleteStyle, getStyle, listStyles, saveStyle } from './styles';
+import { PromptTemplateInput } from '../shared/promptTemplates';
+import { deletePromptTemplate, listPromptTemplates, savePromptTemplate } from './promptTemplates';
 import { StyleSampleService, saveSampleSettings } from './styleSamples';
 import { deleteModelProfile, listModelProfiles, saveModelProfile } from './modelProfiles';
 import {
@@ -963,6 +965,18 @@ function registerIpcHandlers(): void {
     if (!db) throw new Error('Database not initialized');
     deleteStyle(db, id);
     styleSamples()?.forget(id);
+  });
+  ipcMain.handle('listPromptTemplates', () => {
+    if (!db) throw new Error('Database not initialized');
+    return listPromptTemplates(db);
+  });
+  ipcMain.handle('savePromptTemplate', (_event, input: PromptTemplateInput, id: number | null) => {
+    if (!db) throw new Error('Database not initialized');
+    return savePromptTemplate(db, input, typeof id === 'number' ? id : null);
+  });
+  ipcMain.handle('deletePromptTemplate', (_event, id: number) => {
+    if (!db) throw new Error('Database not initialized');
+    deletePromptTemplate(db, id);
   });
   ipcMain.handle('getStyleSamples', () => {
     const service = styleSamples();

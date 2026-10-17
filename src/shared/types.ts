@@ -10,6 +10,7 @@ import type { OutpaintPadding } from './imageToImage';
 import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
 import type { PromptStyle, PromptStyleInput } from './styles';
+import type { PromptTemplate, PromptTemplateInput } from './promptTemplates';
 import type { StyleSampleSettings, StyleSamplesView } from './styleSamples';
 
 export interface GenerationParams {
@@ -476,6 +477,12 @@ export interface KVGeniusAPI {
   saveStyle: (input: PromptStyleInput, id?: number | null) => Promise<PromptStyle>;
   /** Past generations are not affected: they keep the text they were made with. */
   deleteStyle: (id: number) => Promise<void>;
+  /** User-defined prompt templates: named lists of sections the Generate page shows as separate boxes instead of the one prompt box (see shared/promptTemplates.ts). */
+  listPromptTemplates: () => Promise<PromptTemplate[]>;
+  /** Creates a template, or edits the one with `id`. Rejects with a message to show (e.g. a duplicate name). */
+  savePromptTemplate: (input: PromptTemplateInput, id?: number | null) => Promise<PromptTemplate>;
+  /** Prompts already written with it are not affected: a tab that used it goes back to the single prompt box. */
+  deletePromptTemplate: (id: number) => Promise<void>;
   /** The standard prompt and seed the Styles page's examples are made from, and how each example stands. */
   getStyleSamples: () => Promise<StyleSamplesView>;
   saveStyleSampleSettings: (input: { prompt: string; seed: number }) => Promise<StyleSampleSettings>;
