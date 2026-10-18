@@ -16,6 +16,8 @@ export interface PromptTabsModel {
   add: () => void;
   /** Adds a copy of the tab with this id, next to it, and switches to it. */
   duplicate: (id: string) => void;
+  /** Moves the tab with this id so it ends up at this position (0-based). */
+  move: (id: string, toIndex: number) => void;
   close: (id: string) => void;
   rename: (id: string, name: string) => void;
 }

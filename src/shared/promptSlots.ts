@@ -135,6 +135,18 @@ export function copyOfSlot(source: PromptSlot): PromptSlot {
   };
 }
 
+/** The tabs with one moved so it ends up at `toIndex` (0-based, in the result). Out-of-range targets clamp; an unknown id or a no-op returns the same array. */
+export function moveSlot<T extends { id: string }>(slots: T[], id: string, toIndex: number): T[] {
+  const from = slots.findIndex((s) => s.id === id);
+  if (from < 0) return slots;
+  const to = Math.max(0, Math.min(slots.length - 1, toIndex));
+  if (to === from) return slots;
+  const next = slots.slice();
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
 /** Most characters of the prompt a tab shows (the rail gives it a few lines; CSS clips the rest). */
 const SLOT_LABEL_CHARS = 60;
 

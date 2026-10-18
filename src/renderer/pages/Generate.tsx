@@ -126,6 +126,7 @@ export default function Generate({
     switchTo: switchSlot,
     addSlot,
     duplicateSlot,
+    moveSlotTo,
     closeSlot,
     renameSlot,
     labelFor: slotLabelFor,
@@ -194,8 +195,8 @@ export default function Generate({
   } = slotState;
   // The tabs live in the sidebar (under Image / Video), so hand it the list and the actions. The handlers go through a
   // ref so the sidebar always calls the latest ones, and the model is only republished when what it shows changes.
-  const tabActions = useRef({ switchSlot, addSlot, duplicateSlot, closeSlot, renameSlot, forget: queue.forgetSlot });
-  tabActions.current = { switchSlot, addSlot, duplicateSlot, closeSlot, renameSlot, forget: queue.forgetSlot };
+  const tabActions = useRef({ switchSlot, addSlot, duplicateSlot, moveSlotTo, closeSlot, renameSlot, forget: queue.forgetSlot });
+  tabActions.current = { switchSlot, addSlot, duplicateSlot, moveSlotTo, closeSlot, renameSlot, forget: queue.forgetSlot };
   const tabItems = slots.map((slot) => ({
     id: slot.id,
     label: slotLabelFor(slot),
@@ -212,6 +213,7 @@ export default function Generate({
       select: (id) => tabActions.current.switchSlot(id),
       add: () => void tabActions.current.addSlot(),
       duplicate: (id) => void tabActions.current.duplicateSlot(id),
+      move: (id, toIndex) => tabActions.current.moveSlotTo(id, toIndex),
       close: (id) => {
         tabActions.current.closeSlot(id);
         tabActions.current.forget(id);

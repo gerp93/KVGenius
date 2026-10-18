@@ -94,6 +94,14 @@ function PromptTabs({ model, thin, onGenerate }: { model: PromptTabsModel; thin:
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const skipBlur = useRef(false);
+  // Drag-to-reorder: the tab being dragged, and the one it is over (which it would take the place of).
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+
+  function endDrag() {
+    setDragId(null);
+    setOverId(null);
+  }
 
   function open(id: string) {
     model.select(id);
@@ -110,8 +118,33 @@ function PromptTabs({ model, thin, onGenerate }: { model: PromptTabsModel; thin:
       <div className="side-nav__tabs" role="tablist" aria-label="Prompt tabs" style={{ minHeight: tabsMinHeight(model.tabs.length) }}>
         {model.tabs.map((tab) => {
           const selected = tab.id === model.activeId;
+          const index = model.tabs.findIndex((t) => t.id === tab.id);
+          const dragIndex = dragId ? model.tabs.findIndex((t) => t.id === dragId) : -1;
+          const dropMark = dragId && overId === tab.id && dragId !== tab.id ? (dragIndex < index ? ' side-nav__tab--drop-after' : ' side-nav__tab--drop-before') : '';
           return (
-            <div key={tab.id} className={`side-nav__tab${selected ? ' side-nav__tab--selected' : ''}${selected && onGenerate ? ' active' : ''}`}>
+            <div
+              key={tab.id}
+              className={`side-nav__tab${selected ? ' side-nav__tab--selected' : ''}${selected && onGenerate ? ' active' : ''}${dragId === tab.id ? ' side-nav__tab--dragging' : ''}${dropMark}`}
+              draggable={renamingId !== tab.id && model.tabs.length > 1}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', tab.id);
+                setDragId(tab.id);
+              }}
+              onDragOver={(e) => {
+                if (!dragId) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (overId !== tab.id) setOverId(tab.id);
+              }}
+              onDrop={(e) => {
+                if (!dragId) return;
+                e.preventDefault();
+                if (dragId !== tab.id) model.move(dragId, index);
+                endDrag();
+              }}
+              onDragEnd={endDrag}
+            >
               {renamingId === tab.id && !thin ? (
                 <input
                   autoFocus
