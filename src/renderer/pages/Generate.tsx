@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CopyButton from '../components/CopyButton';
+import FindableTextarea from '../components/FindableTextarea';
 import ExtendField from '../components/ExtendField';
 import ImageDropZone from '../components/ImageDropZone';
 import LibraryPicker from '../components/LibraryPicker';
@@ -1160,10 +1161,10 @@ export default function Generate({
                   <label className="prompt-section__label" htmlFor={`prompt-section-${section.id}`}>
                     {section.label}
                   </label>
-                  <textarea
+                  <FindableTextarea
                     id={`prompt-section-${section.id}`}
                     value={templateValues[section.id] ?? ''}
-                    onChange={(e) => promptTemplates.setSection(section.id, e.target.value)}
+                    onChange={(value) => promptTemplates.setSection(section.id, value)}
                     placeholder={section.hint || (index === 0 ? (mode === 'video' ? 'Describe the video you want...' : 'Describe the image you want...') : '')}
                     rows={2}
                   />
@@ -1171,12 +1172,13 @@ export default function Generate({
               ))}
             </div>
           ) : (
-            <textarea
+            <FindableTextarea
               id="prompt"
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={setPrompt}
               placeholder="Describe the image you want..."
-              style={{ width: '100%', flex: 1, minHeight: 80, resize: 'none' }}
+              boxStyle={{ flex: 1, minHeight: 80 }}
+              style={{ flex: 1, minHeight: 80, resize: 'none' }}
             />
           )}
 

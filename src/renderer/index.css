@@ -3653,3 +3653,109 @@ button.style-tag:hover:not(:disabled) {
   min-height: 0;
   padding: 2px 6px;
 }
+
+/* A textarea with a find bar (FindableTextarea). While the bar is open the textarea turns see-through
+ * and a copy of the text sits behind it, with each match marked. */
+.findable {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.findable textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.findable--open {
+  background: var(--color-surface);
+  border-radius: 6px;
+}
+
+.findable--open textarea {
+  position: relative;
+  background: transparent;
+}
+
+.findable__layer {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  padding: 8px 10px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: transparent;
+  pointer-events: none;
+}
+
+.findable__mark {
+  color: transparent;
+  background: rgba(255, 200, 0, 0.35);
+  border-radius: 2px;
+}
+
+.findable__mark--current {
+  background: rgba(255, 140, 0, 0.7);
+}
+
+.findable__open {
+  position: absolute;
+  top: 4px;
+  right: 18px;
+  padding: 0 4px;
+  min-height: 0;
+  font-size: 12px;
+  line-height: 18px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.findable:hover .findable__open,
+.findable:focus-within .findable__open {
+  opacity: 0.7;
+}
+
+.findable .findable__open:hover,
+.findable .findable__open:focus-visible {
+  opacity: 1;
+}
+
+.findable__bar {
+  position: absolute;
+  top: 6px;
+  right: 18px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.findable__bar input {
+  width: 150px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.findable__bar button {
+  min-height: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 20px;
+}
+
+.findable__count {
+  min-width: 52px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-align: center;
+  white-space: nowrap;
+}
