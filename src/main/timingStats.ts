@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS timing_stats (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at TEXT NOT NULL,
   family TEXT NOT NULL,
+  model_name TEXT,
   kind TEXT NOT NULL,
   width INTEGER NOT NULL,
   height INTEGER NOT NULL,
@@ -34,6 +35,7 @@ interface TimingRow {
   id: number;
   created_at: string;
   family: string;
+  model_name: string | null;
   kind: string;
   width: number;
   height: number;
@@ -57,6 +59,7 @@ function rowToTiming(r: TimingRow): TimingStatRow {
     id: r.id,
     createdAt: r.created_at,
     family: r.family,
+    modelName: r.model_name ?? null,
     kind: r.kind === 'video' ? 'video' : 'image',
     width: r.width,
     height: r.height,
@@ -82,13 +85,14 @@ const round = (n: number | null): number | null => (n === null ? null : Math.rou
 export function insertTiming(db: DatabaseSync, t: Omit<TimingStatRow, 'id' | 'createdAt'>): number {
   const result = db
     .prepare(
-      `INSERT INTO timing_stats (created_at, family, kind, width, height, steps, cfg, length, warm,
+      `INSERT INTO timing_stats (created_at, family, model_name, kind, width, height, steps, cfg, length, warm,
          estimate_ms, estimate_generate_ms, actual_ms, load_ms, generate_ms, sampling_ms, finish_ms, sampler_steps, pace_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       new Date().toISOString(),
       t.family,
+      t.modelName,
       t.kind,
       t.width,
       t.height,

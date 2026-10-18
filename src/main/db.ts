@@ -80,6 +80,11 @@ function migrateSchema(db: DatabaseSync): void {
   if (!columns.some((c) => c.name === 'hidden')) {
     db.exec('ALTER TABLE generations ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;');
   }
+  // Timings gained the model variant they were made with (so accuracy can be told apart per model).
+  const timingColumns = db.prepare('PRAGMA table_info(timing_stats)').all() as unknown as ColumnInfo[];
+  if (!timingColumns.some((c) => c.name === 'model_name')) {
+    db.exec('ALTER TABLE timing_stats ADD COLUMN model_name TEXT;');
+  }
   if (!columns.some((c) => c.name === 'timing_id')) {
     db.exec('ALTER TABLE generations ADD COLUMN timing_id INTEGER;');
   }
