@@ -1299,7 +1299,8 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 
 .library-card__stack-badge,
 .library-card__hidden-badge,
-.library-card__origin-badge {
+.library-card__origin-badge,
+.library-card__model-badge {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 12px;
@@ -1310,6 +1311,18 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 
 .library-card__stack-badge {
   font-weight: 600;
+}
+
+/* The model it was made with: an outlined tag, so it reads apart from the filled "how it was made" one. */
+.library-card__model-badge {
+  padding: 2px 7px;
+  font-size: 11px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: transparent;
+  color: var(--color-text-muted, inherit);
+  border: 1px solid currentColor;
 }
 
 /* How the item came to be: plain for the common text-to-image, colored for the others so they stand out. */
