@@ -72,51 +72,96 @@ function groupPinned(records: GenerationRecord[]): PinnedGroup[] {
   return [...groups.values()];
 }
 
-/** A run of cards under one heading: a cluster of alike prompts, or (heading-less) everything on show. */
-interface Section {
-  key: string;
-  /** Set for a cluster: what to say about it. */
-  heading: { count: number; varying: string[]; hue: number } | null;
-  /** Set for the leftovers that matched no cluster. */
-  label?: string;
-  groups: PinnedGroup[];
-}
+/** One tile of the page: a single prompt's card, or - when clustering - a fan standing for a cluster of alike prompts. */
+type Tile =
+  | { kind: 'prompt'; group: PinnedGroup }
+  | { kind: 'cluster'; key: string; groups: PinnedGroup[]; varying: string[]; hue: number };
 
-/** How many differing words a cluster heading lists before "+n more". */
+/** How many differing words a cluster's heading lists before "+n more". */
 const VARYING_SHOWN = 8;
 
 /**
- * Lays the prompt cards out in sections. Plain: one section in pinned order, or - ordering by likeness -
- * with the most alike side by side. Clustering: a section per cluster of alike prompts (pin order of the
- * first in each), then one section of the prompts nothing was close to.
+ * The tiles to lay out. Plain: every prompt's card, in pinned order, or - ordering by likeness - with the most alike
+ * side by side. Clustering: prompts that are alike collapse into one fan tile each; the rest stay single cards.
+ * Ordering by likeness then also orders the tiles themselves, and the cards inside an opened cluster.
  */
-function buildSections(groups: PinnedGroup[], view: { cluster: boolean; byLikeness: boolean; threshold: number }): Section[] {
+function buildTiles(groups: PinnedGroup[], view: { cluster: boolean; byLikeness: boolean; threshold: number }): Tile[] {
   if (groups.length === 0) return [];
-  if (!view.cluster && !view.byLikeness) return [{ key: 'all', heading: null, groups }];
+  if (!view.cluster && !view.byLikeness) return groups.map((group) => ({ kind: 'prompt', group }));
 
   const matrix = similarityMatrix(groups.map((g) => g.prompt));
-  const arrange = (indexes: number[]) => (view.byLikeness ? orderBySimilarity(indexes, matrix) : indexes).map((i) => groups[i]);
-  if (!view.cluster) return [{ key: 'all', heading: null, groups: arrange(groups.map((_, i) => i)) }];
+  const arrange = (indexes: number[]) => (view.byLikeness ? orderBySimilarity(indexes, matrix) : indexes);
+  if (!view.cluster) return arrange(groups.map((_, i) => i)).map((i) => ({ kind: 'prompt', group: groups[i] }));
 
+  // A tile per cluster, led by its first-pinned member; the order of the tiles follows that member.
   const clusters = clusterPrompts(matrix, view.threshold);
-  const sections: Section[] = [];
-  const singles: number[] = [];
-  for (const cluster of clusters) {
-    if (cluster.length === 1) {
-      singles.push(cluster[0]);
-      continue;
-    }
-    const members = arrange(cluster);
-    sections.push({
-      key: `cluster-${members[0].items[0].id}`,
-      heading: { count: members.length, varying: varyingWords(members.map((g) => g.prompt)), hue: (sections.length * 47) % 360 },
-      groups: members,
-    });
-  }
-  if (singles.length > 0) {
-    sections.push({ key: 'singles', heading: null, label: sections.length > 0 ? 'No close match' : undefined, groups: arrange(singles) });
-  }
-  return sections;
+  const lead = arrange(clusters.map((c) => c[0]));
+  const byLead = new Map(clusters.map((c) => [c[0], c]));
+  let hue = 0;
+  return lead.map((first): Tile => {
+    const members = byLead.get(first) ?? [first];
+    if (members.length === 1) return { kind: 'prompt', group: groups[first] };
+    const memberGroups = arrange(members).map((i) => groups[i]);
+    const tile: Tile = {
+      kind: 'cluster',
+      key: `cluster-${groups[first].items[0].id}`,
+      groups: memberGroups,
+      varying: varyingWords(memberGroups.map((g) => g.prompt)),
+      hue,
+    };
+    hue = (hue + 47) % 360;
+    return tile;
+  });
+}
+
+/** What a tile is drawn from: its leading prompt's first picture. */
+function leadRecord(tile: Tile): GenerationRecord {
+  return tile.kind === 'prompt' ? tile.group.items[0] : tile.groups[0].items[0];
+}
+
+/** The "differ by: red · blue · green" line for a cluster. */
+function varyingText(varying: string[]): string {
+  if (varying.length === 0) return '';
+  const more = varying.length > VARYING_SHOWN ? ` +${varying.length - VARYING_SHOWN} more` : '';
+  return `differ by: ${varying.slice(0, VARYING_SHOWN).join(' · ')}${more}`;
+}
+
+interface ClusterTileProps {
+  tile: Extract<Tile, { kind: 'cluster' }>;
+  width: number;
+  height: number;
+  onOpen: () => void;
+}
+
+/** A cluster of alike prompts as a fan of cards: the leading prompt's picture on top and the next ones peeking out
+ * from behind. Clicking it opens the cluster, which then shows its prompts as ordinary cards. */
+function ClusterTile({ tile, width, height, onOpen }: ClusterTileProps) {
+  const lead = tile.groups[0].items[0];
+  const behind = tile.groups.slice(1, 3);
+  const layer = (record: GenerationRecord, className: string) => (
+    <div key={`${className}-${record.id}`} className={`cluster-tile__layer ${className}`}>
+      <CycleMedia paths={[record.imagePath]} index={0} isVideo={kindOf(record) === 'video'} alt={record.prompt} />
+    </div>
+  );
+  return (
+    <div className="library-card cluster-tile" style={{ width, '--cluster-hue': tile.hue } as React.CSSProperties}>
+      <div className="library-card__media cluster-tile__fan" style={{ height, cursor: 'pointer' }} onClick={onOpen} title="Click to open this cluster">
+        {behind.map((g, i) => layer(g.items[0], `cluster-tile__layer--back${i + 1}`)).reverse()}
+        {layer(lead, 'cluster-tile__layer--top')}
+        <div className="prompt-tile__prompt">{lead.prompt}</div>
+      </div>
+      <div className="library-card__badges">
+        <span className="library-card__stack-badge" title={`${tile.groups.length} similar prompts${tile.varying.length > 0 ? ` - ${varyingText(tile.varying)}` : ''}`}>
+          {tile.groups.length} similar
+        </span>
+      </div>
+      <div className="library-card__actions library-card__actions--labeled">
+        <button type="button" className="primary" onClick={onOpen} title={varyingText(tile.varying) || 'Show the prompts in this cluster'}>
+          Open cluster
+        </button>
+      </div>
+    </div>
+  );
 }
 
 interface TileProps {
@@ -212,6 +257,8 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
 export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImageToVideo, showHidden, onShowQueue }: Props) {
   const [cardScale, setCardScale] = useCardScale();
   const [view, setView] = usePromptView();
+  // The cluster that was opened: the page then shows just its prompts, as ordinary cards.
+  const [openKey, setOpenKey] = useState<string | null>(null);
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -262,25 +309,35 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     const needle = search.trim().toLowerCase();
     return needle ? groups.filter((g) => g.prompt.toLowerCase().includes(needle)) : groups;
   }, [groups, search]);
-  const sections = useMemo(
-    () => buildSections(visibleGroups, view),
+  const tiles = useMemo(
+    () => buildTiles(visibleGroups, view),
     // Only the choices that change the layout: the threshold means nothing while not clustering.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [visibleGroups, view.cluster, view.byLikeness, view.cluster ? view.threshold : 0]
   );
+  const openTile = tiles.find((t): t is Extract<Tile, { kind: 'cluster' }> => t.kind === 'cluster' && t.key === openKey) ?? null;
+  // What is on show: the tiles, or - inside an opened cluster - just its prompts.
+  const shown = useMemo<Tile[]>(() => (openTile ? openTile.groups.map((group) => ({ kind: 'prompt', group })) : tiles), [tiles, openTile]);
   // Every picture on show, in card order: what the full-window viewer steps through.
-  const visible = useMemo(() => sections.flatMap((s) => s.groups).flatMap((g) => g.items), [sections]);
+  const visible = useMemo(
+    () => shown.flatMap((t) => (t.kind === 'prompt' ? t.group.items : t.groups.flatMap((g) => g.items))),
+    [shown]
+  );
 
   // Each card is as big as its first picture; the others in the group are fitted into that box.
-  const sectionRows = sections.map((section) =>
-    justifyRows(
-      section.groups.map((g) => ({ aspect: g.items[0].width / Math.max(g.items[0].height, 1) })),
-      gridWidth,
-      TARGET_ROW_HEIGHT * cardScale,
-      GRID_GAP
-    )
+  const rows = justifyRows(
+    shown.map((t) => ({ aspect: leadRecord(t).width / Math.max(leadRecord(t).height, 1) })),
+    gridWidth,
+    TARGET_ROW_HEIGHT * cardScale,
+    GRID_GAP
   );
-  const clusterCount = sections.filter((s) => s.heading).length;
+  const clusterCount = tiles.filter((t) => t.kind === 'cluster').length;
+
+  function openCluster(key: string | null) {
+    setOpenKey(key);
+    scrollerRef.current?.scrollTo({ top: 0 });
+  }
+
   // The original of a result opened from its panel may not be pinned (so not in this list): it is shown from here instead.
   const borrow = useBorrowedRecord();
   const infoRecord = records.find((r) => r.id === infoId) ?? (borrow.borrowed && borrow.borrowed.id === infoId ? borrow.borrowed : null);
@@ -467,10 +524,13 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
           <button
             type="button"
             className={view.cluster ? 'primary' : undefined}
-            onClick={() => setView({ cluster: !view.cluster })}
-            title="Gather prompts that are mostly the same words - say, one or two changed - into clusters"
+            onClick={() => {
+              setOpenKey(null);
+              setView({ cluster: !view.cluster });
+            }}
+            title="Gather prompts that are mostly the same words - say, one or two changed - into one fan of cards"
           >
-            Group similar
+            Cluster
           </button>
           {view.cluster && (
             <label className="prompt-library__similarity" title="How much of the wording two prompts must share to be in one cluster. Lower = bigger, looser clusters.">
@@ -526,46 +586,46 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
           </p>
         )}
 
+        {openTile && (
+          <div className="prompt-cluster__heading" style={{ '--cluster-hue': openTile.hue } as React.CSSProperties}>
+            <button type="button" onClick={() => openCluster(null)} title="Back to all the prompts">
+              ← All prompts
+            </button>
+            <strong>{openTile.groups.length} similar prompts</strong>
+            {openTile.varying.length > 0 && (
+              <span className="prompt-cluster__varying" title={openTile.varying.join(', ')}>
+                {varyingText(openTile.varying)}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Always rendered so the width observer attaches on mount. */}
-        <div className="prompt-sections" ref={gridRef}>
-          {sections.map((section, sectionIndex) => (
-            <section key={section.key} className="prompt-section">
-              {section.heading && (
-                <div className="prompt-cluster__heading" style={{ '--cluster-hue': section.heading.hue } as React.CSSProperties}>
-                  <strong>{section.heading.count} similar prompts</strong>
-                  {section.heading.varying.length > 0 && (
-                    <span className="prompt-cluster__varying" title={section.heading.varying.join(', ')}>
-                      differ by: {section.heading.varying.slice(0, VARYING_SHOWN).join(' · ')}
-                      {section.heading.varying.length > VARYING_SHOWN ? ` +${section.heading.varying.length - VARYING_SHOWN} more` : ''}
-                    </span>
-                  )}
-                </div>
-              )}
-              {section.label && <div className="prompt-cluster__heading prompt-cluster__heading--plain">{section.label}</div>}
-              <div className="library-rows">
-                {sectionRows[sectionIndex].map((row) => (
-                  <div key={section.groups[row.items[0].index].items[0].id} className="library-row library-row--skippable" style={rowSizeHint(row.height)}>
-                    {row.items.map(({ index, width }) => {
-                      const group = section.groups[index];
-                      return (
-                        <PinnedTile
-                          key={group.items[0].id}
-                          group={group}
-                          width={width}
-                          height={row.height}
-                          active={group.items.some((r) => r.id === infoId)}
-                          onOpen={(record) => setInfoId(record.id)}
-                          onExpand={(record) => setLightboxIndex(visible.findIndex((r) => r.id === record.id))}
-                          onUnpin={handleTogglePinned}
-                          onUse={handleUse}
-                          onRerack={handleRerack}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </section>
+        <div className="library-rows" ref={gridRef}>
+          {rows.map((row) => (
+            <div key={leadRecord(shown[row.items[0].index]).id} className="library-row library-row--skippable" style={rowSizeHint(row.height)}>
+              {row.items.map(({ index, width }) => {
+                const tile = shown[index];
+                if (tile.kind === 'cluster') {
+                  return <ClusterTile key={tile.key} tile={tile} width={width} height={row.height} onOpen={() => openCluster(tile.key)} />;
+                }
+                const group = tile.group;
+                return (
+                  <PinnedTile
+                    key={group.items[0].id}
+                    group={group}
+                    width={width}
+                    height={row.height}
+                    active={group.items.some((r) => r.id === infoId)}
+                    onOpen={(record) => setInfoId(record.id)}
+                    onExpand={(record) => setLightboxIndex(visible.findIndex((r) => r.id === record.id))}
+                    onUnpin={handleTogglePinned}
+                    onUse={handleUse}
+                    onRerack={handleRerack}
+                  />
+                );
+              })}
+            </div>
           ))}
         </div>
       </div>
