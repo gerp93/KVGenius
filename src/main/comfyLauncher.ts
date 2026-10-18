@@ -66,6 +66,9 @@ export function launchComfyUIProgram(target: string, openApp: (appPath: string) 
         detached: true,
         stdio: 'ignore',
         shell: windowsScript,
+        // Without this a .bat/.cmd opens a console window (and a taskbar button) that stays up for as
+        // long as ComfyUI runs. No effect off Windows, or on a program that makes its own window.
+        windowsHide: true,
       });
       child.once('error', (err) => finish({ status: 'error', message: `Could not start ${path.basename(target)}: ${err.message}` }));
       child.once('spawn', () => {
