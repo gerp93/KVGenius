@@ -1958,13 +1958,15 @@ button.copy-button.lightbox__copy {
 /* Prompts page: the pinned generations. */
 .prompt-library__toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
   margin-bottom: 12px;
 }
 
 .prompt-library__search {
   flex: 1;
+  min-width: 160px;
   max-width: 420px;
 }
 
@@ -1991,13 +1993,8 @@ button.copy-button.lightbox__copy {
   text-align: right;
 }
 
-.prompt-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-}
-
-/* A bar down the left edge in the cluster's own colour, so neighbouring clusters read as separate shades. */
+/* The heading over an opened cluster: a bar down the left edge in the cluster's own colour (the same colour as
+   its fan's outline on the page of all prompts). */
 .prompt-cluster__heading {
   display: flex;
   align-items: baseline;
@@ -2009,9 +2006,43 @@ button.copy-button.lightbox__copy {
   font-size: 13px;
 }
 
-.prompt-cluster__heading--plain {
-  border-left-color: var(--color-border, rgba(128, 128, 128, 0.4));
-  color: var(--color-text-muted);
+/* A cluster of alike prompts drawn as a fan of cards: the leading picture on top, the next ones tilted behind it.
+   The cards stay inside the tile's box (inset enough for the tilt), so nothing spills into the scroll area. */
+.cluster-tile__fan {
+  background: transparent;
+}
+
+.cluster-tile__layer {
+  position: absolute;
+  inset: 22px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--color-bg-hover);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  transition: transform 0.18s ease-out;
+}
+
+.cluster-tile__layer--top {
+  z-index: 3;
+  outline: 2px solid hsl(var(--cluster-hue, 0) 55% 55%);
+}
+
+.cluster-tile__layer--back1 {
+  z-index: 2;
+  transform: rotate(5deg) translate(6px, -1px);
+}
+
+.cluster-tile__layer--back2 {
+  z-index: 1;
+  transform: rotate(-6deg) translate(-6px, 1px);
+}
+
+.cluster-tile:hover .cluster-tile__layer--back1 {
+  transform: rotate(7deg) translate(7px, -2px);
+}
+
+.cluster-tile:hover .cluster-tile__layer--back2 {
+  transform: rotate(-8deg) translate(-7px, 2px);
 }
 
 .prompt-cluster__varying {
