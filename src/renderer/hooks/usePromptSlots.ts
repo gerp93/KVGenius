@@ -5,7 +5,7 @@ import { GenerationKind } from '../../shared/types';
 import type { VideoQuality } from '../../shared/videoQuality';
 import { V2V_DEFAULT_STRENGTH } from '../../shared/videoToVideo';
 import type { TemplateValues } from '../../shared/promptTemplates';
-import { MAX_PROMPT_SLOTS, PromptSlot, PromptSlotData, copyOfSlot, newPromptSlot, slotLabel } from '../../shared/promptSlots';
+import { MAX_PROMPT_SLOTS, PromptSlot, PromptSlotData, copyOfSlot, moveSlot, newPromptSlot, slotLabel } from '../../shared/promptSlots';
 
 /** How long to wait after the last edit before writing the tabs to disk - typing shouldn't hit
  * the filesystem on every keystroke. */
@@ -240,6 +240,15 @@ export function usePromptSlots() {
     return copy.id;
   }
 
+  /** Moves a tab so it sits at `toIndex`; the active tab stays active. */
+  function moveSlotTo(id: string, toIndex: number) {
+    const merged = slots.map((s) => (s.id === activeSlotId ? { ...s, data: snapshotFromState() } : s));
+    const next = moveSlot(merged, id, toIndex);
+    if (next === merged) return;
+    setSlots(next);
+    void window.kvgenius.savePromptSlots(next, activeSlotId);
+  }
+
   function closeSlot(id: string) {
     if (slots.length <= 1) return;
     const merged = slots.map((s) => (s.id === activeSlotId ? { ...s, data: snapshotFromState() } : s));
@@ -276,6 +285,7 @@ export function usePromptSlots() {
     switchTo,
     addSlot,
     duplicateSlot,
+    moveSlotTo,
     closeSlot,
     renameSlot,
     labelFor,

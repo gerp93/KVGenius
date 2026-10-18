@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyOfSlot, defaultSlotData, newPromptSlot, sanitizeSlots } from './promptSlots';
+import { copyOfSlot, defaultSlotData, moveSlot, newPromptSlot, sanitizeSlots } from './promptSlots';
 import { DEFAULT_DENOISE } from './imageToImage';
 
 test('a new tab has no start picture and the default strength', () => {
@@ -70,4 +70,17 @@ test("a named tab's copy is named as a copy, within the name limit", () => {
   assert.equal(copyOfSlot(source).name, 'Portraits copy');
   source.name = 'x'.repeat(40);
   assert.equal(copyOfSlot(source).name?.length, 40);
+});
+
+test('moveSlot puts a tab at the target position, up or down, and leaves the rest in order', () => {
+  const tabs = ['a', 'b', 'c', 'd'].map((id) => ({ id }));
+  assert.deepEqual(moveSlot(tabs, 'a', 2).map((t) => t.id), ['b', 'c', 'a', 'd']);
+  assert.deepEqual(moveSlot(tabs, 'd', 0).map((t) => t.id), ['d', 'a', 'b', 'c']);
+  assert.deepEqual(moveSlot(tabs, 'b', 99).map((t) => t.id), ['a', 'c', 'd', 'b']);
+});
+
+test('moveSlot returns the same list when nothing moves or the tab is unknown', () => {
+  const tabs = ['a', 'b'].map((id) => ({ id }));
+  assert.equal(moveSlot(tabs, 'a', 0), tabs);
+  assert.equal(moveSlot(tabs, 'zzz', 1), tabs);
 });
