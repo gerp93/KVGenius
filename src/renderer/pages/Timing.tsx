@@ -3,7 +3,10 @@ import { TimingStatRow } from '../../shared/types';
 import {
   AccuracySummary,
   Metric,
+  filterByModels,
+  groupByModel,
   groupBySettings,
+  modelOf,
   pairFor,
   diffPct,
   recentVsEarlier,
@@ -76,18 +79,24 @@ function TrendChart({ rows, metric }: { rows: TimingStatRow[]; metric: Metric })
 }
 
 export default function Timing() {
-  const [rows, setRows] = useState<TimingStatRow[] | null>(null);
+  const [allRows, setAllRows] = useState<TimingStatRow[] | null>(null);
+  // The models the page is narrowed to; empty = every model.
+  const [models, setModels] = useState<ReadonlySet<string>>(new Set());
   const [metric, setMetric] = useState<Metric>('total');
   const [error, setError] = useState<string | null>(null);
 
   function load() {
     window.kvgenius
       .getTimingStats()
-      .then(setRows)
+      .then(setAllRows)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
   useEffect(load, []);
 
+  const rows = useMemo(() => (allRows ? filterByModels(allRows, models) : null), [allRows, models]);
+  // One chip per model that has timings (counted over everything, so the choices don't shrink as you filter).
+  const modelChoices = useMemo(() => (allRows ? groupByModel(allRows, metric) : []), [allRows, metric]);
+  const modelGroups = useMemo(() => (rows ? groupByModel(rows, metric) : []), [rows, metric]);
   const summary = useMemo(() => (rows ? summarize(rows, metric) : null), [rows, metric]);
   const improving = useMemo(() => (rows ? recentVsEarlier(rows, metric) : null), [rows, metric]);
   const groups = useMemo(() => (rows ? groupBySettings(rows, metric) : []), [rows, metric]);
@@ -105,6 +114,14 @@ export default function Timing() {
     };
     return { warm: side(true), cold: side(false) };
   }, [rows, metric]);
+
+  function toggleModel(model: string) {
+    setModels((current) => {
+      const next = new Set(current);
+      if (!next.delete(model)) next.add(model);
+      return next;
+    });
+  }
 
   async function handleClear() {
     if (!window.confirm('Delete all timing data? Future estimates start over and learn from scratch.')) return;
@@ -141,13 +158,35 @@ export default function Timing() {
               Excluding model loading
             </button>
           </div>
-          <button type="button" onClick={handleClear} disabled={!rows || rows.length === 0}>
+          <button type="button" onClick={handleClear} disabled={!allRows || allRows.length === 0}>
             Delete timing data
           </button>
         </div>
       </div>
 
       {error && <p style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
+
+      {modelChoices.length > 1 && (
+        <div className="timing-models" role="group" aria-label="Narrow to models">
+          <span className="timing-muted">Models</span>
+          {modelChoices.map((m) => (
+            <button
+              key={m.model}
+              type="button"
+              className={`timing-models__chip${models.has(m.model) ? ' primary' : ''}`}
+              aria-pressed={models.has(m.model)}
+              onClick={() => toggleModel(m.model)}
+            >
+              {m.model} <span className="timing-models__count">{m.runs}</span>
+            </button>
+          ))}
+          {models.size > 0 && (
+            <button type="button" className="timing-models__chip" onClick={() => setModels(new Set())}>
+              All models
+            </button>
+          )}
+        </div>
+      )}
 
       {rows && rows.length === 0 && (
         <p className="timing-muted">
@@ -193,6 +232,38 @@ export default function Timing() {
             <span className="timing-swatch timing-swatch--faster" /> faster than estimated. Oldest on the left, newest on
             the right; bars stop at 100%.
           </p>
+
+          {modelGroups.length > 1 && (
+            <>
+              <h3 className="timing-h3">By model</h3>
+              <table className="timing-table">
+                <thead>
+                  <tr>
+                    <th>Model</th>
+                    <th>Runs</th>
+                    <th>Avg estimate</th>
+                    <th>Avg actual</th>
+                    <th>Lean</th>
+                    <th>Typical miss</th>
+                    <th>Within 25%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {modelGroups.map((g) => (
+                    <tr key={g.model}>
+                      <td>{g.model}</td>
+                      <td>{g.runs}</td>
+                      <td>{g.summary ? formatDuration(g.summary.avgEstimateMs) : '-'}</td>
+                      <td>{g.summary ? formatDuration(g.summary.avgActualMs) : '-'}</td>
+                      <td>{g.summary ? <Signed value={g.summary.biasPct} /> : '-'}</td>
+                      <td>{g.summary ? pct(g.summary.medianAbsPct) : '-'}</td>
+                      <td>{g.summary ? pct(g.summary.within25Pct * 100) : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
 
           <h3 className="timing-h3">By settings</h3>
           <table className="timing-table">
@@ -260,6 +331,7 @@ export default function Timing() {
             <thead>
               <tr>
                 <th>When</th>
+                {modelChoices.length > 1 && <th>Model</th>}
                 <th>Settings</th>
                 <th>Estimate</th>
                 <th>Actual</th>
@@ -273,6 +345,7 @@ export default function Timing() {
                 return (
                   <tr key={r.id}>
                     <td>{new Date(r.createdAt).toLocaleString()}</td>
+                    {modelChoices.length > 1 && <td>{modelOf(r)}</td>}
                     <td>{settingsLabel(r)}</td>
                     <td>{pair ? formatDuration(pair.estimate) : 'none yet'}</td>
                     <td>{formatDuration(metric === 'total' ? r.actualMs : (r.generateMs ?? r.actualMs))}</td>

@@ -74,6 +74,8 @@ export function createGenerationRunner(getDb: () => DatabaseSync | null, getFfmp
     const t = output.timings;
     const timingId = insertTiming(db, {
       family,
+      // Same rule as the generation's own model_name (db.ts): only a saved variant has a name.
+      modelName: params.modelSettings ? params.modelName?.trim() || null : null,
       kind: FAMILY_KIND[family] === 'video' ? 'video' : 'image',
       width: params.width,
       height: params.height,

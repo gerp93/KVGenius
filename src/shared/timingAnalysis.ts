@@ -1,3 +1,4 @@
+import { modelLabel } from './modelLabel';
 import { TimingStatRow } from './types';
 
 /**
@@ -119,4 +120,35 @@ export function recentVsEarlier(
   }
   if (abs.length < window * 2) return null;
   return { recent: mean(abs.slice(0, window)), earlier: mean(abs.slice(window, window * 2)) };
+}
+
+/** Which model a run was made with, for telling accuracy apart per model: the saved variant's name, else the
+ * family's built-in model. Falls back to the family id so a run is never left without a label. */
+export function modelOf(row: TimingStatRow): string {
+  return modelLabel({ modelFamily: row.family, modelName: row.modelName }) ?? row.family;
+}
+
+export interface ModelGroup {
+  model: string;
+  runs: number;
+  summary: AccuracySummary | null;
+}
+
+/** Every model that has timings, most-run first (the choices for the page's model filter, and its per-model table). */
+export function groupByModel(rows: TimingStatRow[], metric: Metric): ModelGroup[] {
+  const groups = new Map<string, TimingStatRow[]>();
+  for (const row of rows) {
+    const model = modelOf(row);
+    const list = groups.get(model);
+    if (list) list.push(row);
+    else groups.set(model, [row]);
+  }
+  return [...groups.entries()]
+    .map(([model, list]) => ({ model, runs: list.length, summary: summarize(list, metric) }))
+    .sort((a, b) => b.runs - a.runs || a.model.localeCompare(b.model));
+}
+
+/** The rows made with any of the chosen models; an empty choice means every model. */
+export function filterByModels(rows: TimingStatRow[], models: ReadonlySet<string>): TimingStatRow[] {
+  return models.size === 0 ? rows : rows.filter((r) => models.has(modelOf(r)));
 }

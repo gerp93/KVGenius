@@ -181,6 +181,8 @@ export interface TimingStatRow {
   id: number;
   createdAt: string;
   family: string;
+  /** The saved model variant the run used; null for the family's built-in model (and for runs recorded before this was kept). */
+  modelName: string | null;
   kind: GenerationKind;
   width: number;
   height: number;
