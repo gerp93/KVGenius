@@ -7,10 +7,12 @@ import CompareOverlay from '../components/CompareOverlay';
 import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
 import DetailsDock from '../components/DetailsDock';
+import ModelBadge from '../components/ModelBadge';
 import OriginBadge from '../components/OriginBadge';
 import StyleTags from '../components/StyleTags';
 import { styleTags } from '../../shared/styles';
 import { generationOrigin } from '../../shared/origin';
+import { modelLabel } from '../../shared/modelLabel';
 import LibraryDetails from '../components/LibraryDetails';
 import { GenerationQueue } from '../hooks/useGenerationQueue';
 import { useCycleIndex } from '../hooks/useCycleIndex';
@@ -771,7 +773,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             )}
           </CardMedia>
           {/* The tags sit under the picture, so they never cover it. */}
-          {(stack || record.hidden || record.pinned || record.styleName || generationOrigin(record.modelFamily)) && (
+          {(stack || record.hidden || record.pinned || record.styleName || generationOrigin(record.modelFamily) || modelLabel(record)) && (
             <div className="library-card__badges">
               {stack && (
                 <span className="library-card__stack-badge" title={`${record.groupCount} items have this exact prompt - click to open them`}>
@@ -779,6 +781,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
                 </span>
               )}
               <OriginBadge record={record} />
+              <ModelBadge record={record} />
               <StyleTags label={record.styleName} onPick={toggleStyle} activeTags={styles} />
               {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
               {record.pinned && (

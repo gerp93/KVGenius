@@ -13,6 +13,7 @@ import { useRetryWhenReachable } from '../hooks/useRetryWhenReachable';
 import { isUpscale } from '../utils/library';
 import CopyButton from './CopyButton';
 import GeneratedVideo from './GeneratedVideo';
+import ModelBadge from './ModelBadge';
 import OriginBadge from './OriginBadge';
 import StyleTags from './StyleTags';
 import ExpandButton from './Lightbox';
@@ -271,6 +272,7 @@ export default function LibraryDetails({
       <span className="library-panel__title">
         <strong>Details</strong>
         <OriginBadge record={record} />
+        <ModelBadge record={record} />
       </span>
       <span className="library-panel__window-buttons">
         <button type="button" onClick={onClose} title="Close">
