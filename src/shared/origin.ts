@@ -1,4 +1,5 @@
 import { canonicalFamily, LEGACY_FAMILY_KEYS, TEXT_TO_IMAGE_FAMILIES, Z_IMAGE_FAMILY } from './families';
+import { FACE_FAMILIES, isFaceReferenceFamily } from './faceReference';
 import { GIF_FAMILY } from './gif';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY } from './imageToImage';
 import { I2V_FAMILY, T2V_FAMILY } from './textToVideo';
@@ -7,7 +8,7 @@ import { FAMILY_KIND, GenerationKind } from './types';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from './upscale';
 
 /** How a Library item came to be - shown as a small tag on its card so it can be told at a glance. */
-export type OriginKind = 'text-to-image' | 'image-to-image' | 'inpaint' | 'outpaint' | 'image-to-video' | 'text-to-video' | 'video-to-video' | 'upscale' | 'gif';
+export type OriginKind = 'text-to-image' | 'image-to-image' | 'face-reference' | 'inpaint' | 'outpaint' | 'image-to-video' | 'text-to-video' | 'video-to-video' | 'upscale' | 'gif';
 
 export interface GenerationOrigin {
   kind: OriginKind;
@@ -20,6 +21,7 @@ export interface GenerationOrigin {
 const ORIGINS: Record<OriginKind, Omit<GenerationOrigin, 'kind'>> = {
   'text-to-image': { label: 'Text → Image', title: 'Generated from a text prompt' },
   'image-to-image': { label: 'Image → Image', title: 'A new picture drawn from another picture and a prompt' },
+  'face-reference': { label: 'Face reference', title: 'A new picture of the person in a reference picture, drawn from a prompt' },
   inpaint: { label: 'Inpainted', title: 'A picture with only the painted spots re-drawn; the rest is the original' },
   outpaint: { label: 'Outpainted', title: 'A picture extended beyond its frame; the original is untouched and only the new area is drawn' },
   'image-to-video': { label: 'Image → Video', title: 'A video animated from a still image' },
@@ -38,6 +40,7 @@ export function generationOrigin(modelFamily: string): GenerationOrigin | null {
   else if (modelFamily === GIF_FAMILY) kind = 'gif';
   else if (modelFamily === Z_IMAGE_FAMILY || TEXT_TO_IMAGE_FAMILIES.includes(modelFamily)) kind = 'text-to-image';
   else if (modelFamily === I2I_FAMILY) kind = 'image-to-image';
+  else if (isFaceReferenceFamily(modelFamily)) kind = 'face-reference';
   else if (modelFamily === INPAINT_FAMILY) kind = 'inpaint';
   else if (modelFamily === OUTPAINT_FAMILY) kind = 'outpaint';
   else if (modelFamily === I2V_FAMILY) kind = 'image-to-video';
@@ -47,13 +50,14 @@ export function generationOrigin(modelFamily: string): GenerationOrigin | null {
 }
 
 /** Every origin, in the order the Library's filter lists them. */
-export const ORIGIN_KINDS: OriginKind[] = ['text-to-image', 'image-to-image', 'inpaint', 'outpaint', 'image-to-video', 'text-to-video', 'video-to-video', 'upscale', 'gif'];
+export const ORIGIN_KINDS: OriginKind[] = ['text-to-image', 'image-to-image', 'face-reference', 'inpaint', 'outpaint', 'image-to-video', 'text-to-video', 'video-to-video', 'upscale', 'gif'];
 
 /** The model families that make an item of this origin - what a "show only these" filter selects. */
 export const FAMILIES_BY_ORIGIN: Record<OriginKind, string[]> = {
   // The retired key is listed too, so a row the startup migration has not reached still matches the filter.
   'text-to-image': [Z_IMAGE_FAMILY, ...TEXT_TO_IMAGE_FAMILIES, ...Object.keys(LEGACY_FAMILY_KEYS)],
   'image-to-image': [I2I_FAMILY],
+  'face-reference': [...FACE_FAMILIES],
   inpaint: [INPAINT_FAMILY],
   outpaint: [OUTPAINT_FAMILY],
   'image-to-video': [I2V_FAMILY],

@@ -230,8 +230,8 @@ export type ExportResult = { status: 'saved'; path: string; count: number } | { 
 
 /** A request to open the Generate tab with an existing image as the source - of a video, or of an image to image run. */
 export interface VideoSourceRequest {
-  /** What the picture is for: a video's source (the default) or the start picture of an image to image run. */
-  target?: 'video' | 'image' | 'restyle';
+  /** What the picture is for: a video's source (the default), the start picture of an image to image run, or the reference for a face reference run. */
+  target?: 'video' | 'image' | 'restyle' | 'face';
   /** A picture - or, for 'restyle', the video itself (its path is also `videoPath`). */
   imagePath: string;
   /** 'restyle' (video to video): the Library video to re-draw, and the prompt it was made with. */
@@ -257,6 +257,8 @@ export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'z-image-i2i': 'image',
   'z-image-inpaint': 'image',
   'z-image-outpaint': 'image',
+  'face-klein': 'image',
+  'face-qwen': 'image',
   'wan22-i2v': 'video',
   'wan22-t2v': 'video',
   'wan22-v2v': 'video',

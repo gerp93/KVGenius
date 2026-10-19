@@ -199,6 +199,11 @@ export default function App() {
     navigate('/');
   }
 
+  function handleQueueUseFace(record: GenerationRecord) {
+    setVideoSource({ target: 'face', imagePath: record.imagePath, width: record.width, height: record.height });
+    navigate('/');
+  }
+
   /** Re-rack, from anywhere. An upscale is re-run from its kept original in Tools > Upscale; everything
    * else opens as a new tab on Generate. */
   function handleRerack(record: GenerationRecord) {
@@ -389,6 +394,7 @@ export default function App() {
               onRerack={handleRerack}
               onImageToVideo={handleQueueImageToVideo}
               onImageToImage={handleQueueImageToImage}
+              onUseFace={handleQueueUseFace}
               onExtendVideo={handleQueueExtendVideo}
               onSaveAs={(r) => void runFileAction(() => window.kvgenius.saveGenerationAs(r.imagePath))}
               onReveal={(r) => void runFileAction(() => window.kvgenius.revealGenerationInFileManager(r.imagePath))}

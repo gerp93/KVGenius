@@ -19,12 +19,16 @@ import zImageInpaintTemplate from './templates/z-image-inpaint.json';
 import zImageOutpaintTemplate from './templates/z-image-outpaint.json';
 import upscaleImageTemplate from './templates/upscale-image.json';
 import upscaleVideoTemplate from './templates/upscale-video.json';
+import faceKleinTemplate from './templates/face-klein.json';
+import faceQwenTemplate from './templates/face-qwen.json';
 import { UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY } from '../shared/upscale';
 import { canonicalFamily } from '../shared/families';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, normalizeOutpaint } from '../shared/imageToImage';
 import { I2V_FAMILY, T2V_FAMILY } from '../shared/textToVideo';
 import { fillImageToImage, fillInpaint, fillOutpaint } from './imageToImagePatch';
 import { fillVideoToVideo } from './videoToVideoPatch';
+import { fillFaceReference } from './faceReferencePatch';
+import { FACE_KLEIN_FAMILY, FACE_QWEN_FAMILY, isFaceReferenceFamily } from '../shared/faceReference';
 import { V2V_FAMILY } from '../shared/videoToVideo';
 import { applyModelSettings } from './modelPatch';
 import { fillTextToImage } from './textToImagePatch';
@@ -51,6 +55,8 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
   [V2V_FAMILY]: wan22V2vTemplate,
   [UPSCALE_FAMILY]: upscaleImageTemplate,
   [UPSCALE_VIDEO_FAMILY]: upscaleVideoTemplate,
+  [FACE_KLEIN_FAMILY]: faceKleinTemplate,
+  [FACE_QWEN_FAMILY]: faceQwenTemplate,
 };
 
 // ComfyUI Desktop (the Electron distribution this app targets) defaults to port 8000, not
@@ -265,6 +271,13 @@ async function patchTemplate(
     const resize = workflow[UPSCALE_VIDEO_NODE_MAP.resize] as { inputs: Record<string, unknown> };
     resize.inputs.width = params.width;
     resize.inputs.height = params.height;
+    return workflow;
+  }
+
+  if (isFaceReferenceFamily(family)) {
+    if (!params.sourceImagePath) throw new Error('A face reference needs a reference picture.');
+    const uploadedName = await uploadSourceImage(params.sourceImagePath, signal);
+    fillFaceReference(workflow, family, params, uploadedName);
     return workflow;
   }
 

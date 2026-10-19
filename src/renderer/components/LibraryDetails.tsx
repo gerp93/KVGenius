@@ -52,6 +52,8 @@ interface Props {
   onImageToVideo: (record: GenerationRecord) => void;
   /** Start an image to image run from this picture (opens Generate with it as the source image). */
   onImageToImage: (record: GenerationRecord) => void;
+  /** Use this picture's face as the reference for a new picture (opens Generate in Face reference mode with it as the reference). */
+  onUseFace: (record: GenerationRecord) => void;
   /** Continue a video from its last frame (opens Generate with that frame as the source image; the new clip will be joined onto the video). */
   onExtendVideo: (request: VideoSourceRequest) => void;
   onSaveAs: (record: GenerationRecord) => void;
@@ -83,6 +85,7 @@ export default function LibraryDetails({
   onRerack,
   onImageToVideo,
   onImageToImage,
+  onUseFace,
   onExtendVideo,
   onSaveAs,
   onReveal,
@@ -437,6 +440,11 @@ export default function LibraryDetails({
         {kindOf(record) === 'image' && !isGif(record) && (
           <button type="button" onClick={() => onImageToImage(record)} title="Start a new picture from this one (image to image)">
             🎨 Image to image
+          </button>
+        )}
+        {kindOf(record) === 'image' && !isGif(record) && (
+          <button type="button" onClick={() => onUseFace(record)} title="Use the face in this picture as the reference for a new picture (face reference)">
+            🙂 Use this face
           </button>
         )}
         {kindOf(record) === 'image' && (

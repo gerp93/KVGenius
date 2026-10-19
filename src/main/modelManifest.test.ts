@@ -8,6 +8,8 @@ import hiDreamTemplate from './templates/hidream.json';
 import ovisTemplate from './templates/ovis-image.json';
 import wanTemplate from './templates/wan22-i2v.json';
 import wanTextTemplate from './templates/wan22-t2v.json';
+import faceKleinTemplate from './templates/face-klein.json';
+import faceQwenTemplate from './templates/face-qwen.json';
 
 type Template = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 
@@ -62,6 +64,11 @@ test('the manifest lists exactly the files the Wan template loads', () => {
 
 test('the manifest lists exactly the files the Wan text-to-video template loads', () => {
   assert.deepEqual(manifestFiles('wan22-t2v'), templateFiles(wanTextTemplate as Template));
+});
+
+test('the manifest lists exactly the files the face-reference templates load', () => {
+  assert.deepEqual(manifestFiles('face-klein'), templateFiles(faceKleinTemplate as Template));
+  assert.deepEqual(manifestFiles('face-qwen'), templateFiles(faceQwenTemplate as Template));
 });
 
 test('manifest ids are unique and no feature lists a file twice', () => {

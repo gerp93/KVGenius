@@ -1,0 +1,39 @@
+{
+  "fq-unet": { "class_type": "UNETLoader", "inputs": { "unet_name": "qwen_image_edit_2511_fp8mixed.safetensors", "weight_dtype": "default" } },
+  "fq-clip": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "type": "qwen_image", "device": "default" } },
+  "fq-vae": { "class_type": "VAELoader", "inputs": { "vae_name": "qwen_image_vae.safetensors" } },
+  "fq-shift": { "class_type": "ModelSamplingAuraFlow", "inputs": { "model": ["fq-unet", 0], "shift": 3.1 } },
+  "fq-norm": { "class_type": "CFGNorm", "inputs": { "model": ["fq-shift", 0], "strength": 1 } },
+  "fq-lora": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": { "model": ["fq-norm", 0], "lora_name": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors", "strength_model": 1 }
+  },
+  "fq-load": { "class_type": "LoadImage", "inputs": { "image": "reference.png" } },
+  "fq-scale": { "class_type": "FluxKontextImageScale", "inputs": { "image": ["fq-load", 0] } },
+  "fq-pos": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": { "clip": ["fq-clip", 0], "prompt": "", "vae": ["fq-vae", 0], "image1": ["fq-scale", 0] }
+  },
+  "fq-neg": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": { "clip": ["fq-clip", 0], "prompt": "", "vae": ["fq-vae", 0], "image1": ["fq-scale", 0] }
+  },
+  "fq-latent": { "class_type": "EmptySD3LatentImage", "inputs": { "width": 1024, "height": 1024, "batch_size": 1 } },
+  "fq-sample": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["fq-lora", 0],
+      "positive": ["fq-pos", 0],
+      "negative": ["fq-neg", 0],
+      "latent_image": ["fq-latent", 0],
+      "seed": 0,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1
+    }
+  },
+  "fq-decode": { "class_type": "VAEDecode", "inputs": { "samples": ["fq-sample", 0], "vae": ["fq-vae", 0] } },
+  "fq-save": { "class_type": "SaveImage", "inputs": { "images": ["fq-decode", 0], "filename_prefix": "KVGenius" } }
+}

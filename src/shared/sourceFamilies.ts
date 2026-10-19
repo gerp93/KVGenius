@@ -1,4 +1,5 @@
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY } from './imageToImage';
+import { FACE_FAMILIES } from './faceReference';
 import { UPSCALE_FAMILY } from './upscale';
 import { V2V_FAMILY } from './videoToVideo';
 
@@ -10,7 +11,7 @@ import { V2V_FAMILY } from './videoToVideo';
  *
  * A new tool that works on a supplied picture belongs in this list - it is the one place the app asks.
  */
-export const SOURCE_IMAGE_FAMILIES: ReadonlySet<string> = new Set(['wan22-i2v', I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, UPSCALE_FAMILY]);
+export const SOURCE_IMAGE_FAMILIES: ReadonlySet<string> = new Set(['wan22-i2v', I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, UPSCALE_FAMILY, ...FACE_FAMILIES]);
 
 export function needsSourceImage(family: string): boolean {
   return SOURCE_IMAGE_FAMILIES.has(family);
