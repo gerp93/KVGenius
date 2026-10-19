@@ -63,6 +63,9 @@ export interface PromptSlotData {
   maskImagePath?: string | null;
   /** Image to image only: how far the source image is extended on each side (outpainting), or null for none. Absent in older configs - null. */
   outpaint?: OutpaintPadding | null;
+  /** Image mode only: the face-reference method (a family from shared/faceReference.ts) whose workflow carries the face of `imageSourcePath` into a new picture, or null for none.
+   * Absent in older configs - null. */
+  faceFamily?: string | null;
   /** The "would repeat the last run" guard - kept per slot so switching away and back doesn't
    * forget it, and it doesn't wrongly carry over between unrelated tabs. */
   lastRunSignature: string | null;
@@ -112,6 +115,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     denoise: DEFAULT_DENOISE,
     maskImagePath: null,
     outpaint: null,
+    faceFamily: null,
     lastRunSignature: null,
   };
 }
@@ -193,6 +197,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     (d.denoise === undefined || typeof d.denoise === 'number') &&
     (d.maskImagePath === undefined || d.maskImagePath === null || typeof d.maskImagePath === 'string') &&
     (d.outpaint === undefined || d.outpaint === null || typeof d.outpaint === 'object') &&
+    (d.faceFamily === undefined || d.faceFamily === null || typeof d.faceFamily === 'string') &&
     (d.lastRunSignature === undefined || d.lastRunSignature === null || typeof d.lastRunSignature === 'string')
   );
 }

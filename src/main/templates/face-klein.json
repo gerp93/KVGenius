@@ -1,0 +1,35 @@
+{
+  "fr-unet": { "class_type": "UNETLoader", "inputs": { "unet_name": "flux-2-klein-4b-fp8.safetensors", "weight_dtype": "default" } },
+  "fr-clip": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen_3_4b.safetensors", "type": "flux2", "device": "default" } },
+  "fr-vae": { "class_type": "VAELoader", "inputs": { "vae_name": "flux2-vae.safetensors" } },
+  "fr-load": { "class_type": "LoadImage", "inputs": { "image": "reference.png" } },
+  "fr-scale": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": { "image": ["fr-load", 0], "upscale_method": "nearest-exact", "megapixels": 1, "resolution_steps": 1 }
+  },
+  "fr-encode": { "class_type": "VAEEncode", "inputs": { "pixels": ["fr-scale", 0], "vae": ["fr-vae", 0] } },
+  "fr-text": { "class_type": "CLIPTextEncode", "inputs": { "clip": ["fr-clip", 0], "text": "" } },
+  "fr-zero": { "class_type": "ConditioningZeroOut", "inputs": { "conditioning": ["fr-text", 0] } },
+  "fr-refpos": { "class_type": "ReferenceLatent", "inputs": { "conditioning": ["fr-text", 0], "latent": ["fr-encode", 0] } },
+  "fr-refneg": { "class_type": "ReferenceLatent", "inputs": { "conditioning": ["fr-zero", 0], "latent": ["fr-encode", 0] } },
+  "fr-guider": {
+    "class_type": "CFGGuider",
+    "inputs": { "model": ["fr-unet", 0], "positive": ["fr-refpos", 0], "negative": ["fr-refneg", 0], "cfg": 1 }
+  },
+  "fr-select": { "class_type": "KSamplerSelect", "inputs": { "sampler_name": "euler" } },
+  "fr-sigmas": { "class_type": "Flux2Scheduler", "inputs": { "steps": 4, "width": 1024, "height": 1024 } },
+  "fr-noise": { "class_type": "RandomNoise", "inputs": { "noise_seed": 0 } },
+  "fr-latent": { "class_type": "EmptyFlux2LatentImage", "inputs": { "width": 1024, "height": 1024, "batch_size": 1 } },
+  "fr-sample": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["fr-noise", 0],
+      "guider": ["fr-guider", 0],
+      "sampler": ["fr-select", 0],
+      "sigmas": ["fr-sigmas", 0],
+      "latent_image": ["fr-latent", 0]
+    }
+  },
+  "fr-decode": { "class_type": "VAEDecode", "inputs": { "samples": ["fr-sample", 0], "vae": ["fr-vae", 0] } },
+  "fr-save": { "class_type": "SaveImage", "inputs": { "images": ["fr-decode", 0], "filename_prefix": "KVGenius" } }
+}

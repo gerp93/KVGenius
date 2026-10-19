@@ -162,6 +162,33 @@ export const MODEL_MANIFEST: ManifestFeature[] = [
     note: 'Text to video needs its own pair of video models and LoRAs; the text encoder and VAE are the same files image to video uses.',
   },
   {
+    id: 'face-klein',
+    title: 'Face reference (Flux.2 Klein 4B)',
+    summary: 'Carries the face from a reference picture into a new picture. The fast method: a 4 GB model, 4 steps.',
+    family: 'face-klein',
+    files: [
+      { file: 'flux-2-klein-4b-fp8.safetensors', folder: 'diffusion_models', role: 'Image model', url: 'https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-fp8/resolve/main/flux-2-klein-4b-fp8.safetensors' },
+      { file: 'qwen_3_4b.safetensors', folder: 'text_encoders', role: 'Text encoder', url: hf(Z_IMAGE_REPO, 'text_encoders', 'qwen_3_4b.safetensors') },
+      { file: 'flux2-vae.safetensors', folder: 'vae', role: 'VAE', url: hf('Comfy-Org/flux2-dev', 'vae', 'flux2-vae.safetensors') },
+    ],
+    source: { label: 'Flux.2 Klein 4B (Hugging Face)', url: 'https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-fp8' },
+    note: 'Experimental. The text encoder is the same file Z Image uses.',
+  },
+  {
+    id: 'face-qwen',
+    title: 'Face reference (Qwen-Image-Edit 2511)',
+    summary: 'Carries the face from a reference picture into a new picture. The heavy method: a 20 GB model, 4 steps with the Lightning LoRA.',
+    family: 'face-qwen',
+    files: [
+      { file: 'qwen_image_edit_2511_fp8mixed.safetensors', folder: 'diffusion_models', role: 'Image model', url: hf('Comfy-Org/Qwen-Image-Edit_ComfyUI', 'diffusion_models', 'qwen_image_edit_2511_fp8mixed.safetensors') },
+      { file: 'Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors', folder: 'loras', role: '4-step Lightning LoRA', url: 'https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors' },
+      { file: 'qwen_2.5_vl_7b_fp8_scaled.safetensors', folder: 'text_encoders', role: 'Text encoder', url: hf(QWEN_IMAGE_REPO, 'text_encoders', 'qwen_2.5_vl_7b_fp8_scaled.safetensors') },
+      { file: 'qwen_image_vae.safetensors', folder: 'vae', role: 'VAE', url: hf(QWEN_IMAGE_REPO, 'vae', 'qwen_image_vae.safetensors') },
+    ],
+    source: { label: 'Qwen-Image-Edit files (Hugging Face)', url: 'https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI' },
+    note: 'Experimental. The text encoder and VAE are the same files Qwen-Image uses.',
+  },
+  {
     id: 'upscale',
     title: 'Upscaling',
     summary: 'Enlarges images and videos. You choose the model - any ESRGAN-style file works (.pth or .safetensors).',

@@ -404,6 +404,11 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     navigate('/');
   }
 
+  function handleUseFace(record: GenerationRecord) {
+    onImageToVideo({ target: 'face', imagePath: record.imagePath, width: record.width, height: record.height });
+    navigate('/');
+  }
+
   function handleImageToImage(record: GenerationRecord) {
     onImageToVideo({ target: 'image', imagePath: record.imagePath, width: record.width, height: record.height, from: record });
     navigate('/');
@@ -655,6 +660,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             onRerack={handleRerack}
             onImageToVideo={handleImageToVideo}
             onImageToImage={handleImageToImage}
+            onUseFace={handleUseFace}
             onExtendVideo={handleExtendVideo}
             onSaveAs={handleSaveAs}
             onReveal={handleReveal}

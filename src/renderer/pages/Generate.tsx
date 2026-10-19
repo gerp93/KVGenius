@@ -5,6 +5,7 @@ import ExtendField from '../components/ExtendField';
 import ImageDropZone from '../components/ImageDropZone';
 import LibraryPicker from '../components/LibraryPicker';
 import SourceImageField from '../components/SourceImageField';
+import { DEFAULT_FACE_FAMILY, FACE_METHODS, faceMethod, isFaceReferenceFamily } from '../../shared/faceReference';
 import MaskEditor from '../components/MaskEditor';
 import ResultViewer from '../components/ResultViewer';
 import GalleryLightbox from '../components/GalleryLightbox';
@@ -191,6 +192,8 @@ export default function Generate({
     setMaskPath,
     outpaint,
     setOutpaint,
+    faceFamily,
+    setFaceFamily,
     lastRunSignature,
     setLastRunSignature,
   } = slotState;
@@ -312,11 +315,15 @@ export default function Generate({
   const imageBase = pickedImageModel?.family ?? (imageFamily && TEXT_TO_IMAGE_FAMILIES.includes(imageFamily) ? imageFamily : FAMILY_FOR_MODE.image);
   // Image to image, inpainting and outpainting have a workflow for Z-Image only; another family is text to image.
   const pictureStartAllowed = imageBase === FAMILY_FOR_MODE.image;
-  const imageFromPictureOn = imageFromPicture && pictureStartAllowed;
+  // A face reference is its own kind of run, so the plain image to image choice is off while one is picked.
+  const imageFromPictureOn = imageFromPicture && pictureStartAllowed && faceFamily === null;
+  // Face reference: the picture chosen below is a reference for the face, and the run is a new picture of that person drawn from the prompt.
+  const faceActive = mode === 'image' && faceFamily !== null;
+  const faceReference = faceActive ? imageSourcePath : null;
   // Image mode with a source image is image to image: its own workflow, the same model (so profiles still apply).
   const startPicture = mode === 'image' && imageFromPictureOn ? imageSourcePath : null;
   // Image -> Image chosen but no picture yet: nothing to run until one is picked.
-  const needsStartPicture = mode === 'image' && imageFromPictureOn && !imageSourcePath;
+  const needsStartPicture = mode === 'image' && (imageFromPictureOn || faceActive) && !imageSourcePath;
   // A mask painted on that source image makes it inpainting: only the painted spots are re-drawn.
   // Extending the picture beyond its frame (outpainting) is its own run, and replaces a mask.
   const startPad = startPicture ? normalizeOutpaint(outpaint) : null;
@@ -357,7 +364,7 @@ export default function Generate({
   const needsVideoPicture = mode === 'video' && videoFromPicture && !videoFromVideo && !sourceImagePath;
   // Extending a video: the source image is its last frame and the finished clip is joined onto it (only while that picture is still the source).
   const activeExtendId = videoStartPicture !== null ? extendFromId : null;
-  const runFamily = mode === 'image' ? imageFamilyFor(imageBase, startPicture !== null, startMask !== null, startPad !== null) : videoFamilyFor(videoFromPicture, videoFromVideo);
+  const runFamily = mode === 'image' ? (faceFamily ?? imageFamilyFor(imageBase, startPicture !== null, startMask !== null, startPad !== null)) : videoFamilyFor(videoFromPicture, videoFromVideo);
   // The family whose saved models apply (image to image and inpainting share text to image's).
   const modelBase = mode === 'image' ? imageBase : profileFamilyKey(runFamily);
   const modelFamily = profileFamily(modelBase);
@@ -395,7 +402,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask, padKey] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, restyleVideo, restyleVideo ? videoStrength : null, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [runFamily, steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask, padKey, faceReference] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, restyleVideo, restyleVideo ? videoStrength : null, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -432,6 +439,7 @@ export default function Generate({
           ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined } : {}),
           ...(restyleVideo ? { sourceVideoPath: restyleVideo, denoise: videoStrength } : {}),
           ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad, denoise } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
+          ...(faceReference ? { sourceImagePath: faceReference } : {}),
           ...(modelSettings ? { modelSettings } : {}),
         })
         .then((found) => {
@@ -445,7 +453,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, restyleVideo, videoStrength, startPicture, startMask, denoise, padKey, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, needsRestyleVideo, needsPadSize, modelSettings && serializeModelSettings(modelSettings)]);
+  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, restyleVideo, videoStrength, startPicture, faceReference, startMask, denoise, padKey, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, needsRestyleVideo, needsPadSize, modelSettings && serializeModelSettings(modelSettings)]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -542,6 +550,17 @@ export default function Generate({
     setError(null);
   }
 
+  /** Switch to image mode in Face reference mode with `request.imagePath` as the reference picture. The prompt is left alone: the picture's own
+   * prompt describes the scene it was made in, which is not what is wanted around the face. */
+  function setUpFaceReference(request: VideoSourceRequest) {
+    setMode('image');
+    setImageSourcePath(request.imagePath);
+    setMaskPath(null);
+    setImageFromPicture(false);
+    setFaceFamily((current) => current ?? DEFAULT_FACE_FAMILY);
+    setError(null);
+  }
+
   /** The output takes the picture's shape - long side 1024, both sides a multiple of 64 - since it is fitted to that size. */
   function setSizeToPicture(pictureWidth: number, pictureHeight: number) {
     if (pictureWidth <= 0 || pictureHeight <= 0) return;
@@ -574,6 +593,7 @@ export default function Generate({
     // Re-rack, so whatever is being worked on in the current tab is left alone. With every tab in use it is loaded into this one.
     openNewTab();
     if (videoSource.target === 'image') setUpImageToImage(videoSource);
+    else if (videoSource.target === 'face') setUpFaceReference(videoSource);
     else if (videoSource.target === 'restyle') setUpVideoToVideo(videoSource);
     else setUpVideoFromImage(videoSource);
     onVideoSourceHandled();
@@ -616,18 +636,34 @@ export default function Generate({
   }
 
   // The Library picture chooser, open for a source image (image to image) or a video's source image.
-  const [picker, setPicker] = useState<'start' | 'video' | 'restyle' | null>(null);
+  const [picker, setPicker] = useState<'start' | 'face' | 'video' | 'restyle' | null>(null);
 
   function handlePickFromLibrary(record: GenerationRecord) {
     const target = picker;
     setPicker(null);
     if (target === 'restyle') setUpVideoToVideo({ target: 'restyle', imagePath: record.imagePath, videoPath: record.imagePath, width: record.width, height: record.height });
     else if (target === 'video') setUpVideoFromImage({ imagePath: record.imagePath, width: record.width, height: record.height });
-    else if (target === 'start') {
+    else if (target === 'face') {
+      setImageSourcePath(record.imagePath);
+      setMaskPath(null);
+      setError(null);
+    } else if (target === 'start') {
       // Picking from the Library in the middle of writing a prompt must not wipe it: the picture's own prompt comes along only into an empty form.
       const emptyForm = prompt.trim() === '' && styleId === null && elementIds.length === 0;
       setUpImageToImage({ imagePath: record.imagePath, width: record.width, height: record.height, ...(emptyForm ? { from: record } : {}) });
     }
+  }
+
+  /** A picture chosen or dropped as the reference for a face reference run. The output keeps the size menu's size. */
+  function useFacePicture(path: string | null) {
+    setImageSourcePath(path);
+    setMaskPath(null);
+    setError(null);
+  }
+
+  async function handleChooseFacePicture() {
+    const path = await window.kvgenius.chooseSourceImage();
+    if (path) useFacePicture(path);
   }
 
   async function handleChooseStartPicture() {
@@ -678,7 +714,10 @@ export default function Generate({
       setSourceImagePath(videoFromPic ? record.sourceImagePath : null);
       // An image to image result is re-run from the copy of its source image the Library kept, at its strength.
       const fromPicture = isPictureStartFamily(record.modelFamily);
-      setImageSourcePath(fromPicture ? record.sourceImagePath : null);
+      // A face-reference result is re-run from the copy of its reference picture the Library kept.
+      const fromFace = isFaceReferenceFamily(record.modelFamily);
+      setFaceFamily(fromFace ? record.modelFamily : null);
+      setImageSourcePath(fromPicture || fromFace ? record.sourceImagePath : null);
       setMaskPath(record.modelFamily === INPAINT_FAMILY ? record.maskImagePath : null);
       setOutpaint(record.outpaint);
       setImageFromPicture(fromPicture);
@@ -820,6 +859,7 @@ export default function Generate({
       ...(mode === 'video' ? { length: secondsToFrames(lengthSeconds), sourceImagePath: videoStartPicture ?? undefined, ...(activeExtendId !== null ? { extendVideoId: activeExtendId } : {}) } : {}),
       ...(restyleVideo ? { sourceVideoPath: restyleVideo, denoise: videoStrength } : {}),
       ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad, denoise } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
+      ...(faceReference ? { sourceImagePath: faceReference } : {}),
     };
     const added = queue.enqueue(
       seeds.map((jobSeed) => ({ family: runFamily, kind: mode, params: { ...base, seed: jobSeed } })),
@@ -1028,12 +1068,59 @@ export default function Generate({
           {mode === 'image' && (
             <div role="radiogroup" aria-label="Image type" className="radio-row" style={{ marginBottom: 12 }}>
               <label>
-                <input type="radio" name="image-type" checked={!imageFromPictureOn} onChange={() => setImageFromPicture(false)} /> Text → Image
+                <input
+                  type="radio"
+                  name="image-type"
+                  checked={!imageFromPictureOn && !faceActive}
+                  onChange={() => {
+                    setFaceFamily(null);
+                    setImageFromPicture(false);
+                  }}
+                />{' '}
+                Text → Image
               </label>
               <label title={pictureStartAllowed ? undefined : 'Only Z-Image models can start from a picture'}>
-                <input type="radio" name="image-type" disabled={!pictureStartAllowed} checked={imageFromPictureOn} onChange={() => setImageFromPicture(true)} /> Image → Image
+                <input
+                  type="radio"
+                  name="image-type"
+                  disabled={!pictureStartAllowed}
+                  checked={imageFromPictureOn}
+                  onChange={() => {
+                    setFaceFamily(null);
+                    setImageFromPicture(true);
+                  }}
+                />{' '}
+                Image → Image
+              </label>
+              <label title="Carry the face from a reference picture into a new picture (experimental)">
+                <input type="radio" name="image-type" checked={faceActive} onChange={() => setFaceFamily(faceFamily ?? DEFAULT_FACE_FAMILY)} /> Face reference
               </label>
             </div>
+          )}
+
+          {faceActive && faceFamily && (
+            <ImageDropZone style={{ marginBottom: 12 }} onPaths={(paths) => useFacePicture(paths[0] ?? null)} onReject={setError}>
+              <SourceImageField
+                path={imageSourcePath}
+                onChooseFile={() => void handleChooseFacePicture()}
+                onChooseFromLibrary={() => setPicker('face')}
+              />
+              <label className="field" style={{ marginTop: 8 }}>
+                <span>Method</span>
+                <select value={faceFamily} onChange={(e) => setFaceFamily(e.target.value)}>
+                  {FACE_METHODS.map((m) => (
+                    <option key={m.family} value={m.family}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="style-picker__preview">{faceMethod(faceFamily)?.note}</p>
+              <p className="style-picker__preview">
+                Refer to the person as in the reference picture, e.g. "the woman in the reference photo, sitting in a cafe at night". Steps and CFG are fixed by the method. A
+                picture where the face is large and sharp works best.
+              </p>
+            </ImageDropZone>
           )}
 
           {mode === 'image' && imageFromPictureOn && (

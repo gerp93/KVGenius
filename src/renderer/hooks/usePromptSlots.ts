@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { clampDenoise, DEFAULT_DENOISE, normalizeOutpaint } from '../../shared/imageToImage';
 import type { OutpaintPadding } from '../../shared/imageToImage';
+import { isFaceReferenceFamily } from '../../shared/faceReference';
 import { GenerationKind } from '../../shared/types';
 import type { VideoQuality } from '../../shared/videoQuality';
 import { V2V_DEFAULT_STRENGTH } from '../../shared/videoToVideo';
@@ -52,6 +53,7 @@ export function usePromptSlots() {
   const [denoise, setDenoise] = useState(DEFAULT_DENOISE);
   const [maskPath, setMaskPath] = useState<string | null>(null);
   const [outpaint, setOutpaint] = useState<OutpaintPadding | null>(null);
+  const [faceFamily, setFaceFamily] = useState<string | null>(null);
   const [lastRunSignature, setLastRunSignature] = useState<string | null>(null);
 
   function applySnapshot(data: PromptSlotData) {
@@ -85,6 +87,7 @@ export function usePromptSlots() {
     setDenoise(clampDenoise(data.denoise));
     setMaskPath(data.maskImagePath ?? null);
     setOutpaint(normalizeOutpaint(data.outpaint));
+    setFaceFamily(data.faceFamily && isFaceReferenceFamily(data.faceFamily) ? data.faceFamily : null);
     setLastRunSignature(data.lastRunSignature ?? null);
   }
 
@@ -148,6 +151,7 @@ export function usePromptSlots() {
       denoise,
       maskImagePath: maskPath,
       outpaint,
+      faceFamily,
       lastRunSignature,
     };
   }
@@ -199,6 +203,7 @@ export function usePromptSlots() {
     denoise,
     maskPath,
     outpaint,
+    faceFamily,
     lastRunSignature,
   ]);
 
@@ -350,6 +355,8 @@ export function usePromptSlots() {
     setMaskPath,
     outpaint,
     setOutpaint,
+    faceFamily,
+    setFaceFamily,
     lastRunSignature,
     setLastRunSignature,
   };

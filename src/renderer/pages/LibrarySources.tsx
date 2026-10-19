@@ -3,6 +3,7 @@ import ExpandButton from '../components/Lightbox';
 import type { GenerationQueue } from '../hooks/useGenerationQueue';
 import { SOURCE_MISSING_MESSAGE } from '../../shared/sourceFamilies';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY } from '../../shared/imageToImage';
+import { FACE_KLEIN_FAMILY, FACE_QWEN_FAMILY } from '../../shared/faceReference';
 import { UPSCALE_FAMILY } from '../../shared/upscale';
 import type { SourceImageEntry, VideoSourceRequest } from '../../shared/types';
 
@@ -11,6 +12,8 @@ const FAMILY_LABEL: Record<string, string> = {
   [I2I_FAMILY]: 'image to image',
   [INPAINT_FAMILY]: 'inpainting',
   [OUTPAINT_FAMILY]: 'outpainting',
+  [FACE_KLEIN_FAMILY]: 'face reference',
+  [FACE_QWEN_FAMILY]: 'face reference',
   [UPSCALE_FAMILY]: 'upscale',
 };
 

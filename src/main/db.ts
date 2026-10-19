@@ -12,6 +12,7 @@ import { ASSEMBLIES_SCHEMA } from './assembly';
 import { STYLES_SCHEMA } from './styles';
 import { PROMPT_TEMPLATES_SCHEMA } from './promptTemplates';
 import { STYLE_SAMPLES_SCHEMA } from './styleSamples';
+import { isFaceReferenceFamily } from '../shared/faceReference';
 import { I2I_FAMILY, INPAINT_FAMILY, OUTPAINT_FAMILY, parseOutpaint, serializeOutpaint, OutpaintPadding } from '../shared/imageToImage';
 import { GIF_FAMILY } from '../shared/gif';
 import { T2V_FAMILY } from '../shared/textToVideo';
@@ -750,7 +751,7 @@ export interface DuplicateQuery {
 export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, query: DuplicateQuery): GenerationRecord | null {
   const isVideo = query.length !== undefined && query.length !== null;
   // A video's (or an image to image result's) picture depends on its source image, which is only comparable once there is one.
-  const needsSource = (isVideo && modelFamily !== T2V_FAMILY && modelFamily !== V2V_FAMILY) || modelFamily === I2I_FAMILY || modelFamily === INPAINT_FAMILY || modelFamily === OUTPAINT_FAMILY;
+  const needsSource = (isVideo && modelFamily !== T2V_FAMILY && modelFamily !== V2V_FAMILY) || modelFamily === I2I_FAMILY || modelFamily === INPAINT_FAMILY || modelFamily === OUTPAINT_FAMILY || isFaceReferenceFamily(modelFamily);
   if (needsSource && !query.sourceImagePath) return null;
   const needsVideo = modelFamily === V2V_FAMILY;
   if (needsVideo && !query.sourceVideoPath) return null;
