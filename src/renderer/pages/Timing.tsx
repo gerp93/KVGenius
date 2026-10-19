@@ -227,6 +227,11 @@ export default function Timing() {
 
           <h3 className="timing-h3">Each recent run, against its estimate</h3>
           <TrendChart rows={rows ?? []} metric={metric} />
+          <p className="timing-muted">
+            Showing the latest {trend(rows ?? [], metric, 60).length} compared run
+            {trend(rows ?? [], metric, 60).length === 1 ? '' : 's'}
+            {models.size > 0 ? ` of ${[...models].join(', ')}` : ' of every model'}.
+          </p>
           <p className="timing-muted timing-legend">
             <span className="timing-swatch timing-swatch--slower" /> took longer than estimated
             <span className="timing-swatch timing-swatch--faster" /> faster than estimated. Oldest on the left, newest on

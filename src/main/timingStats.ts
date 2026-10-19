@@ -123,6 +123,19 @@ export function listTimingRows(db: DatabaseSync, limit?: number): TimingStatRow[
   return rows.map(rowToTiming);
 }
 
+/**
+ * Timings recorded before they carried a model name get it from the generation they belong to (which
+ * has always kept the saved variant's name). Safe to run on every launch: it only fills blanks. A timing
+ * whose generation was deleted has nothing to copy from and stays unnamed (shown as the built-in model).
+ */
+export function backfillTimingModels(db: DatabaseSync): void {
+  db.exec(`
+    UPDATE timing_stats
+       SET model_name = (SELECT g.model_name FROM generations g WHERE g.timing_id = timing_stats.id)
+     WHERE model_name IS NULL
+       AND EXISTS (SELECT 1 FROM generations g WHERE g.timing_id = timing_stats.id AND g.model_name IS NOT NULL)`);
+}
+
 export function clearTimingStats(db: DatabaseSync): void {
   db.exec('DELETE FROM timing_stats');
   db.exec('UPDATE generations SET timing_id = NULL');
