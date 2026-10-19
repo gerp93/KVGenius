@@ -1177,12 +1177,14 @@ export default function Generate({
               value={prompt}
               onChange={setPrompt}
               placeholder="Describe the image you want..."
-              boxStyle={{ flex: 1, minHeight: 80 }}
-              style={{ flex: 1, minHeight: 80, resize: 'none' }}
+              boxStyle={{ flex: 1, minHeight: 220 }}
+              style={{ flex: 1, minHeight: 220, resize: 'none' }}
             />
           )}
 
-          {mode === 'image' && styles.some((style) => style.kind === 'element') && (
+          {mode === 'image' && (
+          <div className="field-pair">
+          {styles.some((style) => style.kind === 'element') && (
             <div style={{ marginTop: 12 }}>
               <label className="field-label" htmlFor="element-select">
                 Elements (optional)
@@ -1222,7 +1224,6 @@ export default function Generate({
             </div>
           )}
 
-          {mode === 'image' && (
             <div style={{ marginTop: 12 }}>
               <label className="field-label" htmlFor="style-select">
                 Style (optional)
@@ -1248,8 +1249,10 @@ export default function Generate({
                 </p>
               )}
             </div>
+          </div>
           )}
 
+          <div className="field-pair">
           <div style={{ marginTop: 12 }}>
             <div className="field-label-row">
               <label className="field-label" htmlFor="model-select">
@@ -1345,6 +1348,7 @@ export default function Generate({
               ))}
               <option value="custom">Custom size...</option>
             </select>
+          </div>
           </div>
 
           {sizeSelectValue === 'custom' && !startPad && (

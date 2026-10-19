@@ -279,8 +279,12 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 
 .generate-layout {
   display: grid;
-  /* First column is the settings form: its 380px plus its padding. (The prompt tabs are in the sidebar.) */
-  grid-template-columns: calc(380px + 2 * var(--page-pad)) minmax(0, 1fr);
+  /* First column is the settings form: its width plus its padding. It starts at 380px and grows with the
+     window (up to 560px) so a wide screen gives the prompt and fields more room. */
+  --form-width: clamp(380px, 24vw, 560px);
+  grid-template-columns: calc(var(--form-width) + 2 * var(--page-pad)) minmax(0, 1fr);
+  /* One row exactly as tall as the page, so the form scrolls inside its own column while the preview stays put. */
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
 }
 
@@ -324,10 +328,23 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
 .generate-form {
   flex: 1;
   min-width: 0;
+  /* Fills the column when the fields are short; when they are taller than the window it grows past it and the
+     column scrolls, rather than squeezing the prompt box down to a few lines. */
+  min-height: min-content;
   display: flex;
   flex-direction: column;
   padding: var(--page-pad);
 }
+
+/* Two related fields (Elements | Style, Model | Size) share a line once the form is wide enough for both,
+   and stack when it is not. */
+.field-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0 12px;
+  align-items: start;
+}
+
 
 .source-image-button {
   width: 100%;
@@ -391,6 +408,13 @@ button.copy-button.prompt-tile__copy.prompt-tile__copy--image {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-top: 20px;
+  /* Stays in view at the bottom of the scrolling form, so Generate is never scrolled away. */
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 10px 0;
+  background: var(--color-bg);
+  box-shadow: 0 -8px 8px -4px var(--color-bg);
 }
 
 .generate-actions button {
@@ -2490,6 +2514,7 @@ textarea:disabled {
   display: flex;
   min-width: 0;
   min-height: 0;
+  overflow-y: auto;
 }
 
 /* A negative signed number (e.g. "-8%" in the Timing tab) shown in the app's alert/negative color. */
@@ -3575,7 +3600,7 @@ button.style-tag:hover:not(:disabled) {
   flex-direction: column;
   gap: 8px;
   flex: 1;
-  min-height: 80px;
+  min-height: 220px;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -3594,7 +3619,7 @@ button.style-tag:hover:not(:disabled) {
 
 .prompt-section textarea {
   width: 100%;
-  min-height: 48px;
+  min-height: 72px;
   resize: vertical;
 }
 
