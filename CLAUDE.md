@@ -307,6 +307,17 @@ implementation here is exactly the kind of drift it exists to prevent.
   shown under "Original" in the details panel, needed for Re-rack (`keptFilesOf` / `useSourceMissing` check both), part of the duplicate
   guard, and `generate_image` over MCP refuses the family (a mask can only be painted in the app). Z-Image Turbo is not an inpainting
   model: how cleanly it handles a partial mask is unverified.
+- **Face reference is Generate's image mode with a reference picture, and two experimental families** (`face-klein` = Flux.2 Klein 4B
+  distilled, `face-qwen` = Qwen-Image-Edit 2511 on its 4-step Lightning path; `shared/faceReference.ts`, `templates/face-*.json`,
+  `main/faceReferencePatch.ts`). It carries the face (and person) of a supplied picture into a new picture drawn from the prompt;
+  the point of having two is to run the same reference and prompt through both and compare, so neither is the default by merit.
+  The tab's `faceFamily` (null = off; persisted in the slot like `imageFamily`) is a third radio next to Text/Image → Image, and the
+  picture is the tab's `imageSourcePath`. They are made from a supplied picture (`SOURCE_IMAGE_FAMILIES`: the result keeps a copy,
+  Re-rack works, the duplicate guard compares it), not profile families (no model profiles; steps/CFG are the distilled model's and
+  fixed in the template), tagged "Face reference" in the Library, and listed in the model manifest (not yet offered by Setup's
+  download helper). The output size is the size menu's, not the reference's. The details panel's "🙂 Use this face" sends a picture here
+  (`VideoSourceRequest.target: 'face'`) without carrying its prompt. Neither is a face-*lock*: how well a face survives is for the person
+  to judge by eye, and both read the picture as a whole, so a face that is large and sharp in the reference works best.
 - **Text to video is Generate's video mode without a source image, and its own family** (`wan22-t2v`, `shared/textToVideo.ts`,
   `templates/wan22-t2v.json`). Video mode has a Text → Video / Image → Video radio (the tab's `videoFromPicture`, default image to video, as
   every config saved before it was); the source image field shows only for Image → Video, which cannot run until a picture is set, and
