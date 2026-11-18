@@ -48,6 +48,7 @@ before(() => {
     imageSize: () => ({ width: 1600, height: 900 }),
     imagePreviewFallback: async () => null,
     workspaceId: () => 1,
+    setFavorite: () => '',
   });
 });
 

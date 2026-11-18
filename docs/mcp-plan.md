@@ -254,6 +254,17 @@ same message as a nonexistent one); a video or audio item is `invalid_argument`;
 `file_missing`; a file over 25 MB (`MAX_IMAGE_FILE_BYTES`) is `too_large`. It only reads - there is no
 tool that writes a file to a path the client names.
 
+**Favorites, pins and groups.** Generated items (`gen-N`) carry `favorite` and `pinned` (imports and
+assemblies have no flags). `set_item_flags` (`item_ids` up to 200, `favorite` and/or `pinned`, true or false)
+sets them: all ids are checked first (unknown / app-made ids look nonexistent, an `imp-N` is
+`invalid_argument`), so a bad id changes nothing. Favoriting does what the app does - the file moves into the
+`favorites` folder and back (`applyFavorite`, wired in `main.ts` as `setFavorite`) - so the result's `path`
+is the new one (`get_image_file` follows it). `list_library` takes `favorite` / `pinned` (true or false;
+imports are left out when either is given) and `group_by` (`prompt` or `batch`): groups newest first, each with
+`count`, `favorites`, `pinned`, a `cover` (pinned, else favorite, else newest - as a stack's cover in the app),
+and `item_ids`; the other filters apply to items first, up to 5000 items are looked through (`truncated`).
+The app's open Library does not refresh by itself when the API changes a flag (it shows it on the next load).
+
 **Image sizes.** `generate_image` snaps width and height to a multiple of 16 for family `z-image`
 (256-2048, so 816x1056 is exact - Z-Image's latent only needs 16) and to a multiple of 64 for the
 other image families, whose own limits are not known. Video is unchanged (multiples of 16, 256-1280),
