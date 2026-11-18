@@ -54,3 +54,20 @@ export function validateWorkspaceName(raw: unknown): { ok: true; name: string } 
 export function styleScopeLabel(workspaceId: number | null): string {
   return workspaceId === null ? 'All workspaces' : 'This workspace';
 }
+
+/** What moving items into a workspace did. */
+export interface MoveResult {
+  moved: number;
+  /** Already there, or no longer exist. */
+  skipped: number;
+  /** A file could not be moved (locked, ...); that item stays where it was. */
+  failed: number;
+}
+
+/** What merging one workspace into another did. */
+export interface MergeResult extends MoveResult {
+  /** The emptied workspace was deleted. False when some item could not be moved, so it is kept with what is left. */
+  deleted: boolean;
+  /** Styles and elements that were only for the merged workspace and got "(from ...)" added to their names because of a clash. */
+  renamedStyles: number;
+}

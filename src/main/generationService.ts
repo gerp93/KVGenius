@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { FAMILY_KIND } from '../shared/types';
 import { generate as comfyGenerate } from './comfyui';
-import { getImagesDir, getSourcesDir, getVideosDir } from './dbLocation';
+import { workspaceDirsOf } from './workspaces';
 import { keepSourceImage } from './sourceImages';
 import { needsSourceImage } from '../shared/sourceFamilies';
 import { INPAINT_FAMILY } from '../shared/imageToImage';
@@ -27,7 +27,7 @@ export function getLastRunFamily(): string | null {
  * the generation and its timing. This is what used to be the body of the `generate` IPC handler,
  * moved here so every entry point (the UI today, outside clients later) runs identical work.
  */
-export function createGenerationRunner(getDb: () => DatabaseSync | null, getFfmpeg: () => FfmpegPaths | null = () => null): JobRunner {
+export function createGenerationRunner(getDb: () => DatabaseSync | null, getFfmpeg: () => FfmpegPaths | null = () => null, getOutputRoot: () => string): JobRunner {
   return async (job, { estimate, onProgress }) => {
     const db = getDb();
     if (!db) throw new Error('Database not initialized');
@@ -38,7 +38,9 @@ export function createGenerationRunner(getDb: () => DatabaseSync | null, getFfmp
     lastRunFamily = family;
 
     // Images and videos are saved to separate folders under KVGenius_Data/output.
-    const outputDir = FAMILY_KIND[family] === 'video' ? getVideosDir() : getImagesDir();
+    // Into the folders of the workspace the job was queued in.
+    const dirs = workspaceDirsOf(db, getOutputRoot(), job.workspaceId);
+    const outputDir = FAMILY_KIND[family] === 'video' ? dirs.videos : dirs.images;
     fs.mkdirSync(outputDir, { recursive: true });
     const filename = `${Date.now()}-${params.seed}${output.extension}`;
     const imagePath = path.join(outputDir, filename);
@@ -95,9 +97,9 @@ export function createGenerationRunner(getDb: () => DatabaseSync | null, getFfmp
     // Whatever is made from a supplied picture (a video, an upscale) keeps its own copy of it, so it can be
     // re-run in place and shown as its original - see shared/sourceFamilies.ts.
     const keptSource =
-      needsSourceImage(family) && params.sourceImagePath ? keepSourceImage(params.sourceImagePath, getSourcesDir()) : null;
+      needsSourceImage(family) && params.sourceImagePath ? keepSourceImage(params.sourceImagePath, dirs.sources) : null;
     // Inpainting also keeps the mask it was painted with (in the same folder), so Re-rack can run it again.
-    const keptMask = family === INPAINT_FAMILY && params.maskImagePath ? keepSourceImage(params.maskImagePath, getSourcesDir()) : null;
+    const keptMask = family === INPAINT_FAMILY && params.maskImagePath ? keepSourceImage(params.maskImagePath, dirs.sources) : null;
     const record = insertGeneration(db, params, family, finalPath, timingId, job.workspaceId, keptSource, keptMask, extendedFrames);
     return { generationId: record.id };
   };

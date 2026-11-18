@@ -204,37 +204,10 @@ export function resetComfyUIHost(): void {
   writeConfig(config);
 }
 
-/** Parent of all generated output, next to the database: KVGenius_Data/output. */
-function getOutputDir(): string {
+/** Parent of all generated output, next to the database: KVGenius_Data/output. Every workspace has its own folder inside it
+ * (see workspaceFolders.ts): output/<workspace>/{images,videos,gifs,sources,trash}. */
+export function getOutputRoot(): string {
   return path.join(path.dirname(getEffectiveDbPath()), 'output');
-}
-
-/** Where generated images are saved: KVGenius_Data/output/images. */
-export function getImagesDir(): string {
-  return path.join(getOutputDir(), 'images');
-}
-
-/** Where generated videos are saved: KVGenius_Data/output/videos. */
-export function getVideosDir(): string {
-  return path.join(getOutputDir(), 'videos');
-}
-
-/** Where GIFs made from videos are saved: KVGenius_Data/output/gifs. They are not generated, so
- * they get a folder of their own rather than sitting among the generated images. */
-export function getGifsDir(): string {
-  return path.join(getOutputDir(), 'gifs');
-}
-
-/** Where a video's source image is kept so the video can be re-run: KVGenius_Data/output/sources.
- * Not part of the Library - nothing here is listed, only referred to by the videos made from it. */
-export function getSourcesDir(): string {
-  return path.join(getOutputDir(), 'sources');
-}
-
-/** Where items moved to the Trash keep their files until they are restored or deleted for good:
- * KVGenius_Data/output/trash. */
-export function getTrashDir(): string {
-  return path.join(getOutputDir(), 'trash');
 }
 
 /** Before output was grouped under `output/`, both kinds were saved in KVGenius_Data/images. */

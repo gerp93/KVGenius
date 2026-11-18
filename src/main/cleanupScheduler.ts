@@ -12,8 +12,9 @@ export interface CleanupDeps {
   saveSettings: (db: DatabaseSync, workspaceId: number, settings: CleanupSettings) => void;
   /** Reads a workspace's rules again (they can change while files are being sent). */
   getSettings: (db: DatabaseSync, workspaceId: number) => CleanupSettings | null;
-  trashDir: () => string;
-  sourcesDir: () => string;
+  /** The Trash and kept-sources folders of a workspace. */
+  trashDir: (workspaceId: number) => string;
+  sourcesDir: (workspaceId: number) => string;
   /** Sends a file to the operating system's Recycle Bin. */
   recycle: Recycle;
 }
@@ -45,7 +46,7 @@ export async function runAutoCleanupIfDue(deps: CleanupDeps, now: Date = new Dat
     const result: AutoCleanupResult = { workspaceId: workspace.id, trashed: null, emptied: null };
     const start = workspace.cleanup;
     if (autoEmptyDue(start, now)) {
-      const emptied = await emptyTrash(db, workspace.id, deps.sourcesDir(), deps.recycle, start.trashRetentionDays, now);
+      const emptied = await emptyTrash(db, workspace.id, deps.sourcesDir(workspace.id), deps.recycle, start.trashRetentionDays, now);
       result.emptied =
         `Sent ${plural(emptied.deleted)} to the Recycle Bin.` + (emptied.failed > 0 ? ` ${plural(emptied.failed)} could not be sent.` : '');
       // Settings can change while the files are being sent, so re-read before saving.
@@ -55,7 +56,7 @@ export async function runAutoCleanupIfDue(deps: CleanupDeps, now: Date = new Dat
 
     const current = deps.getSettings(db, workspace.id);
     if (current && autoTrashDue(current, now)) {
-      const moved = runCleanup(db, workspace.id, current.olderThanDays, deps.trashDir(), now);
+      const moved = runCleanup(db, workspace.id, current.olderThanDays, deps.trashDir(workspace.id), now);
       result.trashed = `Moved ${plural(moved.moved)} to the Trash.` + (moved.failed > 0 ? ` ${plural(moved.failed)} could not be moved.` : '');
       deps.saveSettings(db, workspace.id, { ...current, lastAutoTrashRun: now.toISOString(), lastAutoTrashSummary: result.trashed });
     }

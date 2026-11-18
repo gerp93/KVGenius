@@ -1,0 +1,73 @@
+/* The "Move to workspace" dialog (MoveToWorkspaceDialog.tsx). */
+.move-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.move-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.move-dialog h3 {
+  margin: 0;
+}
+
+.move-dialog .move-dialog__lead {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.move-dialog .move-dialog__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.move-dialog .move-dialog__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.move-dialog .move-dialog__option--on {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent-blue);
+}
+
+.move-dialog .move-dialog__count {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.move-dialog .move-dialog__error {
+  margin: 0;
+  color: var(--color-accent-red);
+  font-size: 13px;
+}
+
+.move-dialog .move-dialog__buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}

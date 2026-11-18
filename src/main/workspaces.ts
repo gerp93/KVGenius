@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { CleanupSettings, DEFAULT_CLEANUP_SETTINGS, normalizeCleanupSettings } from '../shared/cleanup';
+import { WorkspaceDirs, folderNameFor, workspaceDirs } from './workspaceFolders';
 import {
   DEFAULT_WORKSPACE_NAME,
   HIDDEN_WORKSPACE_NAME,
@@ -22,9 +23,35 @@ CREATE TABLE IF NOT EXISTS workspaces (
   hidden INTEGER NOT NULL DEFAULT 0,
   system INTEGER NOT NULL DEFAULT 0,
   cleanup TEXT,
+  folder TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 `;
+
+/** A folder name for a workspace about to be made: from its name, different from every other workspace's folder. */
+function nextFolderName(db: DatabaseSync, name: string): string {
+  const taken = (db.prepare("SELECT folder FROM workspaces WHERE folder <> ''").all() as unknown as { folder: string }[]).map((r) => r.folder);
+  return folderNameFor(name, taken);
+}
+
+/** Gives a folder to every workspace made before workspaces had folders of their own. Safe to run on every start. */
+export function assignWorkspaceFolders(db: DatabaseSync): void {
+  const rows = db.prepare("SELECT id, name FROM workspaces WHERE folder = '' ORDER BY id").all() as unknown as { id: number; name: string }[];
+  for (const row of rows) db.prepare('UPDATE workspaces SET folder = ? WHERE id = ?').run(nextFolderName(db, row.name), row.id);
+}
+
+/** The folders of a workspace (any, including the app's own). Throws for one that does not exist. */
+export function workspaceDirsOf(db: DatabaseSync, outputRoot: string, id: number): WorkspaceDirs {
+  const folder = workspaceFolder(db, id);
+  if (!folder) throw new Error('That workspace no longer exists.');
+  return workspaceDirs(outputRoot, folder);
+}
+
+/** The folder name of a workspace (any, including the app's own), or null if there is no such workspace. */
+export function workspaceFolder(db: DatabaseSync, id: number): string | null {
+  const row = db.prepare("SELECT folder FROM workspaces WHERE id = ? AND folder <> ''").get(id) as unknown as { folder: string } | undefined;
+  return row?.folder ?? null;
+}
 
 /** The workspace everything made before workspaces existed belongs to. Its id is fixed, because the
  * `workspace_id` columns default to it. */
@@ -107,8 +134,8 @@ export function createWorkspace(db: DatabaseSync, rawName: unknown, now: Date = 
   if (!checked.ok) throw new Error(checked.message);
   if (isNameTaken(db, checked.name, null)) throw new Error(`A workspace named "${checked.name}" already exists.`);
   const result = db
-    .prepare('INSERT INTO workspaces (name, theme, hidden, system, cleanup, created_at) VALUES (?, NULL, 0, 0, ?, ?)')
-    .run(checked.name, JSON.stringify(DEFAULT_CLEANUP_SETTINGS), now.toISOString());
+    .prepare('INSERT INTO workspaces (name, theme, hidden, system, cleanup, folder, created_at) VALUES (?, NULL, 0, 0, ?, ?, ?)')
+    .run(checked.name, JSON.stringify(DEFAULT_CLEANUP_SETTINGS), nextFolderName(db, checked.name), now.toISOString());
   return getWorkspace(db, Number(result.lastInsertRowid)) as Workspace;
 }
 
@@ -167,8 +194,8 @@ export function styleExamplesWorkspaceId(db: DatabaseSync, now: Date = new Date(
   const found = db.prepare('SELECT id FROM workspaces WHERE system = 1 LIMIT 1').get() as unknown as { id: number } | undefined;
   if (found) return found.id;
   const result = db
-    .prepare('INSERT INTO workspaces (name, theme, hidden, system, cleanup, created_at) VALUES (?, NULL, 1, 1, ?, ?)')
-    .run(STYLE_EXAMPLES_WORKSPACE_NAME, JSON.stringify(DEFAULT_CLEANUP_SETTINGS), now.toISOString());
+    .prepare('INSERT INTO workspaces (name, theme, hidden, system, cleanup, folder, created_at) VALUES (?, NULL, 1, 1, ?, ?, ?)')
+    .run(STYLE_EXAMPLES_WORKSPACE_NAME, JSON.stringify(DEFAULT_CLEANUP_SETTINGS), nextFolderName(db, STYLE_EXAMPLES_WORKSPACE_NAME), now.toISOString());
   return Number(result.lastInsertRowid);
 }
 
@@ -206,10 +233,11 @@ export function migrateToWorkspaces(db: DatabaseSync, legacyCleanup: CleanupSett
   try {
     const existing = db.prepare('SELECT COUNT(*) AS n FROM workspaces WHERE system = 0').get() as unknown as { n: number };
     if (existing.n === 0) {
-      db.prepare('INSERT INTO workspaces (id, name, theme, hidden, system, cleanup, created_at) VALUES (?, ?, NULL, 0, 0, ?, ?)').run(
+      db.prepare('INSERT INTO workspaces (id, name, theme, hidden, system, cleanup, folder, created_at) VALUES (?, ?, NULL, 0, 0, ?, ?, ?)').run(
         DEFAULT_WORKSPACE_ID,
         DEFAULT_WORKSPACE_NAME,
         JSON.stringify(legacyCleanup),
+        nextFolderName(db, DEFAULT_WORKSPACE_NAME),
         stamp
       );
     }
@@ -233,8 +261,8 @@ export function migrateToWorkspaces(db: DatabaseSync, legacyCleanup: CleanupSett
             named?.id ??
             Number(
               db
-                .prepare('INSERT INTO workspaces (name, theme, hidden, system, cleanup, created_at) VALUES (?, NULL, 1, 0, ?, ?)')
-                .run(HIDDEN_WORKSPACE_NAME, JSON.stringify(DEFAULT_CLEANUP_SETTINGS), stamp).lastInsertRowid
+                .prepare('INSERT INTO workspaces (name, theme, hidden, system, cleanup, folder, created_at) VALUES (?, NULL, 1, 0, ?, ?, ?)')
+                .run(HIDDEN_WORKSPACE_NAME, JSON.stringify(DEFAULT_CLEANUP_SETTINGS), nextFolderName(db, HIDDEN_WORKSPACE_NAME), stamp).lastInsertRowid
             );
           db.prepare('UPDATE generations SET workspace_id = ? WHERE hidden = 1 AND workspace_id != (SELECT COALESCE(MAX(id), -1) FROM workspaces WHERE system = 1)').run(hiddenId);
         }
