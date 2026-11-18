@@ -230,8 +230,38 @@ stats, settings and the database have no tool at all. To use an app-made image, 
 `import_folder` at the file. Enforced in `library.ts` (`clientOnly`) and
 `ApiService` (`item()` / `clientJob()`), tested in `apiService.test.ts`.
 
+**Choosing a workspace.** `generate_image`, `generate_video`, `import_folder`, `assemble_video`,
+`list_styles`, `list_jobs` and `list_library` take an optional `workspace` (a workspace's name,
+case-insensitive; hidden workspaces work, the app's own system workspace does not). Without it, work
+goes to the workspace the app is in, as before; with it, the job / import / assembly goes there and
+`style` / `elements` are looked up among what that workspace can use. For `list_jobs` and
+`list_library` the name only narrows the listing - with none, every workspace is listed, as before.
+A name that matches nothing is a `not_found` error (HTTP 404) that lists the existing names, e.g.
+`No workspace named "Nope". Existing workspaces: "Color Book Forge", "Default". Workspaces are created
+in the KVGenius app (the workspace grid), never through the API - create it there first, then use its
+name.` The API never creates one. A job keeps the workspace it was queued in. A file that was already
+imported keeps the workspace of its first import. `list_capabilities` reports `workspaces.current`
+and `workspaces.available`. Resolved in `ApiService.namedWorkspace()`.
+
+**Getting the picture itself.** `get_image_file` (`{ "item_id": "gen-12" }`, image items only,
+`gen-N` and `imp-N`) returns the original file, byte for byte, base64-encoded in `images[0]` with its
+own mimeType (`image/png` for a generated picture); `data` carries `item_id`, `file_name`, `mime_type`,
+`bytes`, `width`, `height`. Over HTTP: `POST /v1/tools/get_image_file` with
+`Authorization: Bearer <token>` and body `{"item_id":"gen-12"}` answers
+`{"ok":true,"data":{...},"images":[{"mimeType":"image/png","data":"<base64>"}]}`; decode
+`images[0].data`. Same scope rule as every item tool (an id a client did not create is `not_found`,
+same message as a nonexistent one); a video or audio item is `invalid_argument`; a missing file is
+`file_missing`; a file over 25 MB (`MAX_IMAGE_FILE_BYTES`) is `too_large`. It only reads - there is no
+tool that writes a file to a path the client names.
+
+**Image sizes.** `generate_image` snaps width and height to a multiple of 16 for family `z-image`
+(256-2048, so 816x1056 is exact - Z-Image's latent only needs 16) and to a multiple of 64 for the
+other image families, whose own limits are not known. Video is unchanged (multiples of 16, 256-1280),
+and so is outpainting's whole-canvas size (a multiple of 64, picked by the app). Not verified against
+a real ComfyUI render at 816x1056.
+
 **Remaining exposure.** `import_folder` will read any image/audio/video file at a path
-the client names (and `get_item` then previews it). That is what lets you say "use the
+the client names (and `get_item` then previews it, and `get_image_file` returns an image's bytes). That is what lets you say "use the
 images in this folder", so it is not restricted yet; the toggle plus the token are the
 consent point. Restricting it to folders approved in Settings is the obvious next step.
 

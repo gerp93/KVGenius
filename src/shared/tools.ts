@@ -18,6 +18,11 @@ const batchProp = {
   description: 'Optional label grouping related work (e.g. "music-video-1"). Filter jobs and library items by it later.',
 };
 
+const workspaceProp = (what: string) => ({
+  type: 'string',
+  description: `Optional. The name of a KVGenius workspace (case-insensitive; hidden ones too). ${what} Without it the workspace the app is currently in is used. An unknown name is an error that lists the existing workspaces - one is never created here; make it in the app's workspace grid first.`,
+});
+
 const itemIdProp = (what: string) => ({
   type: 'string',
   description: `${what} - a library item id such as "gen-12" (generated) or "imp-5" (imported), as returned by other tools.`,
@@ -40,6 +45,7 @@ export const TOOLS: ToolDefinition[] = [
         path: { type: 'string', description: 'Absolute path of a folder or a file. A leading ~ is expanded.' },
         recursive: { type: 'boolean', description: 'Also import files in sub-folders. Default false.' },
         batch: batchProp,
+        workspace: workspaceProp('The files are added to this workspace (a file already imported earlier keeps the workspace it was first imported into).'),
       },
       required: ['path'],
     },
@@ -86,12 +92,13 @@ export const TOOLS: ToolDefinition[] = [
             'Optional. The name of one of the user\'s saved models (see list_models; case-insensitive), a variant of the family such as a fine-tune. Its files and sampler are used, and `steps` and `cfg` default to its own. Omit for the built-in model.',
         },
         family: { type: 'string', description: 'Model family (see list_capabilities). Default "z-image" (the old name "z-image-turbo" still works).' },
-        width: { type: 'integer', description: 'Pixels, snapped to a multiple of 64 (256-2048). Default 1024.' },
-        height: { type: 'integer', description: 'Pixels, snapped to a multiple of 64 (256-2048). Default 1024.' },
+        width: { type: 'integer', description: 'Pixels (256-2048), snapped to a multiple of 16 for family "z-image" (so 816 stays 816) and of 64 for the other families. Default 1024.' },
+        height: { type: 'integer', description: 'Pixels (256-2048), snapped to a multiple of 16 for family "z-image" (so 1056 stays 1056) and of 64 for the other families. Default 1024.' },
         seed: { type: 'integer', description: 'Random if omitted. Reuse a seed to reproduce a result.' },
         steps: { type: 'integer', description: 'Sampling steps, 1-20 (1-100 with a `model`). Default 8, or the model\'s own.' },
         cfg: { type: 'number', description: 'Guidance, 0.5-3 (0-30 with a `model`). Default 1, or the model\'s own.' },
         batch: batchProp,
+        workspace: workspaceProp('The result goes to this workspace, and `style` / `elements` names are looked up in it.'),
       },
       required: ['prompt'],
     },
@@ -106,7 +113,12 @@ export const TOOLS: ToolDefinition[] = [
     name: 'list_styles',
     description:
       'Lists what the user saved in KVGenius to add to prompts: styles (a look, e.g. "1930s movie poster"; one per picture) and elements (reusable parts of a picture, e.g. a character\'s outfit; any number), each with its kind and wording. Pass a style\'s name as `style` and element names as `elements` to generate_image.',
-    inputSchema: { type: 'object', properties: {} },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspace: workspaceProp('Lists the styles and elements that workspace can use (the shared ones and its own).'),
+      },
+    },
   },
   {
     name: 'generate_video',
@@ -128,6 +140,7 @@ export const TOOLS: ToolDefinition[] = [
         height: { type: 'integer', description: 'Snapped to a multiple of 16. Default: keeps the source aspect ratio at ~640px on the long side (640 without a source).' },
         seed: { type: 'integer', description: 'Random if omitted.' },
         batch: batchProp,
+        workspace: workspaceProp('The result goes to this workspace.'),
       },
       required: ['prompt'],
     },
@@ -142,6 +155,7 @@ export const TOOLS: ToolDefinition[] = [
         batch: batchProp,
         status: { type: 'string', enum: ['queued', 'running', 'done', 'failed', 'cancelled', 'interrupted'] },
         limit: { type: 'integer', description: 'Default 100, max 500.' },
+        workspace: workspaceProp('Only jobs whose result goes to that workspace (without it, jobs from every workspace are listed).'),
       },
     },
   },
@@ -182,6 +196,7 @@ export const TOOLS: ToolDefinition[] = [
         origin: { type: 'string', enum: ['generated', 'imported', 'assembled'] },
         batch: batchProp,
         limit: { type: 'integer', description: 'Default 50, max 200.' },
+        workspace: workspaceProp('Only items in that workspace (without it, items from every workspace are listed).'),
       },
     },
   },
@@ -194,6 +209,18 @@ export const TOOLS: ToolDefinition[] = [
       properties: {
         item_id: itemIdProp('The item'),
         preview: { type: 'boolean', description: 'Include the preview image. Default true.' },
+      },
+      required: ['item_id'],
+    },
+  },
+  {
+    name: 'get_image_file',
+    description:
+      'Returns the original picture file of a library image item (not a preview): the exact bytes in images[0].data, base64-encoded, with the original mimeType (e.g. image/png). Only image items; files over 25 MB are refused. Read-only - nothing is written to disk. Over the HTTP API: POST /v1/tools/get_image_file with {"item_id":"gen-12"} answers {"ok":true,"data":{...},"images":[{"mimeType":"image/png","data":"<base64>"}]}.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        item_id: itemIdProp('The image'),
       },
       required: ['item_id'],
     },
@@ -241,6 +268,7 @@ export const TOOLS: ToolDefinition[] = [
         fade_seconds: { type: 'number', description: 'Fade length for end="fade_out", default 2.' },
         name: { type: 'string', description: 'Output file name (without extension). Default assembled-<timestamp>.' },
         batch: batchProp,
+        workspace: workspaceProp('The assembled video goes to this workspace.'),
         wait_seconds: { type: 'number', description: 'Wait up to this long (max 60) for it to finish. Default 0.' },
       },
       required: ['clips'],

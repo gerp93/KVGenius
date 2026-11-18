@@ -191,6 +191,8 @@ export interface ItemFilter {
   limit?: number;
   /** Only what outside clients created; see getItem. */
   clientOnly?: boolean;
+  /** Only items in this workspace. */
+  workspaceId?: number;
 }
 
 /** Newest first across generated and imported items. */
@@ -214,6 +216,10 @@ export function listItems(db: DatabaseSync, filter: ItemFilter = {}): ItemView[]
       where.push('j.batch = ?');
       args.push(filter.batch);
     }
+    if (filter.workspaceId !== undefined) {
+      where.push('g.workspace_id = ?');
+      args.push(filter.workspaceId);
+    }
     const sql = `${GEN_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY g.id DESC LIMIT ${limit}`;
     items.push(...(db.prepare(sql).all(...args) as unknown as GenRow[]).map(genToItem));
   }
@@ -232,6 +238,10 @@ export function listItems(db: DatabaseSync, filter: ItemFilter = {}): ItemView[]
     if (filter.batch !== undefined) {
       where.push('batch = ?');
       args.push(filter.batch);
+    }
+    if (filter.workspaceId !== undefined) {
+      where.push('workspace_id = ?');
+      args.push(filter.workspaceId);
     }
     const sql = `SELECT * FROM imports ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ${limit}`;
     items.push(...(db.prepare(sql).all(...args) as unknown as ImpRow[]).map(impToItem));
