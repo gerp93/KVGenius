@@ -19,7 +19,6 @@ export function useBorrowedRecord() {
   useGenerationChanges((change) => {
     if (change.kind === 'favorite') patch(change.id, { favorite: change.favorite, imagePath: change.imagePath });
     else if (change.kind === 'pinned') patch(change.id, { pinned: change.pinned });
-    else if (change.kind === 'hidden') patch(change.id, { hidden: change.hidden });
   });
 
   return { borrowed, borrow: setBorrowed, patch, expanded, setExpanded };

@@ -33,8 +33,6 @@ interface Props {
   queue: GenerationQueue;
   onRecall: (record: GenerationRecord) => void;
   onImageToVideo: (request: VideoSourceRequest) => void;
-  /** The app-wide "Show hidden" switch (top bar). Hidden items (Settings > Hidden Content) are left out unless it is on. */
-  showHidden: boolean;
   /** Open the app-wide queue panel (an upscale was just queued). */
   onShowQueue: () => void;
 }
@@ -62,7 +60,7 @@ function CardMedia({ record, isVideo, height, children }: { record: GenerationRe
   );
 }
 
-export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHidden, onShowQueue }: Props) {
+export default function LibraryOutput({ queue, onRecall, onImageToVideo, onShowQueue }: Props) {
   const [tab, setTab] = useState<GenerationKind>('image');
   const [cardScale, setCardScale] = useCardScale();
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -146,11 +144,11 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   );
 
   const loadPage = useCallback(
-    async (kind: GenerationKind, beforeId: number | null, favorites: boolean, hidden: boolean, ext: string | null, token: number, options: LibraryListOptions) => {
+    async (kind: GenerationKind, beforeId: number | null, favorites: boolean, ext: string | null, token: number, options: LibraryListOptions) => {
     loadingRef.current = true;
     setLoading(true);
     try {
-      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favorites, hidden, kind === 'image' ? ext : null, options);
+      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favorites, kind === 'image' ? ext : null, options);
       if (token !== requestToken.current) return;
       setRecords((prev) => (beforeId === null ? page : [...prev, ...page]));
       setHasMore(page.length === PAGE_SIZE);
@@ -178,10 +176,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     anchorId.current = null;
     setInfoId(null);
     setLightboxIndex(null);
-    void loadPage(tab, null, favoritesOnly, showHidden, extension, token, listOptions);
+    void loadPage(tab, null, favoritesOnly, extension, token, listOptions);
     // reloadKey is read, not a trigger: its changes are the in-place refresh below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, favoritesOnly, showHidden, extension, listOptions, loadPage]);
+  }, [tab, favoritesOnly, extension, listOptions, loadPage]);
 
   // The list changed under us: fetch it again as far as it is loaded and swap it in, so nothing blinks
   // out and the scroll position survives. (A filter or tab change in the same moment has already done
@@ -193,7 +191,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     const want = Math.max(PAGE_SIZE, loadedCount.current);
     loadingRef.current = true;
     window.kvgenius
-      .listGenerations(tab, want, null, favoritesOnly, showHidden, tab === 'image' ? extension : null, listOptions)
+      .listGenerations(tab, want, null, favoritesOnly, tab === 'image' ? extension : null, listOptions)
       .then((page) => {
         if (token !== requestToken.current) return;
         setRecords(page);
@@ -210,10 +208,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
 
   useEffect(() => {
     window.kvgenius
-      .countGenerations(favoritesOnly, showHidden, extension, { ...listOptions, originsByKind: originsByTab })
+      .countGenerations(favoritesOnly, extension, { ...listOptions, originsByKind: originsByTab })
       .then(setCounts)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [favoritesOnly, showHidden, extension, reloadKey, listOptions, originsByTab]);
+  }, [favoritesOnly, extension, reloadKey, listOptions, originsByTab]);
 
   useEffect(() => {
     if (!(stacking && selecting)) {
@@ -222,7 +220,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     }
     let cancelled = false;
     window.kvgenius
-      .countGenerations(favoritesOnly, showHidden, extension, { originsByKind: originsByTab, search, styles: styleFilter })
+      .countGenerations(favoritesOnly, extension, { originsByKind: originsByTab, search, styles: styleFilter })
       .then((c) => {
         if (!cancelled) setItemCounts(c);
       })
@@ -231,7 +229,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stacking, selecting, favoritesOnly, showHidden, extension, originsByTab, search, reloadKey, styleFilter.join('|')]);
+  }, [stacking, selecting, favoritesOnly, extension, originsByTab, search, reloadKey, styleFilter.join('|')]);
 
   // The file types offered in the filter. A type whose last image was deleted drops out of the list,
   // and the filter goes back to "all" if it was set to that type.
@@ -277,8 +275,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     if (loadingRef.current || records.length === 0) return;
     const last = records[records.length - 1];
     // Stacks are paged by their newest item; everything else by the item itself.
-    void loadPage(tab, stacking ? (last.groupNewestId ?? last.id) : last.id, favoritesOnly, showHidden, extension, requestToken.current, listOptions);
-  }, [records, tab, stacking, favoritesOnly, showHidden, extension, listOptions, loadPage]);
+    void loadPage(tab, stacking ? (last.groupNewestId ?? last.id) : last.id, favoritesOnly, extension, requestToken.current, listOptions);
+  }, [records, tab, stacking, favoritesOnly, extension, listOptions, loadPage]);
 
   // Infinite scroll: load the next page when the sentinel below the grid gets near the visible
   // area of the scrolling grid column. The observer is rebuilt after every load so it re-reports
@@ -342,7 +340,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
           200,
           before,
           favoritesOnly,
-          showHidden,
           tab === 'image' ? extension : null,
           { prompt, origins, search, styles: styleFilter }
         );
@@ -367,7 +364,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
    * just the ones cycling on its card); anything else is just itself. */
   async function refsFor(record: GenerationRecord): Promise<GenerationRef[]> {
     if (!isStack(record)) return [refOf(record)];
-    return window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, { prompt: record.prompt, origins, search, styles: styleFilter });
+    return window.kvgenius.listGenerationRefs(tab, favoritesOnly, tab === 'image' ? extension : null, { prompt: record.prompt, origins, search, styles: styleFilter });
   }
 
   /** Selects what a card stands for, or - when all of it is already selected - deselects it. */
@@ -427,7 +424,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
     setBusy(true);
     try {
       // Every item (while stacks are shown, that is every item in every stack); inside an opened stack, just that prompt's.
-      const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, showHidden, tab === 'image' ? extension : null, {
+      const refs = await window.kvgenius.listGenerationRefs(tab, favoritesOnly, tab === 'image' ? extension : null, {
         prompt: openPrompt,
         origins,
         search,
@@ -543,7 +540,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
   useGenerationChanges((change) => {
     switch (change.kind) {
       case 'trashed':
-      case 'hidden':
       case 'created':
         // Left (or joined) the Library: load the list (and the counts) again.
         if (change.kind !== 'created') keepView.hold([change.id]);
@@ -609,7 +605,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       if (!isUpscaleFamily(job.family) || job.status !== 'done' || job.isRecall || !job.record || merged.has(job.id)) continue;
       merged.add(job.id);
       const made = job.record;
-      if (made.hidden && !showHidden) continue;
       if (favoritesOnly) setNotice('An upscale finished - it is not a favorite, so turn off the Favorites filter to see it.');
       const fits = matchesFilters(made, job.kind);
       if (stacking) {
@@ -625,11 +620,11 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       if (fits) setCounts((prev) => ({ ...prev, [job.kind]: prev[job.kind] + 1 }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue.jobs, tab, favoritesOnly, showHidden, extension, originsByTab, stacking, openPrompt]);
+  }, [queue.jobs, tab, favoritesOnly, extension, originsByTab, stacking, openPrompt]);
 
   /** A GIF was made from a video: it is a new image, so fold it into the list as it is filtered. */
   function handleGifMade(made: GenerationRecord) {
-    const fits = matchesFilters(made, 'image') && (!made.hidden || showHidden);
+    const fits = matchesFilters(made, 'image');
     refreshExtensions();
     if (stacking) {
       // It has its source's prompt, so it joins a stack: load the stacks again to show that.
@@ -641,23 +636,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
       setRecords((prev) => [made, ...prev]);
     }
     if (fits) setCounts((prev) => ({ ...prev, image: prev.image + 1 }));
-  }
-
-  async function handleToggleHidden(record: GenerationRecord) {
-    const hidden = !record.hidden;
-    try {
-      await window.kvgenius.setGenerationHidden(record.id, hidden);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      return;
-    }
-    if (hidden && !showHidden) {
-      // Hiding while hidden items are filtered out: it no longer belongs in this list.
-      forgetIds([record.id], kindOf(record));
-    } else {
-      setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, hidden } : r)));
-    }
-    borrow.patch(record.id, { hidden });
   }
 
   // Delete moves to the Trash with no confirmation: it can be undone right here, or restored later from
@@ -778,7 +756,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             )}
           </CardMedia>
           {/* The tags sit under the picture, so they never cover it. */}
-          {(stack || record.hidden || record.pinned || record.styleName || generationOrigin(record.modelFamily) || modelLabel(record)) && (
+          {(stack || record.pinned || record.styleName || generationOrigin(record.modelFamily) || modelLabel(record)) && (
             <div className="library-card__badges">
               {stack && (
                 <span className="library-card__stack-badge" title={`${record.groupCount} items have this exact prompt - click to open them`}>
@@ -788,7 +766,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
               <OriginBadge record={record} />
               <ModelBadge record={record} />
               <StyleTags label={record.styleName} onPick={toggleStyle} activeTags={styles} />
-              {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
               {record.pinned && (
                 <span className="library-card__pinned-badge" title="Pinned under Prompts">
                   📌
@@ -1091,7 +1068,6 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, showHid
             }}
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}
-            onToggleHidden={handleToggleHidden}
             onDelete={handleDelete}
             onRerack={handleRecreate}
             onImageToVideo={handleImageToVideo}

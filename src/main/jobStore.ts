@@ -3,6 +3,7 @@ import { STYLE_SAMPLES_BATCH } from '../shared/backgroundWork';
 import { canonicalFamily } from '../shared/families';
 import { GenerationParams } from '../shared/types';
 import { JobFilter, JobInfo, JobRequest, JobSource, JobStatus } from '../shared/jobs';
+import { DEFAULT_WORKSPACE_ID } from './workspaces';
 
 /**
  * Every generation request, whichever way it arrived, so a client that disconnects (or the app
@@ -13,6 +14,7 @@ export const JOBS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source TEXT NOT NULL,
+  workspace_id INTEGER NOT NULL DEFAULT 1,
   batch TEXT,
   family TEXT NOT NULL,
   params TEXT NOT NULL,
@@ -30,6 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_batch ON jobs (batch);
 interface JobRow {
   id: number;
   source: string;
+  workspace_id: number;
   batch: string | null;
   family: string;
   params: string;
@@ -45,6 +48,7 @@ function rowToJob(row: JobRow): JobInfo {
   return {
     id: row.id,
     source: row.source as JobSource,
+    workspaceId: row.workspace_id,
     batch: row.batch,
     family: canonicalFamily(row.family),
     params: JSON.parse(row.params) as GenerationParams,
@@ -60,10 +64,17 @@ function rowToJob(row: JobRow): JobInfo {
 export function insertJob(db: DatabaseSync, request: JobRequest): JobInfo {
   const result = db
     .prepare(
-      `INSERT INTO jobs (source, batch, family, params, status, created_at)
-       VALUES (?, ?, ?, ?, 'queued', ?)`
+      `INSERT INTO jobs (source, workspace_id, batch, family, params, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 'queued', ?)`
     )
-    .run(request.source, request.batch ?? null, canonicalFamily(request.family), JSON.stringify(request.params), new Date().toISOString());
+    .run(
+      request.source,
+      request.workspaceId ?? DEFAULT_WORKSPACE_ID,
+      request.batch ?? null,
+      canonicalFamily(request.family),
+      JSON.stringify(request.params),
+      new Date().toISOString()
+    );
   return getJob(db, Number(result.lastInsertRowid)) as JobInfo;
 }
 
@@ -76,6 +87,10 @@ export function getJob(db: DatabaseSync, id: number): JobInfo | null {
 export function listJobs(db: DatabaseSync, filter: JobFilter = {}): JobInfo[] {
   const where: string[] = [];
   const args: (string | number)[] = [];
+  if (filter.workspaceId !== undefined) {
+    where.push('workspace_id = ?');
+    args.push(filter.workspaceId);
+  }
   if (filter.source !== undefined) {
     where.push('source = ?');
     args.push(filter.source);

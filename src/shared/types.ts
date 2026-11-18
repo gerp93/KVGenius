@@ -10,6 +10,7 @@ import type { OutpaintPadding } from './imageToImage';
 import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
 import type { PromptStyle, PromptStyleInput } from './styles';
+import type { Workspace, WorkspaceSummary, WorkspaceUpdate } from './workspaces';
 import type { PromptTemplate, PromptTemplateInput } from './promptTemplates';
 import type { StyleSampleSettings, StyleSamplesView } from './styleSamples';
 
@@ -63,8 +64,8 @@ export interface GenerationRecord {
   modelFamily: string;
   imagePath: string;
   favorite: boolean;
-  /** Kept out of the Library unless "Show hidden" is on - set by the hidden-words rule or by hand. */
-  hidden: boolean;
+  /** The workspace this item belongs to (see shared/workspaces.ts). */
+  workspaceId: number;
   /** Marked as the representative example of its prompt - these make up Library > Prompts. */
   pinned: boolean;
   /** Video only: the app's kept copy of the image the video was made from, so Re-rack can re-run it
@@ -359,17 +360,15 @@ export interface KVGeniusAPI {
     limit: number,
     beforeId: number | null,
     favoritesOnly: boolean,
-    showHidden: boolean,
     /** Images only: show just this file type (e.g. 'gif'). */
     extension?: string | null,
     /** Grouping by prompt, or one prompt's items. A grouped page is cursored by the last record's `groupNewestId`. */
     options?: LibraryListOptions
   ) => Promise<GenerationRecord[]>;
-  /** Totals per kind, restricted to favorites when `favoritesOnly`; hidden ones only count when `showHidden`.
+  /** Totals per kind, restricted to favorites when `favoritesOnly`.
    * `imageExtension` (e.g. 'gif') narrows the image count only. */
   countGenerations: (
     favoritesOnly: boolean,
-    showHidden: boolean,
     imageExtension?: string | null,
     /** With `grouped`, counts stacks (distinct prompts) rather than items. */
     options?: LibraryListOptions
@@ -382,19 +381,21 @@ export interface KVGeniusAPI {
   listGenerationRefs: (
     kind: GenerationKind,
     favoritesOnly: boolean,
-    showHidden: boolean,
     extension?: string | null,
     /** Only `prompt` applies here: refs are always individual items, never stacks. */
     options?: LibraryListOptions
   ) => Promise<GenerationRef[]>;
-  setGenerationHidden: (id: number, hidden: boolean) => Promise<void>;
-  /** Words that, found in a prompt, mark the generation as hidden (see shared/hiddenWords.ts). */
-  getHiddenWords: () => Promise<string[]>;
-  /** Saves the list (cleaned up) and returns what was stored. Affects new generations only. */
-  setHiddenWords: (words: string[]) => Promise<string[]>;
-  /** Runs the saved word list over every existing generation, hiding the ones that match. It never
-   * un-hides anything, so hand-hidden items stay hidden. */
-  applyHiddenWords: () => Promise<{ checked: number; newlyHidden: number }>;
+  /** Workspaces (see shared/workspaces.ts). Everything in the Library, Prompts, Sources, Trash and the queue works inside the
+   * workspace chosen with setActiveWorkspace; hidden workspaces are listed only when `includeHidden`. */
+  listWorkspaces: (includeHidden: boolean) => Promise<WorkspaceSummary[]>;
+  /** Makes a new, empty workspace. Rejects with a message fit to show when the name is not allowed. */
+  createWorkspace: (name: string) => Promise<Workspace>;
+  updateWorkspace: (id: number, patch: WorkspaceUpdate) => Promise<Workspace>;
+  /** Deletes a workspace that holds nothing. */
+  deleteWorkspace: (id: number) => Promise<void>;
+  /** Tells the main process which workspace the window is in (null: it shows the grid of workspaces, and the app falls back to the
+   * oldest one for anything that needs "the current workspace"). Returns that workspace. Jobs already queued keep their own. */
+  setActiveWorkspace: (id: number | null) => Promise<Workspace | null>;
   /** Size of an output file in bytes, or null if it is missing. */
   getFileSize: (imagePath: string) => Promise<number | null>;
   /** Asks where to save, then writes the given output files into a zip archive there. */
@@ -445,31 +446,33 @@ export interface KVGeniusAPI {
   setGenerationPinned: (id: number, pinned: boolean) => Promise<{ groupSize: number }>;
   /** An existing Library item that generating these settings again would only repeat, or null. */
   findDuplicateGeneration: (family: string, params: GenerationParams) => Promise<GenerationRecord | null>;
-  /** Every pinned generation, most recently pinned first; hidden ones only with `showHidden`. */
-  listPinnedGenerations: (showHidden: boolean) => Promise<GenerationRecord[]>;
+  /** Every pinned generation in the current workspace, most recently pinned first. */
+  listPinnedGenerations: () => Promise<GenerationRecord[]>;
 
   /** Deleting is two steps: items go to the Trash (no confirmation - they can be restored), and emptying
    * the Trash sends the files to the operating system's Recycle Bin. Both can also run on a schedule,
    * each its own option and both off until turned on. */
-  getCleanupSettings: () => Promise<CleanupSettings>;
   setCleanupSettings: (
+    workspaceId: number,
     patch: Partial<Pick<CleanupSettings, 'autoTrashEnabled' | 'olderThanDays' | 'autoEmptyEnabled' | 'trashRetentionDays'>>
   ) => Promise<CleanupSettings>;
   /** How many items (and bytes) a cleanup of items older than `days` would move: not favorited, not pinned. */
-  previewCleanup: (days: number) => Promise<TrashStats>;
+  previewCleanup: (workspaceId: number, days: number) => Promise<TrashStats>;
   /** Moves those items to the Trash. Never a favorite or pinned item. */
-  runCleanup: (days: number) => Promise<TrashMoveResult>;
+  runCleanup: (workspaceId: number, days: number) => Promise<TrashMoveResult>;
   /** Moves the given generations to the Trash. Favorites and pinned items are skipped unless
    * `includeKept` - set it only for something the user deleted item by item. */
   trashGenerations: (ids: number[], options?: { includeKept?: boolean }) => Promise<TrashMoveResult>;
-  getTrashStats: () => Promise<TrashStats>;
+  /** The Trash of one workspace (the current one when none is given). */
+  getTrashStats: (workspaceId?: number) => Promise<TrashStats>;
   /** What is in the Trash, newest generation first: up to `limit` with an id below `beforeId`. */
   listTrashed: (limit: number, beforeId: number | null) => Promise<GenerationRecord[]>;
   restoreGenerations: (ids: number[]) => Promise<{ restored: number; failed: number }>;
   /** Removes items from the Trash: their files go to the Recycle Bin and they can no longer be restored
    * into the app. An item the Recycle Bin will not take stays in the Trash and counts as failed. */
   deleteTrashed: (ids: number[]) => Promise<TrashEmptyResult>;
-  emptyTrash: () => Promise<TrashEmptyResult>;
+  /** Empties the Trash of one workspace (the current one when none is given). */
+  emptyTrash: (workspaceId?: number) => Promise<TrashEmptyResult>;
 
   /** The Generate page's prompt "tabs" (whole form per tab), persisted across restarts. */
   getPromptSlots: () => Promise<{ slots: PromptSlot[]; activeId: string | null }>;

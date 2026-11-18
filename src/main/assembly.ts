@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS assemblies (
   warnings TEXT NOT NULL DEFAULT '[]',
   error TEXT,
   item_id TEXT,
+  workspace_id INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   finished_at TEXT
 );
@@ -67,6 +68,8 @@ export interface AssemblyDeps {
   outputDir: () => string;
   /** Scratch space for concat lists and partial output. */
   tempDir: () => string;
+  /** The workspace a new assembly (and the video it makes) belongs to. */
+  workspaceId?: () => number;
 }
 
 const sanitizeName = (name: string) =>
@@ -99,8 +102,8 @@ export class AssemblyManager {
   start(spec: AssemblySpec): AssemblyView {
     if (!this.deps.ffmpeg()) throw new Error('ffmpeg was not found.');
     const result = this.db
-      .prepare("INSERT INTO assemblies (status, batch, spec, created_at) VALUES ('running', ?, ?, ?)")
-      .run(spec.batch ?? null, JSON.stringify(spec), new Date().toISOString());
+      .prepare("INSERT INTO assemblies (status, batch, spec, workspace_id, created_at) VALUES ('running', ?, ?, ?, ?)")
+      .run(spec.batch ?? null, JSON.stringify(spec), this.deps.workspaceId?.() ?? 1, new Date().toISOString());
     const id = Number(result.lastInsertRowid);
     this.running.set(id, 'preparing');
     void this.execute(id, spec);
@@ -197,6 +200,7 @@ export class AssemblyManager {
         height: info?.height,
         duration: info?.durationSeconds ?? plan.totalSeconds,
         batch: spec.batch,
+        workspaceId: (this.db.prepare('SELECT workspace_id FROM assemblies WHERE id = ?').get(id) as unknown as { workspace_id: number } | undefined)?.workspace_id,
       });
       this.db
         .prepare("UPDATE assemblies SET status = 'done', progress = 1, item_id = ?, finished_at = ? WHERE id = ?")

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Generate from './pages/Generate';
+import WorkspaceGrid from './pages/WorkspaceGrid';
 import QueuePanel from './components/QueuePanel';
 import SideNav from './components/SideNav';
 import TopBar from './components/TopBar';
@@ -25,6 +26,7 @@ import ToolsLayout from './pages/ToolsLayout';
 import ToolsUpscale from './pages/ToolsUpscale';
 import { FAMILY_KIND, GenerationRecord, VideoSourceRequest } from '../shared/types';
 import type { GpuInfo } from '../shared/gpuInfo';
+import type { Workspace } from '../shared/workspaces';
 import type { PromptTabsModel } from './utils/promptTabs';
 import { UPSCALE_FAMILY } from '../shared/upscale';
 import type { UpscaleRecall } from '../shared/upscale';
@@ -38,7 +40,20 @@ const STARTUP_TIMEOUT_MS = 4 * 60 * 1000;
 
 type ConnectionStatus = 'checking' | 'connected' | 'unreachable' | 'starting';
 
-export default function App() {
+type ShellProps = {
+  /** The workspace everything in the shell works inside. The shell is remounted for each workspace, so nothing carries over. */
+  workspace: Workspace;
+  /** The theme in effect (the workspace's own, or else the app's). */
+  theme: string | null;
+  /** The app's own theme, which Settings changes. */
+  appTheme: string | null;
+  onAppThemeChange: (theme: string) => void;
+  onSwitchWorkspace: (id: number) => void;
+  onShowWorkspaces: () => void;
+};
+
+/** Everything inside one workspace: the pages, the queue, the details panel. */
+function WorkspaceShell({ workspace, theme, appTheme, onAppThemeChange, onSwitchWorkspace, onShowWorkspaces }: ShellProps) {
   const [recallRecord, setRecallRecord] = useState<GenerationRecord | null>(null);
   const [videoSource, setVideoSource] = useState<VideoSourceRequest | null>(null);
   // An upscale being re-run in Tools > Upscale, and a picture sent there from Library > Sources.
@@ -55,10 +70,6 @@ export default function App() {
   // Generate's prompt tabs, listed in the sidebar.
   const [promptTabs, setPromptTabs] = useState<PromptTabsModel | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
-  const [theme, setThemeState] = useState<string | null>(null);
-  // One "Show hidden" switch for the whole app (the top bar button), so it need not be flipped on
-  // every page. Deliberately not remembered across launches - hidden content starts out hidden.
-  const [showHidden, setShowHidden] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   // The queue bar is part of the shell (along the bottom), so it is there on every page; open or folded is remembered.
@@ -82,14 +93,6 @@ export default function App() {
   useGenerationChanges((change) => {
     if (change.kind === 'libraryDetailsOpened') setDetailsId(null);
   });
-
-  useEffect(() => {
-    window.kvgenius.getTheme().then(setThemeState);
-  }, []);
-
-  useEffect(() => {
-    if (theme) document.body.className = `${theme}-theme`;
-  }, [theme]);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,18 +163,6 @@ export default function App() {
     const closing = detailsId === record.id;
     setDetailsId(closing ? null : record.id);
     if (!closing) announceGenerationChange({ kind: 'queueDetailsOpened' });
-  }
-
-  /** The details panel's Hide / Unhide. */
-  async function handleQueueHide(record: GenerationRecord) {
-    const hidden = !record.hidden;
-    try {
-      await window.kvgenius.setGenerationHidden(record.id, hidden);
-      queue.updateRecord(record.id, { hidden });
-      announceGenerationChange({ kind: 'hidden', id: record.id, hidden });
-    } catch (err) {
-      showQueueNotice(err instanceof Error ? err.message : String(err));
-    }
   }
 
   /** Save as / show in the file manager, from the details panel. */
@@ -249,14 +240,17 @@ export default function App() {
   return (
     <DetailsSlotContext.Provider value={detailsSlot}>
     <div className="app-shell">
-      <TopBar connection={connection} gpus={gpus} launchError={launchError} onLaunchComfyUI={handleLaunchComfyUI} />
-      <div className="app-frame">
-      <SideNav
-        unreachable={connection === 'unreachable'}
-        promptTabs={promptTabs}
-        showHidden={showHidden}
-        onToggleShowHidden={() => setShowHidden((v) => !v)}
+      <TopBar
+        connection={connection}
+        gpus={gpus}
+        launchError={launchError}
+        onLaunchComfyUI={handleLaunchComfyUI}
+        workspace={workspace}
+        onSwitchWorkspace={onSwitchWorkspace}
+        onShowWorkspaces={onShowWorkspaces}
       />
+      <div className="app-frame">
+      <SideNav unreachable={connection === 'unreachable'} promptTabs={promptTabs} />
       <div className="app-body">
         <div className="app-main">
           <div className="app-content">
@@ -306,7 +300,6 @@ export default function App() {
                       queue={queue}
                       onRecall={handleRerack}
                       onImageToVideo={setVideoSource}
-                      showHidden={showHidden}
                       onShowQueue={() => setQueueCollapsed(false)}
                     />
                   }
@@ -319,7 +312,6 @@ export default function App() {
                       onRecallPrompt={setRecallPrompt}
                       onRecall={handleRerack}
                       onImageToVideo={setVideoSource}
-                      showHidden={showHidden}
                       onShowQueue={() => setQueueCollapsed(false)}
                     />
                   }
@@ -348,7 +340,7 @@ export default function App() {
               <Route path="/hardpoint" element={<Hardpoint theme={theme} />} />
               <Route path="/setup" element={<Setup />} />
               <Route path="/models" element={<Navigate to="/settings?tab=models" replace />} />
-              <Route path="/settings" element={<Settings theme={theme} onThemeChange={setThemeState} onModelsChanged={() => setModelsVersion((v) => v + 1)} />} />
+              <Route path="/settings" element={<Settings theme={appTheme} workspaceTheme={workspace.theme} onThemeChange={onAppThemeChange} onModelsChanged={() => setModelsVersion((v) => v + 1)} />} />
             </Routes>
           </div>
           <QueuePanel
@@ -389,7 +381,6 @@ export default function App() {
               onExpand={() => setDetailsExpanded(true)}
               onToggleFavorite={handleQueueFavorite}
               onTogglePinned={handleQueuePin}
-              onToggleHidden={handleQueueHide}
               onDelete={handleQueueDelete}
               onRerack={handleRerack}
               onImageToVideo={handleQueueImageToVideo}
@@ -420,5 +411,41 @@ export default function App() {
       )}
     </div>
     </DetailsSlotContext.Provider>
+  );
+}
+
+/** The app: the grid of workspaces first, then the shell inside whichever one was opened (or switched to from the top bar). */
+export default function App() {
+  // The app's own theme (Settings). A workspace may have its own, which wins while it is open.
+  const [appTheme, setAppTheme] = useState<string | null>(null);
+  // The workspace the app is in; null shows the grid. Every launch starts on the grid.
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const theme = workspace?.theme ?? appTheme;
+
+  useEffect(() => {
+    window.kvgenius.getTheme().then(setAppTheme);
+    // A reload of the window (or a first start) is back on the grid, so the main process is told too.
+    void window.kvgenius.setActiveWorkspace(null);
+  }, []);
+
+  useEffect(() => {
+    if (theme) document.body.className = `${theme}-theme`;
+  }, [theme]);
+
+  async function open(id: number | null) {
+    setWorkspace(await window.kvgenius.setActiveWorkspace(id));
+  }
+
+  if (!workspace) return <WorkspaceGrid onOpen={(id) => void open(id)} />;
+  return (
+    <WorkspaceShell
+      key={workspace.id}
+      workspace={workspace}
+      theme={theme}
+      appTheme={appTheme}
+      onAppThemeChange={setAppTheme}
+      onSwitchWorkspace={(id) => void open(id)}
+      onShowWorkspaces={() => void open(null)}
+    />
   );
 }

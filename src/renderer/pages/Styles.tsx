@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { styleScopeLabel } from "../../shared/workspaces";
 import {
   MAX_STYLE_NAME_LENGTH,
   MAX_STYLE_TEXT_LENGTH,
@@ -109,6 +110,10 @@ export default function Styles({ onChanged }: Props) {
   const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [kind, setKind] = useState<StyleKind>(tab);
+  // Who a NEW one is for, chosen when it is made (a saved one keeps what it was made with). Until chosen it follows the kind:
+  // a style is shared by every workspace, an element belongs to this one.
+  const [scopeChoice, setScopeChoice] = useState<"all" | "workspace" | null>(null);
+  const scope = scopeChoice ?? (kind === "element" ? "workspace" : "all");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -183,6 +188,7 @@ export default function Styles({ onChanged }: Props) {
     setName(style?.name ?? "");
     setText(style?.text ?? "");
     setKind(style?.kind ?? newKind);
+    setScopeChoice(null);
     setError(null);
     setNotice(null);
     setConfirmingDelete(false);
@@ -200,7 +206,7 @@ export default function Styles({ onChanged }: Props) {
     setNotice(null);
     try {
       const saved = await window.kvgenius.saveStyle(
-        { name, text, kind },
+        { name, text, kind, ...(selectedId === null ? { scope } : {}) },
         selectedId,
       );
       setStyles(await window.kvgenius.listStyles());
@@ -301,6 +307,12 @@ export default function Styles({ onChanged }: Props) {
         >
           <SamplePicture sample={sample} />
           <span className="style-card__name">{style.name}</span>
+          <span
+            className="style-card__date"
+            title={style.workspaceId === null ? "Shared by every workspace" : "Only in this workspace"}
+          >
+            {styleScopeLabel(style.workspaceId)}
+          </span>
           <span className="style-card__text">{style.text}</span>
         </button>
         <div className="style-card__foot">
@@ -552,6 +564,46 @@ export default function Styles({ onChanged }: Props) {
                   </label>
                 ))}
               </div>
+            </div>
+
+            <div className="styles-page__field">
+              <span className="field-label">Available in</span>
+              {selected ? (
+                <span>
+                  {selected.workspaceId === null
+                    ? "All workspaces"
+                    : "Only this workspace"}
+                  <span className="styles-page__kind-hint">
+                    {" "}
+                    - chosen when it was made
+                  </span>
+                </span>
+              ) : (
+                <div
+                  className="styles-page__kinds"
+                  role="radiogroup"
+                  aria-label="Available in"
+                >
+                  <label className="styles-page__kind-option">
+                    <input
+                      type="radio"
+                      name="style-scope"
+                      checked={scope === "workspace"}
+                      onChange={() => setScopeChoice("workspace")}
+                    />{" "}
+                    Only this workspace
+                  </label>
+                  <label className="styles-page__kind-option">
+                    <input
+                      type="radio"
+                      name="style-scope"
+                      checked={scope === "all"}
+                      onChange={() => setScopeChoice("all")}
+                    />{" "}
+                    All workspaces
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="styles-page__field">

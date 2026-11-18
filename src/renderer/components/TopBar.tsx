@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
 import { GpuInfo, formatVram, gpuLabel } from '../../shared/gpuInfo';
+import type { Workspace } from '../../shared/workspaces';
+import WorkspaceSwitcher from './WorkspaceSwitcher';
 import './TopBar.css';
 
 export type ConnectionStatus = 'checking' | 'connected' | 'unreachable' | 'starting';
@@ -10,6 +12,10 @@ type Props = {
   gpus: GpuInfo[];
   launchError: string | null;
   onLaunchComfyUI: () => void;
+  /** The workspace the app is in, to switch from here. */
+  workspace: Workspace;
+  onSwitchWorkspace: (id: number) => void;
+  onShowWorkspaces: () => void;
 };
 
 const CONNECTION_LABEL: Record<ConnectionStatus, string> = {
@@ -21,11 +27,12 @@ const CONNECTION_LABEL: Record<ConnectionStatus, string> = {
 
 /** The bar across the top of the window: the app's name at the left, and at the right what it is
  * talking to - the ComfyUI connection (a launch button while it cannot be reached) and the graphics card. */
-export default function TopBar({ connection, gpus, launchError, onLaunchComfyUI }: Props) {
+export default function TopBar({ connection, gpus, launchError, onLaunchComfyUI, workspace, onSwitchWorkspace, onShowWorkspaces }: Props) {
   const label = CONNECTION_LABEL[connection];
   return (
     <header className="top-bar">
       <span className="top-bar__title">KVGenius</span>
+      <WorkspaceSwitcher current={workspace} onSwitch={onSwitchWorkspace} onShowAll={onShowWorkspaces} />
       <div className="top-bar__status-group">
         {launchError && (
           <span className="top-bar__error" title={launchError}>

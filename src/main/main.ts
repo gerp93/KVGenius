@@ -38,18 +38,27 @@ import {
   getComfyUIModelsDir,
   setComfyUIModelsDir,
   setComfyUILaunchPath,
-  getHiddenWords,
-  setHiddenWords,
   getTrashDir,
   getCleanupSettings,
-  saveCleanupSettings,
 } from './dbLocation';
 import { isExternalWebUrl } from '../shared/externalUrl';
-import { compileHiddenMatcher } from '../shared/hiddenWords';
 import { normalizeDays, updateCleanupSettings } from '../shared/cleanup';
 import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
 import { deleteStyle, getStyle, listStyles, saveStyle } from './styles';
+import {
+  createWorkspace,
+  currentWorkspaceId,
+  deleteWorkspace,
+  getWorkspace,
+  listWorkspaces,
+  saveWorkspaceCleanup,
+  setActiveWorkspaceId,
+  styleExamplesWorkspaceId,
+  summarizeWorkspaces,
+  updateWorkspace,
+} from './workspaces';
+import { WorkspaceUpdate } from '../shared/workspaces';
 import { PromptTemplateInput } from '../shared/promptTemplates';
 import { deletePromptTemplate, listPromptTemplates, savePromptTemplate } from './promptTemplates';
 import { StyleSampleService, saveSampleSettings } from './styleSamples';
@@ -63,8 +72,6 @@ import {
   listGenerationRefs,
   listStyleTags,
   listImageExtensions,
-  setGenerationHidden,
-  applyHiddenRule,
   moveLegacyOutput,
   setGenerationPinned,
   countPinnedWithPrompt,
@@ -411,11 +418,13 @@ function discoveryFilePath(): string {
  * MCP stdio shim reads to find it. No-op if it is already running. */
 async function startApi(): Promise<void> {
   if (localApi || !db || !jobQueue) return;
+  const database = db;
   if (!assemblies) {
     assemblies = new AssemblyManager(db, {
       ffmpeg: getFfmpeg,
       outputDir: getVideosDir,
       tempDir: () => path.join(app.getPath('temp'), 'kvgenius-assembly'),
+      workspaceId: () => currentWorkspaceId(database),
     });
   }
   if (!apiService) {
@@ -429,6 +438,7 @@ async function startApi(): Promise<void> {
         const size = nativeImage.createFromPath(file).getSize();
         return size.width > 0 && size.height > 0 ? size : null;
       },
+      workspaceId: () => currentWorkspaceId(database),
       imagePreviewFallback: async (file) => {
         const image = nativeImage.createFromPath(file);
         if (image.isEmpty()) return null;
@@ -490,10 +500,10 @@ function styleSamples(): StyleSampleService | null {
     db: database,
     queue,
     trash: (ids) => void moveToTrash(database, ids, getTrashDir()),
-    hide: (id) => setGenerationHidden(database, id, true),
+    workspaceId: () => styleExamplesWorkspaceId(database),
     getRecord: (id) => getGenerationById(database, id),
     imageUrlFor,
-    listStyles: () => listStyles(database),
+    listStyles: () => listStyles(database, currentWorkspaceId(database)),
     getStyle: (id) => getStyle(database, id),
   });
   return styleSampleService;
@@ -566,7 +576,6 @@ function registerIpcHandlers(): void {
       limit: number,
       beforeId: number | null,
       favoritesOnly: boolean,
-      showHidden: boolean,
       extension?: string | null,
       options?: LibraryListOptions
     ) => {
@@ -579,39 +588,65 @@ function registerIpcHandlers(): void {
         safeLimit,
         beforeId,
         !!favoritesOnly,
-        !!showHidden,
+        currentWorkspaceId(db),
         extension ?? null,
         cleanListOptions(options)
       );
     }
   );
 
-  ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null, options?: LibraryListOptions) => {
+  ipcMain.handle('countGenerations', (_event, favoritesOnly: boolean, imageExtension?: string | null, options?: LibraryListOptions) => {
     if (!db) throw new Error('Database not initialized');
-    return countGenerations(db, videoFamilies, !!favoritesOnly, !!showHidden, imageExtension ?? null, cleanListOptions(options));
+    return countGenerations(db, videoFamilies, !!favoritesOnly, currentWorkspaceId(db), imageExtension ?? null, cleanListOptions(options));
   });
 
   ipcMain.handle('listStyleTags', () => {
     if (!db) throw new Error('Database not initialized');
-    return listStyleTags(db);
+    return listStyleTags(db, currentWorkspaceId(db));
   });
 
   ipcMain.handle('listImageExtensions', () => {
     if (!db) throw new Error('Database not initialized');
-    return listImageExtensions(db, videoFamilies);
+    return listImageExtensions(db, videoFamilies, currentWorkspaceId(db));
   });
 
   ipcMain.handle(
     'listGenerationRefs',
-    (_event, kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null, options?: LibraryListOptions) => {
+    (_event, kind: GenerationKind, favoritesOnly: boolean, extension?: string | null, options?: LibraryListOptions) => {
       if (!db) throw new Error('Database not initialized');
-      return listGenerationRefs(db, videoFamilies, kind === 'video' ? 'video' : 'image', !!favoritesOnly, !!showHidden, extension ?? null, cleanListOptions(options));
+      return listGenerationRefs(db, videoFamilies, kind === 'video' ? 'video' : 'image', !!favoritesOnly, currentWorkspaceId(db), extension ?? null, cleanListOptions(options));
     }
   );
 
-  ipcMain.handle('setGenerationHidden', (_event, id: number, hidden: boolean) => {
+  // Workspaces: the grid lists them, the window says which one it is in, and everything below follows that.
+  ipcMain.handle('listWorkspaces', (_event, includeHidden: boolean) => {
     if (!db) throw new Error('Database not initialized');
-    setGenerationHidden(db, id, !!hidden);
+    return summarizeWorkspaces(db, !!includeHidden, videoFamilies);
+  });
+  ipcMain.handle('createWorkspace', (_event, name: string) => {
+    if (!db) throw new Error('Database not initialized');
+    return createWorkspace(db, name);
+  });
+  ipcMain.handle('updateWorkspace', (_event, id: number, patch: WorkspaceUpdate) => {
+    if (!db) throw new Error('Database not initialized');
+    if (!Number.isInteger(id)) throw new Error('That workspace no longer exists.');
+    return updateWorkspace(db, id, {
+      ...(typeof patch?.name === 'string' ? { name: patch.name } : {}),
+      ...(patch && 'theme' in patch ? { theme: typeof patch.theme === 'string' ? patch.theme : null } : {}),
+      ...(typeof patch?.hidden === 'boolean' ? { hidden: patch.hidden } : {}),
+    });
+  });
+  ipcMain.handle('deleteWorkspace', (_event, id: number) => {
+    if (!db) throw new Error('Database not initialized');
+    if (!Number.isInteger(id)) return;
+    deleteWorkspace(db, id);
+  });
+  // Null when the window goes back to the grid. Jobs already queued keep the workspace they were queued in.
+  ipcMain.handle('setActiveWorkspace', (_event, id: number | null) => {
+    if (!db) throw new Error('Database not initialized');
+    const workspace = Number.isInteger(id) ? getWorkspace(db, id as number) : null;
+    setActiveWorkspaceId(workspace ? workspace.id : null);
+    return workspace;
   });
 
   ipcMain.handle('listUpscaleModels', () => listUpscaleModels());
@@ -641,7 +676,6 @@ function registerIpcHandlers(): void {
       fs.rmSync(partial, { force: true });
     }
 
-    const hidden = compileHiddenMatcher(getHiddenWords())(source.prompt);
     const record = insertGeneration(
       db,
       {
@@ -656,7 +690,8 @@ function registerIpcHandlers(): void {
       GIF_FAMILY,
       finalPath,
       null,
-      hidden,
+      // A GIF stays in the workspace of the video it was made from.
+      source.workspaceId,
       // The video's kept source picture, so the GIF's details show where it started.
       source.sourceImagePath
     );
@@ -684,13 +719,6 @@ function registerIpcHandlers(): void {
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
-  });
-
-  ipcMain.handle('getHiddenWords', () => getHiddenWords());
-  ipcMain.handle('setHiddenWords', (_event, words: string[]) => setHiddenWords(Array.isArray(words) ? words : []));
-  ipcMain.handle('applyHiddenWords', () => {
-    if (!db) throw new Error('Database not initialized');
-    return applyHiddenRule(db, compileHiddenMatcher(getHiddenWords()));
   });
 
   ipcMain.handle('getFileSize', async (_event, imagePath: string) => {
@@ -817,7 +845,7 @@ function registerIpcHandlers(): void {
   // Library > Sources: every picture kept for the videos and upscales made from it.
   ipcMain.handle('listSourceImages', () => {
     if (!db) throw new Error('Database not initialized');
-    return listKeptSources(db).map((entry) => ({ ...entry, missing: !fs.existsSync(entry.path) }));
+    return listKeptSources(db, currentWorkspaceId(db)).map((entry) => ({ ...entry, missing: !fs.existsSync(entry.path) }));
   });
 
   // Copies a picture to the clipboard so it can be pasted into other apps. Done here, from the file, so
@@ -864,7 +892,7 @@ function registerIpcHandlers(): void {
     if (!db) throw new Error('Database not initialized');
     setGenerationPinned(db, id, !!pinned);
     const record = getGenerationById(db, id);
-    return { groupSize: pinned && record ? countPinnedWithPrompt(db, record.prompt) : 0 };
+    return { groupSize: pinned && record ? countPinnedWithPrompt(db, record.prompt, record.workspaceId) : 0 };
   });
 
   // Would generating these settings only repeat something already in the Library? (Generate's button asks.)
@@ -872,6 +900,7 @@ function registerIpcHandlers(): void {
     if (!db) throw new Error('Database not initialized');
     if (typeof family !== 'string' || !params || typeof params.prompt !== 'string') return null;
     return findDuplicateGeneration(db, family, {
+      workspaceId: currentWorkspaceId(db),
       prompt: params.prompt,
       width: params.width,
       height: params.height,
@@ -888,26 +917,35 @@ function registerIpcHandlers(): void {
     });
   });
 
-  ipcMain.handle('listPinnedGenerations', (_event, showHidden: boolean) => {
+  ipcMain.handle('listPinnedGenerations', () => {
     if (!db) throw new Error('Database not initialized');
-    return listPinnedGenerations(db, !!showHidden);
+    return listPinnedGenerations(db, currentWorkspaceId(db));
   });
 
-  // Library cleanup and the Trash.
-  ipcMain.handle('getCleanupSettings', () => getCleanupSettings());
-
-  ipcMain.handle('setCleanupSettings', (_event, patch: Parameters<typeof updateCleanupSettings>[1]) =>
-    saveCleanupSettings(updateCleanupSettings(getCleanupSettings(), patch ?? {}, new Date()))
-  );
-
-  ipcMain.handle('previewCleanup', (_event, days: number) => {
+  // Library cleanup and the Trash. The retention rules belong to each workspace (they come with the workspace list), and
+  // cleaning up or emptying one workspace's Trash never touches another's.
+  /** The workspace a Settings call is about: the one asked for, or else the one the window is in. */
+  const workspaceOf = (id: unknown): number => {
     if (!db) throw new Error('Database not initialized');
-    return previewCleanup(db, normalizeDays(days, 30));
+    if (Number.isInteger(id) && getWorkspace(db, id as number)) return id as number;
+    return currentWorkspaceId(db);
+  };
+
+  ipcMain.handle('setCleanupSettings', (_event, workspaceId: number, patch: Parameters<typeof updateCleanupSettings>[1]) => {
+    if (!db) throw new Error('Database not initialized');
+    const workspace = getWorkspace(db, workspaceId);
+    if (!workspace) throw new Error('That workspace no longer exists.');
+    return saveWorkspaceCleanup(db, workspace.id, updateCleanupSettings(workspace.cleanup, patch ?? {}, new Date()));
   });
 
-  ipcMain.handle('runCleanup', (_event, days: number) => {
+  ipcMain.handle('previewCleanup', (_event, workspaceId: number, days: number) => {
     if (!db) throw new Error('Database not initialized');
-    return runCleanup(db, normalizeDays(days, 30), getTrashDir());
+    return previewCleanup(db, workspaceOf(workspaceId), normalizeDays(days, 30));
+  });
+
+  ipcMain.handle('runCleanup', (_event, workspaceId: number, days: number) => {
+    if (!db) throw new Error('Database not initialized');
+    return runCleanup(db, workspaceOf(workspaceId), normalizeDays(days, 30), getTrashDir());
   });
 
   // Deleting in the app moves to the Trash (no confirmation: it can be restored from there). Favorites and
@@ -917,15 +955,15 @@ function registerIpcHandlers(): void {
     return moveToTrash(db, cleanIds(ids), getTrashDir(), { includeKept: options?.includeKept === true });
   });
 
-  ipcMain.handle('getTrashStats', () => {
+  ipcMain.handle('getTrashStats', (_event, workspaceId?: number | null) => {
     if (!db) throw new Error('Database not initialized');
-    return trashStats(db);
+    return trashStats(db, workspaceOf(workspaceId));
   });
 
   ipcMain.handle('listTrashed', (_event, limit: number, beforeId: number | null) => {
     if (!db) throw new Error('Database not initialized');
     const safeLimit = Math.min(Math.max(Math.floor(limit) || 0, 1), 200);
-    return listTrashed(db, safeLimit, Number.isInteger(beforeId) ? beforeId : null);
+    return listTrashed(db, currentWorkspaceId(db), safeLimit, Number.isInteger(beforeId) ? beforeId : null);
   });
 
   ipcMain.handle('restoreGenerations', (_event, ids: number[]) => {
@@ -939,9 +977,9 @@ function registerIpcHandlers(): void {
     return deleteFromTrash(db, cleanIds(ids), getSourcesDir(), recycleFile);
   });
 
-  ipcMain.handle('emptyTrash', () => {
+  ipcMain.handle('emptyTrash', (_event, workspaceId?: number | null) => {
     if (!db) throw new Error('Database not initialized');
-    return emptyTrash(db, getSourcesDir(), recycleFile);
+    return emptyTrash(db, workspaceOf(workspaceId), getSourcesDir(), recycleFile);
   });
 
   ipcMain.handle('getPromptSlots', () => ({
@@ -955,11 +993,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('listStyles', () => {
     if (!db) throw new Error('Database not initialized');
-    return listStyles(db);
+    return listStyles(db, currentWorkspaceId(db));
   });
   ipcMain.handle('saveStyle', (_event, input: PromptStyleInput, id: number | null) => {
     if (!db) throw new Error('Database not initialized');
-    return saveStyle(db, input, typeof id === 'number' ? id : null);
+    return saveStyle(db, input, typeof id === 'number' ? id : null, currentWorkspaceId(db));
   });
   ipcMain.handle('deleteStyle', (_event, id: number) => {
     if (!db) throw new Error('Database not initialized');
@@ -1361,8 +1399,12 @@ app
     session.defaultSession.setSpellCheckerLanguages(['en-US']);
     migrateLegacyDefaultDbLocation();
     enforceDevDatabaseIsolation();
-    db = initDatabase(getEffectiveDbPath());
+    // The cleanup rules that used to be global become the first workspace's (only read when the database is first moved to workspaces).
+    db = initDatabase(getEffectiveDbPath(), getCleanupSettings());
+    const startedDb = db;
     jobQueue = new JobQueue(db, createGenerationRunner(() => db, getFfmpeg), {
+      // A picture queued from the window (or by an outside client) goes to the workspace the window is in, when it was queued.
+      currentWorkspaceId: () => currentWorkspaceId(startedDb),
       cancelRunning: cancelCurrentGeneration,
       isCancellation: (err) => err instanceof GenerationCancelledError,
       // A job made from a picture works from the app's own copy of it, made when it is queued - not from wherever the original is.
@@ -1395,8 +1437,9 @@ app
     // The automatic cleanup does nothing unless the user turned it on in Settings (it is off by default).
     startCleanupSchedule({
       getDb: () => db,
-      getSettings: getCleanupSettings,
-      saveSettings: saveCleanupSettings,
+      listWorkspaces: (database) => listWorkspaces(database, true),
+      getSettings: (database, workspaceId) => getWorkspace(database, workspaceId)?.cleanup ?? null,
+      saveSettings: (database, workspaceId, settings) => void saveWorkspaceCleanup(database, workspaceId, settings),
       trashDir: getTrashDir,
       sourcesDir: getSourcesDir,
       recycle: recycleFile,

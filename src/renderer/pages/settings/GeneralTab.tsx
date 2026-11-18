@@ -4,11 +4,14 @@ import { THEME_NAMES, themeDisplayName } from '../../../shared/themes';
 import SettingsSection from './SettingsSection';
 
 interface Props {
+  /** The app's own theme. */
   theme: string | null;
+  /** The current workspace's own theme, if it has one (it is shown instead of the app's while the workspace is open). */
+  workspaceTheme?: string | null;
   onThemeChange: (theme: string) => void;
 }
 
-export default function GeneralTab({ theme, onThemeChange }: Props) {
+export default function GeneralTab({ theme, workspaceTheme, onThemeChange }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckResult['status'] | 'idle' | 'checking'>('idle');
@@ -57,6 +60,11 @@ export default function GeneralTab({ theme, onThemeChange }: Props) {
             </option>
           ))}
         </select>
+        <p className="settings-hint">
+          The theme for every workspace that has not chosen its own.
+          {workspaceTheme ? ` This workspace uses ${themeDisplayName(workspaceTheme)}, so you will see this one in the others.` : ''} A workspace's own theme is set
+          from its card on the workspace grid (top bar &gt; All workspaces).
+        </p>
         {error && <p className="settings-message settings-message--error">{error}</p>}
       </SettingsSection>
 

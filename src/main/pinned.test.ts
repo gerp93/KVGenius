@@ -5,15 +5,16 @@ import * as os from 'os';
 import * as path from 'path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  countPinnedWithPrompt,
   getGenerationById,
   initDatabase,
   insertGeneration,
   listGenerationRefs,
   listPinnedGenerations,
   migrateSavedPrompts,
-  setGenerationHidden,
   setGenerationPinned,
 } from './db';
+import { createWorkspace } from './workspaces';
 
 const params = (prompt: string, seed = 1) => ({ prompt, width: 64, height: 64, seed, steps: 4, cfg: 1 });
 
@@ -38,11 +39,11 @@ test('pinning flags a generation, shows it in the pinned list, and unpinning rem
   setGenerationPinned(db, a.id, true);
   assert.equal(getGenerationById(db, a.id)?.pinned, true);
   assert.equal(getGenerationById(db, b.id)?.pinned, false);
-  assert.deepEqual(listPinnedGenerations(db, false).map((r) => r.id), [a.id]);
+  assert.deepEqual(listPinnedGenerations(db, 1).map((r) => r.id), [a.id]);
 
   setGenerationPinned(db, a.id, false);
   assert.equal(getGenerationById(db, a.id)?.pinned, false);
-  assert.deepEqual(listPinnedGenerations(db, false), []);
+  assert.deepEqual(listPinnedGenerations(db, 1), []);
 });
 
 test('the most recently pinned item comes first, and re-pinning keeps its place', async () => {
@@ -52,22 +53,24 @@ test('the most recently pinned item comes first, and re-pinning keeps its place'
   setGenerationPinned(db, a.id, true);
   await new Promise((resolve) => setTimeout(resolve, 5));
   setGenerationPinned(db, b.id, true);
-  assert.deepEqual(listPinnedGenerations(db, false).map((r) => r.id), [b.id, a.id]);
+  assert.deepEqual(listPinnedGenerations(db, 1).map((r) => r.id), [b.id, a.id]);
 
   await new Promise((resolve) => setTimeout(resolve, 5));
   setGenerationPinned(db, a.id, true); // already pinned: not moved to the front
-  assert.deepEqual(listPinnedGenerations(db, false).map((r) => r.id), [b.id, a.id]);
+  assert.deepEqual(listPinnedGenerations(db, 1).map((r) => r.id), [b.id, a.id]);
 });
 
-test('hidden pinned items are left out unless asked for', () => {
+test("each workspace lists only its own pinned items, and the pinned group counts only the same workspace's", () => {
   const db = initDatabase(':memory:');
-  const a = insertGeneration(db, params('a'), 'z-image', '/out/a.png');
-  const b = insertGeneration(db, params('b'), 'z-image', '/out/b.png');
+  const other = createWorkspace(db, 'Other').id;
+  const a = insertGeneration(db, params('same'), 'z-image', '/out/a.png');
+  const b = insertGeneration(db, params('same', 2), 'z-image', '/out/b.png', null, other);
   setGenerationPinned(db, a.id, true);
   setGenerationPinned(db, b.id, true);
-  setGenerationHidden(db, a.id, true);
-  assert.deepEqual(listPinnedGenerations(db, false).map((r) => r.id), [b.id]);
-  assert.deepEqual(listPinnedGenerations(db, true).map((r) => r.id).sort(), [a.id, b.id].sort());
+  assert.deepEqual(listPinnedGenerations(db, 1).map((r) => r.id), [a.id]);
+  assert.deepEqual(listPinnedGenerations(db, other).map((r) => r.id), [b.id]);
+  assert.equal(countPinnedWithPrompt(db, 'same', 1), 1);
+  assert.equal(countPinnedWithPrompt(db, 'same', other), 1);
 });
 
 test('deleting a pinned generation takes its pin with it, and selection refs report the pin', () => {
@@ -75,11 +78,11 @@ test('deleting a pinned generation takes its pin with it, and selection refs rep
   const a = insertGeneration(db, params('a'), 'z-image', '/out/a.png');
   const b = insertGeneration(db, params('b'), 'z-image', '/out/b.png');
   setGenerationPinned(db, a.id, true);
-  const refs = listGenerationRefs(db, ['wan22-i2v'], 'image', false, false);
+  const refs = listGenerationRefs(db, ['wan22-i2v'], 'image', false, 1);
   assert.deepEqual(refs.map((r) => [r.id, r.pinned]).sort(), [[a.id, true], [b.id, false]].sort());
 
   db.prepare('DELETE FROM generations WHERE id = ?').run(a.id);
-  assert.deepEqual(listPinnedGenerations(db, true), []);
+  assert.deepEqual(listPinnedGenerations(db, 1), []);
 });
 
 test('a database from before pinning gets the column added and keeps its rows', () => {
@@ -118,18 +121,17 @@ test('saved prompts pin the newest matching generation and the old table is drop
   assert.equal(getGenerationById(db, old.id)?.pinned, false);
   assert.equal(getGenerationById(db, newest.id)?.pinned, true);
   // Newest saved prompt first, as the saved prompts were listed.
-  assert.deepEqual(listPinnedGenerations(db, false).map((r) => r.id), [other.id, newest.id]);
+  assert.deepEqual(listPinnedGenerations(db, 1).map((r) => r.id), [other.id, newest.id]);
 });
 
-test('a hidden match is only used when nothing visible matches', () => {
+test('when several generations match a saved prompt, the newest one is pinned', () => {
   const db = initDatabase(':memory:');
-  const shown = insertGeneration(db, params('same', 1), 'z-image', '/out/shown.png');
-  const hidden = insertGeneration(db, params('same', 2), 'z-image', '/out/hidden.png');
-  setGenerationHidden(db, hidden.id, true);
+  const older = insertGeneration(db, params('same', 1), 'z-image', '/out/older.png');
+  const newer = insertGeneration(db, params('same', 2), 'z-image', '/out/newer.png');
   legacyTable(db, [{ name: 'x', prompt: 'same', at: '2026-01-01T00:00:00.000Z' }]);
   migrateSavedPrompts(db, null);
-  assert.equal(getGenerationById(db, shown.id)?.pinned, true);
-  assert.equal(getGenerationById(db, hidden.id)?.pinned, false);
+  assert.equal(getGenerationById(db, newer.id)?.pinned, true);
+  assert.equal(getGenerationById(db, older.id)?.pinned, false);
 });
 
 test('saved prompts without a picture are exported before the table is dropped', () => {

@@ -21,6 +21,8 @@ export interface PromptStyle {
   text: string;
   /** Style (a look, one per picture) or element (a reusable part of the picture, as many as wanted). */
   kind: StyleKind;
+  /** The one workspace this is for, or null when it is shared by every workspace. */
+  workspaceId: number | null;
   createdAt: string;
   /** When the wording (`text`) was last written or changed - a rename or a kind change does not count. */
   textChangedAt: string;
@@ -32,6 +34,8 @@ export interface PromptStyleInput {
   text: string;
   /** Absent means a style. */
   kind?: StyleKind;
+  /** Who can use it: 'all' (every workspace) or 'workspace' (only the current one). Chosen when it is made; an edit keeps it unless this is sent. */
+  scope?: 'all' | 'workspace';
 }
 
 export const MAX_STYLE_NAME_LENGTH = 60;
@@ -45,7 +49,7 @@ export function validateStyleInput(input: PromptStyleInput): { ok: true; value: 
   if (name.length > MAX_STYLE_NAME_LENGTH) return { ok: false, message: `The name can be at most ${MAX_STYLE_NAME_LENGTH} characters.` };
   if (!text) return { ok: false, message: 'Enter the style text - the words to add to a prompt.' };
   if (text.length > MAX_STYLE_TEXT_LENGTH) return { ok: false, message: `The style text can be at most ${MAX_STYLE_TEXT_LENGTH} characters.` };
-  return { ok: true, value: { name, text, kind: cleanStyleKind(input?.kind) } };
+  return { ok: true, value: { name, text, kind: cleanStyleKind(input?.kind), ...(input?.scope === 'workspace' || input?.scope === 'all' ? { scope: input.scope } : {}) } };
 }
 
 /**

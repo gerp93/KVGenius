@@ -77,8 +77,6 @@ type Props = {
   unreachable: boolean;
   /** Generate's prompt tabs, listed under Image / Video; null until Generate has published them. */
   promptTabs: PromptTabsModel | null;
-  showHidden: boolean;
-  onToggleShowHidden: () => void;
 };
 
 const TAB_ROW = 28;
@@ -231,7 +229,7 @@ function PromptTabs({ model, thin, onGenerate }: { model: PromptTabsModel; thin:
 /** The app's navigation: a left rail that is either full (labels, sections that fold) or thin (every page
  * its own icon, sections kept as small captions - nothing hides behind a hover). Which one, and which
  * sections are folded, is remembered. */
-export default function SideNav({ unreachable, promptTabs, showHidden, onToggleShowHidden }: Props) {
+export default function SideNav({ unreachable, promptTabs }: Props) {
   const location = useLocation();
   const [thin, setThin] = useState(loadThin);
   const [folded, setFolded] = useState<string[]>(loadFolded);
@@ -322,17 +320,6 @@ export default function SideNav({ unreachable, promptTabs, showHidden, onToggleS
           <span className="side-nav__icon">❓</span>
           <span className="side-nav__label">Setup guide</span>
         </Link>
-        <div className="side-nav__rule" />
-        <button
-          type="button"
-          className={`side-nav__item${showHidden ? ' side-nav__item--on' : ''}`}
-          aria-pressed={showHidden}
-          onClick={onToggleShowHidden}
-          title="Include items hidden by the hidden-words rule or by hand, in the Library and Prompts. Applies everywhere; resets when the app restarts."
-        >
-          <span className="side-nav__icon">🙈</span>
-          <span className="side-nav__label">{showHidden ? 'Showing hidden' : 'Show hidden'}</span>
-        </button>
       </div>
     </nav>
   );

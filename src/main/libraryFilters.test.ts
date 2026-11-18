@@ -24,24 +24,24 @@ function seeded(): DatabaseSync {
 
 test('image listings can be narrowed to one extension, whatever its case', () => {
   const db = seeded();
-  const png = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, 'png');
+  const png = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, 'png');
   assert.deepEqual(png.map((r) => r.seed).sort(), [1, 2]);
-  const gif = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, 'GIF');
+  const gif = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, 'GIF');
   assert.deepEqual(gif.map((r) => r.seed), [4]);
-  assert.equal(listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null).length, 4);
-  assert.deepEqual(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, false, 'webp').map((r) => r.imagePath), ['/out/images/c.webp']);
+  assert.equal(listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, null).length, 4);
+  assert.deepEqual(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, 1, 'webp').map((r) => r.imagePath), ['/out/images/c.webp']);
 });
 
 test('the extension narrows the image count only, and junk is ignored', () => {
   const db = seeded();
-  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, 'gif'), { image: 1, video: 1 });
-  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, null), { image: 4, video: 1 });
+  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, 1, 'gif'), { image: 1, video: 1 });
+  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, 1, null), { image: 4, video: 1 });
   // Not a plain extension: no filtering (and no LIKE wildcards reaching SQL).
-  assert.equal(listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, '%').length, 4);
+  assert.equal(listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, '%').length, 4);
 });
 
 test('listImageExtensions lists the image types present, most common first, never video types', () => {
-  assert.deepEqual(listImageExtensions(seeded(), VIDEO_FAMILIES), ['png', 'gif', 'webp']);
+  assert.deepEqual(listImageExtensions(seeded(), VIDEO_FAMILIES, 1), ['png', 'gif', 'webp']);
 });
 
 test('a favorited GIF lives under gifs/favorites and returns to gifs/', () => {
@@ -79,7 +79,7 @@ test('a listing can be narrowed to the items made one of the chosen ways', () =>
   insertGeneration(db, params(4), 'wan22-i2v', '/out/videos/d.mp4');
   insertGeneration(db, params(5), 'upscale-video', '/out/videos/e.mp4');
   const seeds = (origins: OriginKind[], kind: 'image' | 'video') =>
-    listGenerations(db, ['wan22-i2v', 'upscale-video'], kind, 50, null, false, false, null, { origins })
+    listGenerations(db, ['wan22-i2v', 'upscale-video'], kind, 50, null, false, 1, null, { origins })
       .map((r) => r.seed)
       .sort();
   assert.deepEqual(seeds(['upscale'], 'image'), [2]);
@@ -95,13 +95,13 @@ test('the origin filter applies to counts, refs and stacks too, and ignores junk
   insertGeneration(db, params(1), 'z-image', '/out/images/a.png');
   insertGeneration(db, params(2), 'upscale-image', '/out/images/b.png');
   const families = ['wan22-i2v', 'upscale-video'];
-  assert.deepEqual(countGenerations(db, families, false, false, null, { origins: ['upscale'] }), { image: 1, video: 0 });
-  assert.deepEqual(listGenerationRefs(db, families, 'image', false, false, null, { origins: ['text-to-image'] }).length, 1);
-  const stacks = listGenerations(db, families, 'image', 50, null, false, false, null, { grouped: true, origins: ['upscale'] });
+  assert.deepEqual(countGenerations(db, families, false, 1, null, { origins: ['upscale'] }), { image: 1, video: 0 });
+  assert.deepEqual(listGenerationRefs(db, families, 'image', false, 1, null, { origins: ['text-to-image'] }).length, 1);
+  const stacks = listGenerations(db, families, 'image', 50, null, false, 1, null, { grouped: true, origins: ['upscale'] });
   assert.deepEqual(stacks.map((r) => r.seed), [2]);
   // Not real origins: no filtering (and nothing reaches SQL).
   const junk = ['x" OR 1=1 --'] as unknown as OriginKind[];
-  assert.equal(listGenerations(db, families, 'image', 50, null, false, false, null, { origins: junk }).length, 2);
+  assert.equal(listGenerations(db, families, 'image', 50, null, false, 1, null, { origins: junk }).length, 2);
 });
 
 test('counts can carry a separate origin filter for each tab', () => {
@@ -112,10 +112,10 @@ test('counts can carry a separate origin filter for each tab', () => {
   insertGeneration(db, params(4), 'upscale-video', '/out/videos/d.mp4');
   const families = ['wan22-i2v', 'upscale-video'];
   // Images narrowed to text-to-image, videos left alone.
-  assert.deepEqual(countGenerations(db, families, false, false, null, { originsByKind: { image: ['text-to-image'], video: [] } }), { image: 1, video: 2 });
+  assert.deepEqual(countGenerations(db, families, false, 1, null, { originsByKind: { image: ['text-to-image'], video: [] } }), { image: 1, video: 2 });
   // Each tab with its own filter.
   assert.deepEqual(
-    countGenerations(db, families, false, false, null, { originsByKind: { image: ['upscale'], video: ['image-to-video'] } }),
+    countGenerations(db, families, false, 1, null, { originsByKind: { image: ['upscale'], video: ['image-to-video'] } }),
     { image: 1, video: 1 }
   );
 });
@@ -131,7 +131,7 @@ test('a search keeps the items whose prompt has every word, ignoring case, in li
   add('a_b under_score');
   add('a red fox video', 'wan22-i2v', '/out/videos/v.mp4');
 
-  const found = (search: string) => listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { search }).map((r) => r.prompt);
+  const found = (search: string) => listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, null, { search }).map((r) => r.prompt);
   assert.equal(found('').length, 5, 'blank search narrows nothing');
   assert.equal(found('   ').length, 5);
   assert.deepEqual(found('SNOW'), ['A red fox in the Snow', 'A red fox in the Snow']);
@@ -144,11 +144,11 @@ test('a search keeps the items whose prompt has every word, ignoring case, in li
   assert.deepEqual(found('a_b'), ['a_b under_score']);
   assert.deepEqual(found('_'), ['a_b under_score']);
 
-  const stacks = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { search: 'fox', grouped: true });
+  const stacks = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, null, { search: 'fox', grouped: true });
   assert.deepEqual(stacks.map((r) => [r.prompt, r.groupCount]), [['a blue fox', 1], ['A red fox in the Snow', 2]]);
-  assert.equal(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, false, null, { search: 'snow' }).length, 2);
-  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, null, { search: 'fox' }), { image: 3, video: 1 });
-  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, null, { search: 'fox', grouped: true }), { image: 2, video: 1 });
+  assert.equal(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, 1, null, { search: 'snow' }).length, 2);
+  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, 1, null, { search: 'fox' }), { image: 3, video: 1 });
+  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, 1, null, { search: 'fox', grouped: true }), { image: 2, video: 1 });
 });
 
 test('the style filter finds pictures by any chosen style or element, by whole name only', () => {
@@ -161,7 +161,7 @@ test('the style filter finds pictures by any chosen style or element, by whole n
   made(5, '50% off_sale');
   made(6);
   insertGeneration(db, { ...params(7), styleName: 'Anime' }, 'wan22-i2v', '/out/videos/s7.mp4');
-  const seeds = (styles: string[]) => listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { styles }).map((r) => r.seed).sort();
+  const seeds = (styles: string[]) => listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, null, { styles }).map((r) => r.seed).sort();
   assert.deepEqual(seeds(['Anime']), [1, 2]);
   assert.deepEqual(seeds(['Red jacket']), [2, 3]);
   assert.deepEqual(seeds(['Anime', 'Red jacket']), [1, 2, 3]);
@@ -170,9 +170,9 @@ test('the style filter finds pictures by any chosen style or element, by whole n
   assert.deepEqual(seeds(['50% off_sale']), [5]);
   assert.deepEqual(seeds(['%']), []);
   assert.equal(seeds([]).length, 6);
-  assert.deepEqual(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, false, null, { styles: ['Anime'] }).length, 2);
+  assert.deepEqual(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, 1, null, { styles: ['Anime'] }).length, 2);
   // Counts narrow pictures only; videos are not filtered by style.
-  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, false, null, { styles: ['Anime'] }), { image: 2, video: 1 });
+  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, 1, null, { styles: ['Anime'] }), { image: 2, video: 1 });
 });
 
 test('listStyleTags lists each style and element once, alphabetically, ignoring the Trash', () => {
@@ -183,5 +183,5 @@ test('listStyleTags lists each style and element once, alphabetically, ignoring 
   const trashed = insertGeneration(db, { ...params(4), styleName: 'Only in trash' }, 'z-image', '/out/images/d.png');
   db.prepare('UPDATE generations SET trashed_at = ? WHERE id = ?').run('2026-01-01T00:00:00Z', trashed.id);
   // 'Red jacket + anime' and 'Anime' name the same style ignoring case: one entry.
-  assert.deepEqual(listStyleTags(db), ['Anime', 'Red jacket']);
+  assert.deepEqual(listStyleTags(db, 1), ['Anime', 'Red jacket']);
 });

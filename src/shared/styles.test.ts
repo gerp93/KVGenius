@@ -34,7 +34,7 @@ test('style input is trimmed and checked', () => {
   assert.equal(validateStyleInput({ name: 'x', text: 'x'.repeat(2001) }).ok, false);
 });
 
-const piece = (id: number, name: string, text: string, kind: 'style' | 'element'): PromptStyle => ({ id, name, text, kind, createdAt: '', textChangedAt: '' });
+const piece = (id: number, name: string, text: string, kind: 'style' | 'element'): PromptStyle => ({ id, name, text, kind, workspaceId: null, createdAt: '', textChangedAt: '' });
 
 test('a kind defaults to style and anything unknown is a style', () => {
   assert.equal(cleanStyleKind('element'), 'element');
@@ -65,7 +65,7 @@ test('elements go before the style, and the label names both', () => {
 });
 
 test('splitStyledPrompt gives back the typed prompt and the picked style and elements', () => {
-  const mk = (id: number, name: string, text: string, kind: 'style' | 'element'): PromptStyle => ({ id, name, text, kind, createdAt: '', textChangedAt: '' });
+  const mk = (id: number, name: string, text: string, kind: 'style' | 'element'): PromptStyle => ({ id, name, text, kind, workspaceId: null, createdAt: '', textChangedAt: '' });
   const anime = mk(1, 'Anime', 'anime, cel shaded', 'style');
   const jacket = mk(2, 'Red jacket', 'wearing a red jacket', 'element');
   const hat = mk(3, 'Hat', 'a tall hat.', 'element');

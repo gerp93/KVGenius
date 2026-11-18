@@ -8,55 +8,9 @@ export default function LibraryDataTab() {
   const [error, setError] = useState<string | null>(null);
   const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
 
-  // One word or phrase per line; matched as whole words against each prompt (see shared/hiddenWords.ts).
-  const [hiddenWordsText, setHiddenWordsText] = useState('');
-  const [hiddenBusy, setHiddenBusy] = useState(false);
-  const [hiddenMessage, setHiddenMessage] = useState<string | null>(null);
-
   useEffect(() => {
     window.kvgenius.getDbInfo().then(setDbInfo);
-    window.kvgenius.getHiddenWords().then((words) => setHiddenWordsText(words.join('\n')));
   }, []);
-
-  /** The textarea as a word list: one entry per line, commas also accepted. */
-  function parseHiddenWords(): string[] {
-    return hiddenWordsText.split(/[\n,]/);
-  }
-
-  async function saveHiddenWords(): Promise<string[]> {
-    const saved = await window.kvgenius.setHiddenWords(parseHiddenWords());
-    setHiddenWordsText(saved.join('\n'));
-    return saved;
-  }
-
-  async function handleSaveHiddenWords() {
-    setHiddenBusy(true);
-    setHiddenMessage(null);
-    try {
-      const saved = await saveHiddenWords();
-      setHiddenMessage(`Saved ${saved.length} ${saved.length === 1 ? 'word' : 'words'}. New generations use it from now on.`);
-    } catch (err) {
-      setHiddenMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setHiddenBusy(false);
-    }
-  }
-
-  async function handleApplyHiddenWords() {
-    setHiddenBusy(true);
-    setHiddenMessage(null);
-    try {
-      await saveHiddenWords();
-      const { checked, newlyHidden } = await window.kvgenius.applyHiddenWords();
-      setHiddenMessage(
-        `Checked ${checked} ${checked === 1 ? 'generation' : 'generations'} that weren't hidden; hid ${newlyHidden}.`
-      );
-    } catch (err) {
-      setHiddenMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setHiddenBusy(false);
-    }
-  }
 
   async function runDbAction(action: () => Promise<unknown>) {
     setError(null);
@@ -70,42 +24,6 @@ export default function LibraryDataTab() {
 
   return (
     <>
-      <SettingsSection
-        title="Hidden content"
-        description={
-          <>
-            When a prompt contains any of these words or phrases, its image or video is marked hidden and left out of
-            the Library and Prompts unless "Show hidden" (top bar) is on. One per line; matching ignores case and only counts whole
-            words.
-          </>
-        }
-      >
-        <textarea
-          id="hidden-words"
-          aria-label="Hidden words"
-          value={hiddenWordsText}
-          onChange={(e) => setHiddenWordsText(e.target.value)}
-          rows={8}
-          spellCheck={false}
-          placeholder="one word or phrase per line"
-          style={{ width: '100%' }}
-        />
-        <div className="button-row" style={{ marginTop: 8 }}>
-          <button type="button" className="primary" onClick={handleSaveHiddenWords} disabled={hiddenBusy}>
-            Save
-          </button>
-          <button type="button" onClick={handleApplyHiddenWords} disabled={hiddenBusy}>
-            Save and Apply to Existing
-          </button>
-        </div>
-        <p className="settings-hint">
-          "Apply to Existing" checks every earlier image and video against this list and hides the matches. It only
-          ever hides - anything you've hidden by hand stays hidden, and nothing is un-hidden - so you can add words and
-          run it again whenever you like. Unhide an item from its Details panel in the Library.
-        </p>
-        {hiddenMessage && <p className="settings-message settings-message--ok">{hiddenMessage}</p>}
-      </SettingsSection>
-
       <CleanupSettings />
 
       <SettingsSection

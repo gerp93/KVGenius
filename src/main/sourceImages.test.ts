@@ -60,7 +60,7 @@ test('a file already in the sources folder is its own copy, and a missing one is
 
 test('a generation remembers its source image, and older ones have none', () => {
   const db = initDatabase(':memory:');
-  const video = insertGeneration(db, params(1), 'wan22-i2v', '/out/v.mp4', null, false, '/out/sources/abc.png');
+  const video = insertGeneration(db, params(1), 'wan22-i2v', '/out/v.mp4', null, 1, '/out/sources/abc.png');
   const image = insertGeneration(db, params(2), 'z-image', '/out/i.png');
   assert.equal(video.sourceImagePath, '/out/sources/abc.png');
   assert.equal(getGenerationById(db, video.id)?.sourceImagePath, '/out/sources/abc.png');
@@ -75,8 +75,8 @@ test('a kept source image is deleted with its last video, and nothing outside th
   const kept = keepSourceImage(original, sources)!;
 
   const db = initDatabase(':memory:');
-  const one = insertGeneration(db, params(1), 'wan22-i2v', '/out/1.mp4', null, false, kept);
-  const two = insertGeneration(db, params(2), 'wan22-i2v', '/out/2.mp4', null, false, kept);
+  const one = insertGeneration(db, params(1), 'wan22-i2v', '/out/1.mp4', null, 1, kept);
+  const two = insertGeneration(db, params(2), 'wan22-i2v', '/out/2.mp4', null, 1, kept);
 
   db.prepare('DELETE FROM generations WHERE id = ?').run(one.id);
   assert.equal(releaseSourceImage(db, kept, sources), false, 'another video still uses it');
@@ -94,12 +94,12 @@ test('a kept source image is deleted with its last video, and nothing outside th
 
 test('listKeptSources counts what each kept source was used for, newest use first', () => {
   const db = initDatabase(':memory:');
-  insertGeneration(db, params(1), 'wan22-i2v', '/out/1.mp4', null, false, '/s/a.png');
-  insertGeneration(db, params(2), 'upscale-image', '/out/2.png', null, false, '/s/a.png');
-  insertGeneration(db, params(3), 'wan22-i2v', '/out/3.mp4', null, false, '/s/b.png');
-  insertGeneration(db, params(4), 'z-image', '/out/4.png', null, false, null);
+  insertGeneration(db, params(1), 'wan22-i2v', '/out/1.mp4', null, 1, '/s/a.png');
+  insertGeneration(db, params(2), 'upscale-image', '/out/2.png', null, 1, '/s/a.png');
+  insertGeneration(db, params(3), 'wan22-i2v', '/out/3.mp4', null, 1, '/s/b.png');
+  insertGeneration(db, params(4), 'z-image', '/out/4.png', null, 1, null);
 
-  const sources = listKeptSources(db);
+  const sources = listKeptSources(db, 1);
   assert.deepEqual(
     sources.map((s) => [s.path, s.uses]),
     [
@@ -120,7 +120,7 @@ test('an inpainting result remembers its mask, which is kept as long as any resu
   fs.writeFileSync(mask, 'm');
 
   const db = initDatabase(':memory:');
-  const result = insertGeneration(db, { ...params(1), denoise: 0.8 }, 'z-image-inpaint', '/out/1.png', null, false, picture, mask);
+  const result = insertGeneration(db, { ...params(1), denoise: 0.8 }, 'z-image-inpaint', '/out/1.png', null, 1, picture, mask);
   assert.equal(result.maskImagePath, mask);
   assert.equal(getGenerationById(db, result.id)?.maskImagePath, mask);
   assert.equal(getGenerationById(db, insertGeneration(db, params(2), 'z-image', '/out/2.png').id)?.maskImagePath, null);
@@ -198,13 +198,13 @@ test('the original of a result is the Library picture its kept source copies', (
   insertGeneration(db, params(2), 'z-image', decoy);
 
   const kept = keepSourceImage(lib, sources)!;
-  const video = insertGeneration(db, params(3), 'wan22-i2v', path.join(dir, 'v.mp4'), null, false, kept);
+  const video = insertGeneration(db, params(3), 'wan22-i2v', path.join(dir, 'v.mp4'), null, 1, kept);
   assert.equal(findOriginalOf(db, video, sources)?.id, original.id);
 
   // A source from outside the app has no original.
   const outside = path.join(dir, 'outside.png');
   fs.writeFileSync(outside, 'from-elsewhere');
-  const other = insertGeneration(db, params(4), 'wan22-i2v', path.join(dir, 'v2.mp4'), null, false, keepSourceImage(outside, sources));
+  const other = insertGeneration(db, params(4), 'wan22-i2v', path.join(dir, 'v2.mp4'), null, 1, keepSourceImage(outside, sources));
   assert.equal(findOriginalOf(db, other, sources), null);
 
   // An original that has gone to the Trash is not offered; one that was deleted from disk is not either.

@@ -8,25 +8,27 @@ import {
   listGenerationRefs,
   listGenerations,
   setGenerationFavorite,
-  setGenerationHidden,
   setGenerationPinned,
 } from './db';
 import { moveToTrash } from './trash';
+import { createWorkspace } from './workspaces';
 
 const VIDEO_FAMILIES = ['wan22-i2v'];
 let seed = 0;
 
-function add(db: DatabaseSync, prompt: string, family = 'z-image'): number {
+function add(db: DatabaseSync, prompt: string, family = 'z-image', workspaceId = 1): number {
   return insertGeneration(
     db,
     { prompt, width: 8, height: 8, seed: ++seed, steps: 1, cfg: 1, ...(family === 'wan22-i2v' ? { length: 81 } : {}) },
     family,
-    `/out/${seed}.${family === 'wan22-i2v' ? 'mp4' : 'png'}`
+    `/out/${seed}.${family === 'wan22-i2v' ? 'mp4' : 'png'}`,
+    null,
+    workspaceId
   ).id;
 }
 
-const stacks = (db: DatabaseSync, limit = 50, before: number | null = null, fav = false, hidden = false) =>
-  listGenerations(db, VIDEO_FAMILIES, 'image', limit, before, fav, hidden, null, { grouped: true });
+const stacks = (db: DatabaseSync, limit = 50, before: number | null = null, fav = false, workspaceId = 1) =>
+  listGenerations(db, VIDEO_FAMILIES, 'image', limit, before, fav, workspaceId, null, { grouped: true });
 
 test('items with exactly the same prompt collapse into one stack, with how many it holds', () => {
   const db = initDatabase(':memory:');
@@ -53,7 +55,7 @@ test('"the same" means exactly the same - not a different case or an extra space
   add(db, 'a red fox ');
   add(db, 'a  red fox');
   assert.equal(stacks(db).length, 4);
-  assert.equal(countGenerations(db, VIDEO_FAMILIES, false, true, null, { grouped: true }).image, 4);
+  assert.equal(countGenerations(db, VIDEO_FAMILIES, false, 1, null, { grouped: true }).image, 4);
 });
 
 test('the cover is the pinned item, else a favorite, else the newest', () => {
@@ -107,16 +109,15 @@ test('the filters apply to the items first, so a stack only holds what passes th
   const db = initDatabase(':memory:');
   const kept = add(db, 'shared');
   add(db, 'shared');
-  const hiddenOne = add(db, 'shared');
-  const onlyHidden = add(db, 'secret');
-  setGenerationHidden(db, hiddenOne, true);
-  setGenerationHidden(db, onlyHidden, true);
+  const other = createWorkspace(db, 'Other').id;
+  add(db, 'shared', 'z-image', other);
+  add(db, 'secret', 'z-image', other);
   setGenerationFavorite(db, kept, true);
 
   const visible = stacks(db);
-  assert.deepEqual(visible.map((r) => [r.prompt, r.groupCount]), [['shared', 2]], 'hidden items are left out, and a stack of only hidden ones vanishes');
-  assert.equal(stacks(db, 50, null, false, true).find((r) => r.prompt === 'shared')!.groupCount, 3);
-  assert.deepEqual(stacks(db, 50, null, true, false).map((r) => [r.prompt, r.groupCount]), [['shared', 1]], 'favorites only');
+  assert.deepEqual(visible.map((r) => [r.prompt, r.groupCount]), [['shared', 2]], "another workspace's items are left out, and a stack of only those vanishes");
+  assert.deepEqual(stacks(db, 50, null, false, other).map((r) => [r.prompt, r.groupCount]), [['secret', 1], ['shared', 1]], 'each workspace stacks only its own');
+  assert.deepEqual(stacks(db, 50, null, true).map((r) => [r.prompt, r.groupCount]), [['shared', 1]], 'favorites only');
 });
 
 test('images and videos stack separately, so a prompt used for both appears in each tab once', () => {
@@ -126,10 +127,10 @@ test('images and videos stack separately, so a prompt used for both appears in e
   add(db, 'both ways', 'wan22-i2v');
   assert.equal(stacks(db).length, 1);
   assert.equal(stacks(db)[0].groupCount, 2);
-  const videos = listGenerations(db, VIDEO_FAMILIES, 'video', 50, null, false, true, null, { grouped: true });
+  const videos = listGenerations(db, VIDEO_FAMILIES, 'video', 50, null, false, 1, null, { grouped: true });
   assert.equal(videos.length, 1);
   assert.equal(videos[0].groupCount, 1);
-  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, true, null, { grouped: true }), { image: 1, video: 1 });
+  assert.deepEqual(countGenerations(db, VIDEO_FAMILIES, false, 1, null, { grouped: true }), { image: 1, video: 1 });
 });
 
 test('anything in the Trash is not part of a stack', () => {
@@ -147,10 +148,10 @@ test('without grouping the listing is exactly what it always was', () => {
   const db = initDatabase(':memory:');
   add(db, 'x');
   add(db, 'x');
-  const plain = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, true);
+  const plain = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1);
   assert.equal(plain.length, 2);
   assert.equal(plain[0].groupCount, undefined);
-  assert.equal(countGenerations(db, VIDEO_FAMILIES, false, true).image, 2);
+  assert.equal(countGenerations(db, VIDEO_FAMILIES, false, 1).image, 2);
 });
 
 test('opening a stack lists just that prompt\'s items, newest first, and refs and counts follow', () => {
@@ -158,16 +159,15 @@ test('opening a stack lists just that prompt\'s items, newest first, and refs an
   const a = add(db, 'target');
   add(db, 'other');
   const b = add(db, 'target');
-  const hidden = add(db, 'target');
-  setGenerationHidden(db, hidden, true);
+  add(db, 'target', 'z-image', createWorkspace(db, 'Other').id);
 
-  const opened = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { prompt: 'target' });
+  const opened = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, null, { prompt: 'target' });
   assert.deepEqual(opened.map((r) => r.id), [b, a]);
   assert.equal(opened[0].groupCount, undefined, 'an opened stack is a plain list');
-  assert.deepEqual(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, false, null, { prompt: 'target' }).map((r) => r.id), [b, a]);
-  assert.equal(countGenerations(db, VIDEO_FAMILIES, false, false, null, { prompt: 'target' }).image, 2);
+  assert.deepEqual(listGenerationRefs(db, VIDEO_FAMILIES, 'image', false, 1, null, { prompt: 'target' }).map((r) => r.id), [b, a]);
+  assert.equal(countGenerations(db, VIDEO_FAMILIES, false, 1, null, { prompt: 'target' }).image, 2);
   // Asking to group and to open one prompt opens it.
-  assert.equal(listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { prompt: 'target', grouped: true }).length, 2);
+  assert.equal(listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, null, { prompt: 'target', grouped: true }).length, 2);
   // A prompt that is not there lists nothing.
-  assert.deepEqual(listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { prompt: 'no such prompt' }), []);
+  assert.deepEqual(listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, null, { prompt: 'no such prompt' }), []);
 });

@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS imports (
   height INTEGER,
   duration REAL,
   batch TEXT,
+  workspace_id INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
 `;
@@ -134,6 +135,8 @@ export interface NewImport {
   height?: number | null;
   duration?: number | null;
   batch?: string | null;
+  /** The workspace the file is added to. */
+  workspaceId?: number;
 }
 
 /** Adds a file, or returns the existing entry when this path was imported before (a given batch
@@ -145,7 +148,7 @@ export function upsertImport(db: DatabaseSync, item: NewImport): ItemView {
     return getItem(db, `imp-${existing.id}`) as ItemView;
   }
   const result = db
-    .prepare('INSERT INTO imports (origin, kind, path, name, width, height, duration, batch, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .prepare('INSERT INTO imports (origin, kind, path, name, width, height, duration, batch, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(
       item.origin,
       item.kind,
@@ -155,6 +158,7 @@ export function upsertImport(db: DatabaseSync, item: NewImport): ItemView {
       item.height ?? null,
       item.duration ?? null,
       item.batch ?? null,
+      item.workspaceId ?? 1,
       new Date().toISOString()
     );
   return getItem(db, `imp-${Number(result.lastInsertRowid)}`) as ItemView;

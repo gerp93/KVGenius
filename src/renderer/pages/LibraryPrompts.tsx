@@ -31,8 +31,6 @@ interface Props {
   /** Load a whole generation - prompt and settings - into the Generate page (a new tab). */
   onRecall: (record: GenerationRecord) => void;
   onImageToVideo: (request: VideoSourceRequest) => void;
-  /** The app-wide "Show hidden" switch (top bar). Hidden items (Settings > Hidden Content) are left out unless it is on. */
-  showHidden: boolean;
   /** Open the app-wide queue panel (an upscale was just queued). */
   onShowQueue: () => void;
 }
@@ -229,7 +227,6 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
           </span>
         )}
         <OriginBadge record={record} />
-        {record.hidden && <span className="library-card__hidden-badge">Hidden</span>}
       </div>
       <div className="library-card__actions library-card__actions--labeled">
         <button type="button" className="primary" onClick={() => onUse(record)} title="Put this prompt on the Generate page">
@@ -254,7 +251,7 @@ function PinnedTile({ group, width, height, active, onOpen, onExpand, onUnpin, o
  * share a prompt share a card, which cycles through their pictures. Clicking a card opens the same
  * details panel as Library > Output.
  */
-export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImageToVideo, showHidden, onShowQueue }: Props) {
+export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImageToVideo, onShowQueue }: Props) {
   const [cardScale, setCardScale] = useCardScale();
   const [view, setView] = usePromptView();
   // The cluster that was opened: the page then shows just its prompts, as ordinary cards.
@@ -281,7 +278,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
   useEffect(() => {
     let cancelled = false;
     window.kvgenius
-      .listPinnedGenerations(showHidden)
+      .listPinnedGenerations()
       .then((list) => {
         if (cancelled) return;
         setRecords(list);
@@ -293,7 +290,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     return () => {
       cancelled = true;
     };
-  }, [showHidden, reloadKey]);
+  }, [reloadKey]);
 
   useEffect(() => {
     const el = gridRef.current;
@@ -365,8 +362,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
         patch(change.id, { favorite: change.favorite, imagePath: change.imagePath });
         break;
       case 'pinned':
-      case 'hidden':
-        // A pin or unpin (or a hide) changes which pictures belong here at all: load the list again.
+        // A pin or unpin changes which pictures belong here at all: load the list again.
         setReloadKey((k) => k + 1);
         break;
       case 'trashed':
@@ -440,19 +436,6 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
     } catch (err) {
       fail(err);
     }
-  }
-
-  async function handleToggleHidden(record: GenerationRecord) {
-    const hidden = !record.hidden;
-    try {
-      await window.kvgenius.setGenerationHidden(record.id, hidden);
-    } catch (err) {
-      fail(err);
-      return;
-    }
-    // Hiding while hidden items are filtered out: it no longer belongs in this list.
-    if (hidden && !showHidden) forget(record.id);
-    else patch(record.id, { hidden });
   }
 
   // Delete moves to the Trash with no confirmation: undo it here, or restore it from Library > Trash.
@@ -655,7 +638,6 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             }}
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}
-            onToggleHidden={handleToggleHidden}
             onDelete={handleDelete}
             onRerack={handleRerack}
             onImageToVideo={handleImageToVideo}

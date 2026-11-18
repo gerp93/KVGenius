@@ -16,7 +16,10 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 interface Props {
+  /** The app's own theme. */
   theme: string | null;
+  /** The theme of the workspace the app is in, when it has one of its own (it then wins over `theme`). */
+  workspaceTheme: string | null;
   onThemeChange: (theme: string) => void;
   /** Tells the app a saved model was added, edited or deleted, so Generate's dropdown reloads. */
   onModelsChanged: () => void;
@@ -24,7 +27,7 @@ interface Props {
 
 /** Settings, grouped into tabs. The active tab lives in the URL (`/settings?tab=comfyui`) so other
  * parts of the app can link straight to the relevant group. */
-export default function Settings({ theme, onThemeChange, onModelsChanged }: Props) {
+export default function Settings({ theme, workspaceTheme, onThemeChange, onModelsChanged }: Props) {
   const [params, setParams] = useSearchParams();
   const requested = params.get('tab');
   const tab: TabId = TABS.find((t) => t.id === requested)?.id ?? 'general';
@@ -52,7 +55,7 @@ export default function Settings({ theme, onThemeChange, onModelsChanged }: Prop
         </div>
 
         <div id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${tab}`} className={tab === 'models' ? undefined : 'settings-panel--cards'}>
-          {tab === 'general' && <GeneralTab theme={theme} onThemeChange={onThemeChange} />}
+          {tab === 'general' && <GeneralTab theme={theme} workspaceTheme={workspaceTheme} onThemeChange={onThemeChange} />}
           {tab === 'comfyui' && <ComfyUITab />}
           {tab === 'models' && <Models onModelsChanged={onModelsChanged} />}
           {tab === 'library' && <LibraryDataTab />}

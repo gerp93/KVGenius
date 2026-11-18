@@ -6,48 +6,49 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { deleteStyle, findStyleByName, getStyle, listStyles, saveStyle } from './styles';
+import { createWorkspace } from './workspaces';
 
 const params = (prompt: string, styleName?: string) => ({ prompt, width: 64, height: 64, seed: 1, steps: 4, cfg: 1, ...(styleName ? { styleName } : {}) });
 
 test('styles are created, listed alphabetically, edited and deleted', () => {
   const db = initDatabase(':memory:');
-  assert.deepEqual(listStyles(db), []);
-  const poster = saveStyle(db, { name: ' 1930s movie poster ', text: ' bold lithograph ' });
-  const anime = saveStyle(db, { name: 'anime', text: 'cel shaded' });
+  assert.deepEqual(listStyles(db, 1), []);
+  const poster = saveStyle(db, { name: ' 1930s movie poster ', text: ' bold lithograph ' }, null, 1);
+  const anime = saveStyle(db, { name: 'anime', text: 'cel shaded' }, null, 1);
   assert.equal(poster.name, '1930s movie poster');
   assert.equal(poster.text, 'bold lithograph');
-  assert.deepEqual(listStyles(db).map((s) => s.name), ['1930s movie poster', 'anime']);
+  assert.deepEqual(listStyles(db, 1).map((s) => s.name), ['1930s movie poster', 'anime']);
 
-  const edited = saveStyle(db, { name: 'Anime', text: 'cel shaded, flat colors' }, anime.id);
+  const edited = saveStyle(db, { name: 'Anime', text: 'cel shaded, flat colors' }, anime.id, 1);
   assert.equal(edited.id, anime.id);
   assert.equal(getStyle(db, anime.id)?.text, 'cel shaded, flat colors');
 
   deleteStyle(db, poster.id);
   assert.equal(getStyle(db, poster.id), null);
-  assert.deepEqual(listStyles(db).map((s) => s.name), ['Anime']);
+  assert.deepEqual(listStyles(db, 1).map((s) => s.name), ['Anime']);
 });
 
 test('names are unique ignoring case, and a style can keep its own name when edited', () => {
   const db = initDatabase(':memory:');
-  const a = saveStyle(db, { name: 'Noir', text: 'black and white' });
-  assert.throws(() => saveStyle(db, { name: 'noir', text: 'other' }), /already exists/);
-  const b = saveStyle(db, { name: 'Pastel', text: 'soft' });
-  assert.throws(() => saveStyle(db, { name: 'NOIR', text: 'x' }, b.id), /already exists/);
-  assert.equal(saveStyle(db, { name: 'Noir', text: 'high contrast' }, a.id).text, 'high contrast');
+  const a = saveStyle(db, { name: 'Noir', text: 'black and white' }, null, 1);
+  assert.throws(() => saveStyle(db, { name: 'noir', text: 'other' }, null, 1), /already exists/);
+  const b = saveStyle(db, { name: 'Pastel', text: 'soft' }, null, 1);
+  assert.throws(() => saveStyle(db, { name: 'NOIR', text: 'x' }, b.id, 1), /already exists/);
+  assert.equal(saveStyle(db, { name: 'Noir', text: 'high contrast' }, a.id, 1).text, 'high contrast');
 });
 
 test('saving rejects blank input and editing a style that is gone', () => {
   const db = initDatabase(':memory:');
-  assert.throws(() => saveStyle(db, { name: '', text: 'x' }), /name/i);
-  assert.throws(() => saveStyle(db, { name: 'x', text: ' ' }), /style text/i);
-  assert.throws(() => saveStyle(db, { name: 'x', text: 'y' }, 999), /no longer exists/);
+  assert.throws(() => saveStyle(db, { name: '', text: 'x' }, null, 1), /name/i);
+  assert.throws(() => saveStyle(db, { name: 'x', text: ' ' }, null, 1), /style text/i);
+  assert.throws(() => saveStyle(db, { name: 'x', text: 'y' }, 999, 1), /no longer exists/);
 });
 
 test('a style can be found by name ignoring case', () => {
   const db = initDatabase(':memory:');
-  const s = saveStyle(db, { name: '1930s Poster', text: 'x' });
-  assert.equal(findStyleByName(db, '  1930s poster ')?.id, s.id);
-  assert.equal(findStyleByName(db, 'nope'), null);
+  const s = saveStyle(db, { name: '1930s Poster', text: 'x' }, null, 1);
+  assert.equal(findStyleByName(db, '  1930s poster ', 1)?.id, s.id);
+  assert.equal(findStyleByName(db, 'nope', 1), null);
 });
 
 test('a generation records the style name, and none when no style was used', () => {
@@ -62,7 +63,7 @@ test('a generation records the style name, and none when no style was used', () 
 
 test('deleting a style leaves past generations alone', () => {
   const db = initDatabase(':memory:');
-  const s = saveStyle(db, { name: 'Noir', text: 'black and white' });
+  const s = saveStyle(db, { name: 'Noir', text: 'black and white' }, null, 1);
   const g = insertGeneration(db, params('a fox, black and white', 'Noir'), 'z-image', '/out/a.png');
   deleteStyle(db, s.id);
   assert.equal(getGenerationById(db, g.id)?.prompt, 'a fox, black and white');
@@ -71,13 +72,13 @@ test('deleting a style leaves past generations alone', () => {
 
 test('a style or element keeps its kind, and an old table without one is upgraded', () => {
   const db = initDatabase(':memory:');
-  const coat = saveStyle(db, { name: 'Coat', text: 'red trench coat', kind: 'element' });
-  const anime = saveStyle(db, { name: 'Anime', text: 'cel shaded' });
+  const coat = saveStyle(db, { name: 'Coat', text: 'red trench coat', kind: 'element' }, null, 1);
+  const anime = saveStyle(db, { name: 'Anime', text: 'cel shaded' }, null, 1);
   assert.equal(coat.kind, 'element');
   assert.equal(anime.kind, 'style', 'no kind means a style');
   assert.equal(getStyle(db, coat.id)?.kind, 'element');
-  assert.equal(saveStyle(db, { name: 'Coat', text: 'red trench coat', kind: 'style' }, coat.id).kind, 'style');
-  assert.throws(() => saveStyle(db, { name: 'anime', text: 'x', kind: 'element' }), /style or element named/);
+  assert.equal(saveStyle(db, { name: 'Coat', text: 'red trench coat', kind: 'style' }, coat.id, 1).kind, 'style');
+  assert.throws(() => saveStyle(db, { name: 'anime', text: 'x', kind: 'element' }, null, 1), /style or element named/);
 });
 
 test('a database made before kinds existed gains the column with every style as a style', () => {
@@ -88,5 +89,39 @@ test('a database made before kinds existed gains the column with every style as 
   old.exec("INSERT INTO styles (name, text) VALUES ('Noir', 'black and white')");
   old.close();
   const db = initDatabase(path);
-  assert.deepEqual(listStyles(db).map((s) => [s.name, s.kind]), [['Noir', 'style']]);
+  assert.deepEqual(listStyles(db, 1).map((s) => [s.name, s.kind]), [['Noir', 'style']]);
+});
+
+test('an element is for the workspace it was made in, a style is shared - unless the scope says otherwise', () => {
+  const db = initDatabase(':memory:');
+  const other = createWorkspace(db, 'Other').id;
+  const look = saveStyle(db, { name: 'Noir', text: 'x' }, null, 1);
+  const piece = saveStyle(db, { name: 'Red coat', text: 'y', kind: 'element' }, null, 1);
+  const localLook = saveStyle(db, { name: 'Local look', text: 'z', scope: 'workspace' }, null, 1);
+  const sharedPiece = saveStyle(db, { name: 'Shared piece', text: 'w', kind: 'element', scope: 'all' }, null, 1);
+  assert.deepEqual([look.workspaceId, piece.workspaceId, localLook.workspaceId, sharedPiece.workspaceId], [null, 1, 1, null]);
+
+  assert.deepEqual(listStyles(db, 1).map((s) => s.name), ['Local look', 'Noir', 'Red coat', 'Shared piece']);
+  assert.deepEqual(listStyles(db, other).map((s) => s.name), ['Noir', 'Shared piece']);
+  assert.equal(findStyleByName(db, 'red coat', 1)?.id, piece.id);
+  assert.equal(findStyleByName(db, 'red coat', other), null, 'not visible from the other workspace');
+});
+
+test('editing a style does not change who it is for, and the same name can be used in two workspaces', () => {
+  const db = initDatabase(':memory:');
+  const other = createWorkspace(db, 'Other').id;
+  const piece = saveStyle(db, { name: 'Red coat', text: 'y', kind: 'element' }, null, 1);
+  assert.equal(saveStyle(db, { name: 'Red coat', text: 'a longer red coat', kind: 'element', scope: 'all' }, piece.id, other).workspaceId, 1);
+  const twin = saveStyle(db, { name: 'red coat', text: 'a different one', kind: 'element' }, null, other);
+  assert.equal(twin.workspaceId, other);
+  assert.equal(findStyleByName(db, 'Red coat', other)?.id, twin.id);
+});
+
+test('a shared name cannot be taken twice, and a shared style cannot take a workspace style\'s name', () => {
+  const db = initDatabase(':memory:');
+  const other = createWorkspace(db, 'Other').id;
+  saveStyle(db, { name: 'Noir', text: 'x' }, null, 1);
+  assert.throws(() => saveStyle(db, { name: 'noir', text: 'y', scope: 'workspace' }, null, other), /already exists/, 'a workspace one cannot repeat a shared name');
+  saveStyle(db, { name: 'Piece', text: 'x', kind: 'element' }, null, other);
+  assert.throws(() => saveStyle(db, { name: 'PIECE', text: 'y', scope: 'all' }, null, 1), /already exists/, 'a shared one cannot repeat any workspace\'s name');
 });

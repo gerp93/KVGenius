@@ -25,11 +25,16 @@ export interface JobRequest {
   batch?: string | null;
   /** The estimate that was shown for this run; stored with its actual timing. Not persisted on the job. */
   estimate?: { totalMs: number | null; generateMs: number | null } | null;
+  /** The workspace the result belongs to. Set by whoever queues the job (the app fills in the current one); stored with the job, so
+   * switching workspaces while it waits does not move it. */
+  workspaceId?: number;
 }
 
 export interface JobInfo {
   id: number;
   source: JobSource;
+  /** The workspace the result goes to. */
+  workspaceId: number;
   batch: string | null;
   family: string;
   params: GenerationParams;
@@ -43,6 +48,8 @@ export interface JobInfo {
 }
 
 export interface JobFilter {
+  /** Only jobs whose result goes to this workspace. */
+  workspaceId?: number;
   source?: JobSource;
   batch?: string;
   status?: JobStatus;

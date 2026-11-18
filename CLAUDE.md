@@ -111,7 +111,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   `elementIds`; default none). `combinePrompt` appends at submit time, in this order: the prompt, the elements (in the order picked),
   the style last (`extraWording`) - the UI's `generate` and the MCP/API `generate_image` (`style` by name, `elements` as a list of names;
   `list_styles` lists both with their `kind`; a name of the wrong kind is refused with a pointer to the right argument) both do this
-  *before* the job is queued. So the job, the Library record, Re-rack, pins, hidden words and group-by-prompt all see the one full prompt
+  *before* the job is queued. So the job, the Library record, Re-rack, pins and group-by-prompt all see the one full prompt
   that was sent, and with nothing picked `combinePrompt` returns the prompt untouched. `generations.style_name` is only a display label
   (`styleLabel`: "Anime + Red coat"); the text is never re-derived from it. Re-rack / a prompt from Library > Prompts load that full
   prompt with no style or elements picked (else they would be added twice). Editing or deleting one never touches past generations.
@@ -119,8 +119,8 @@ implementation here is exactly the kind of drift it exists to prevent.
   `pages/Styles.tsx`). The Styles page is ~75% examples (a card per style/element plus a dashed "No style" baseline card) and a ~25% editor side
   panel. The standard prompt and seed (defaults in `styleSamples.ts`, kept in the `style_sample_settings` table) are what every example is made
   from: `combinePrompt(standard prompt, the wording)` at the fixed seed, 768 px square, Z-Image's 8 steps / cfg 1, the shipped model. An example
-  is a normal Library generation made through the normal queue (batch `style-examples`, so it shows in the queue bar), then hidden
-  (`hidden = 1`, so only "Show hidden" reveals it); `style_samples` points each style at its generation with the wording, prompt and seed it was
+  is a normal generation made through the normal queue (batch `style-examples`, so it shows in the queue bar) into the app's own system
+  workspace (`styleExamplesWorkspaceId`, never listed or openable, so no Library shows it); `style_samples` points each style at its generation with the wording, prompt and seed it was
   made from, and `sampleFreshness` compares those with now - a changed wording, standard prompt or seed marks it **outdated** (old picture kept,
   dimmed). "Render N examples" makes the missing/outdated ones, each card has its own (Re)render, "Re-render all" redoes everything. A re-render
   sends the picture it replaces to the Trash (favorites stay); deleting a style trashes its example; an example the user trashed reads as none.
@@ -154,10 +154,25 @@ implementation here is exactly the kind of drift it exists to prevent.
   stacks are ordered and cursor-paged by their newest item (`groupNewestId`), and the
   Library's filters apply to items before they are grouped. Images and videos stack
   separately; trashed items are never in a stack.
+- **Workspaces are the top level** (`shared/workspaces.ts`, `main/workspaces.ts`, `pages/WorkspaceGrid.tsx`, `components/WorkspaceSwitcher.tsx`).
+  The app opens on a grid of workspaces (every launch); opening one mounts `WorkspaceShell` (in `App.tsx`, `key`ed by workspace id, so
+  nothing carries over) and the top bar's switcher changes workspace or returns to the grid. A workspace is a whole library: `generations`,
+  `jobs`, `imports` and `assemblies` carry `workspace_id` (default 1, the **Default** workspace everything made before workspaces moved
+  into). The main process holds the window's current workspace (`setActiveWorkspaceId`, `currentWorkspaceId(db)`); the IPC handlers and the
+  MCP/API tools read it, so the renderer never passes it for Library calls, and a job stores the workspace it was queued in (`JobRequest.workspaceId`,
+  filled by `JobQueue`'s `currentWorkspaceId`), so switching while it runs does not move it. **Styles are shared (`styles.workspace_id` NULL) or
+  one workspace's** - chosen when made (default: a style is shared, an element is the workspace's); older styles stay shared and older elements
+  went to Default; names are unique among what one workspace can see (`nameClashes`). Prompt templates, model profiles, timing stats and
+  every Settings value stay global, except **theme** (`workspaces.theme`, null = the app's; `App` applies `workspace.theme ?? appTheme`) and
+  **cleanup rules** (`workspaces.cleanup`; Settings > Library Cleanup lists each workspace, `cleanupScheduler.ts` runs each one's rules on its own
+  items). **There is no per-item hidden flag or hidden-words rule**: hiding is a workspace property (`workspaces.hidden`: off the grid and the
+  switcher until the grid's "Show hidden" is on). `migrateToWorkspaces` (run from `initDatabase`) moved old hidden items into a hidden
+  workspace named "Hidden" and old style examples into the system workspace; it is safe to re-run. There is no moving items between
+  workspaces and no copying prompts across them. Deleting a workspace is only allowed when it is empty.
 - **Navigation is a left sidebar, not a top bar** (`components/SideNav.tsx`/`.css`, rendered by `App.tsx`). Pages are
   grouped in sections (Create: Image / Video, Upscale, Styles; Library: Output/Prompts/Sources/Trash; Utilities:
   Timing/Hardpoint) in the `SECTIONS` data at the top of `SideNav.tsx` - add a page there. The footer holds
-  Settings, Setup guide, the app-wide Show hidden switch, the ComfyUI status (click to launch when unreachable) and the
+  Settings, Setup guide, the ComfyUI status (click to launch when unreachable) and the
   graphics card ComfyUI runs on (`getGpuInfo` -> ComfyUI's `/system_stats`, `shared/gpuInfo.ts`; refreshed with the
   connection check, so it is also right for a ComfyUI on another machine). **Models is a tab of Settings**
   (`/settings?tab=models`; the old `/models` redirects there), reached from Generate's "Model settings" link beside the

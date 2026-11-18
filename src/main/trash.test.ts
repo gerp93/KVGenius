@@ -20,6 +20,8 @@ import {
 } from './db';
 import { getItem, listItems } from './library';
 import { CleanupDeps, runAutoCleanupIfDue } from './cleanupScheduler';
+import { Workspace } from '../shared/workspaces';
+import { createWorkspace } from './workspaces';
 import { keepSourceImage } from './sourceImages';
 import {
   Recycle,
@@ -88,8 +90,8 @@ test('a cleanup only finds old items nobody kept', () => {
   setGenerationPinned(f.db, pinned.id, true);
   moveToTrash(f.db, [already.id], f.trash, { now: NOW });
 
-  assert.deepEqual(cleanupCandidates(f.db, 30, NOW).map((c) => c.id), [old.id]);
-  assert.deepEqual(cleanupCandidates(f.db, 3, NOW).map((c) => c.id).sort(), [old.id, recent.id].sort());
+  assert.deepEqual(cleanupCandidates(f.db, 1, 30, NOW).map((c) => c.id), [old.id]);
+  assert.deepEqual(cleanupCandidates(f.db, 1, 3, NOW).map((c) => c.id).sort(), [old.id, recent.id].sort());
 });
 
 test('the preview counts what would move and how much space it takes, and moves nothing', () => {
@@ -97,8 +99,8 @@ test('the preview counts what would move and how much space it takes, and moves 
   f.add('a.png', 40, 100);
   f.add('b.png', 40, 250);
   f.add('new.png', 1, 999);
-  assert.deepEqual(previewCleanup(f.db, 30, NOW), { count: 2, bytes: 350 });
-  assert.equal(trashStats(f.db).count, 0);
+  assert.deepEqual(previewCleanup(f.db, 1, 30, NOW), { count: 2, bytes: 350 });
+  assert.equal(trashStats(f.db, 1).count, 0);
   assert.equal(fs.existsSync(f.trash), false);
 });
 
@@ -117,12 +119,12 @@ test('moving to the Trash takes the file and the record out of the Library but k
   assert.equal(fs.existsSync(record.imagePath), true);
 
   // Gone from every Library view; the other item is untouched.
-  assert.deepEqual(listGenerations(f.db, VIDEO_FAMILIES, 'image', 50, null, false, true).map((r) => r.id), [keep.id]);
-  assert.deepEqual(listGenerationRefs(f.db, VIDEO_FAMILIES, 'image', false, true).map((r) => r.id), [keep.id]);
-  assert.equal(countGenerations(f.db, VIDEO_FAMILIES, false, true).image, 1);
-  assert.deepEqual(listImageExtensions(f.db, VIDEO_FAMILIES), ['png']);
-  assert.deepEqual(listTrashed(f.db, 50, null).map((r) => r.id), [item.id]);
-  assert.equal(trashStats(f.db).count, 1);
+  assert.deepEqual(listGenerations(f.db, VIDEO_FAMILIES, 'image', 50, null, false, 1).map((r) => r.id), [keep.id]);
+  assert.deepEqual(listGenerationRefs(f.db, VIDEO_FAMILIES, 'image', false, 1).map((r) => r.id), [keep.id]);
+  assert.equal(countGenerations(f.db, VIDEO_FAMILIES, false, 1).image, 1);
+  assert.deepEqual(listImageExtensions(f.db, VIDEO_FAMILIES, 1), ['png']);
+  assert.deepEqual(listTrashed(f.db, 1, 50, null).map((r) => r.id), [item.id]);
+  assert.equal(trashStats(f.db, 1).count, 1);
 });
 
 test('the automatic cleanup never trashes a favorite or a pinned item', () => {
@@ -133,13 +135,13 @@ test('the automatic cleanup never trashes a favorite or a pinned item', () => {
   setGenerationFavorite(f.db, fav.id, true);
   setGenerationPinned(f.db, pinned.id, true);
 
-  assert.deepEqual(runCleanup(f.db, 30, f.trash, NOW), { moved: 1, skipped: 0, failed: 0 });
+  assert.deepEqual(runCleanup(f.db, 1, 30, f.trash, NOW), { moved: 1, skipped: 0, failed: 0 });
   assert.equal(fs.existsSync(fav.file), true);
   assert.equal(fs.existsSync(pinned.file), true);
   assert.equal(getGenerationById(f.db, fav.id)!.trashedAt, null);
   assert.equal(getGenerationById(f.db, pinned.id)!.trashedAt, null);
   assert.notEqual(getGenerationById(f.db, plain.id)!.trashedAt, null);
-  assert.deepEqual(listPinnedGenerations(f.db, true).map((r) => r.id), [pinned.id]);
+  assert.deepEqual(listPinnedGenerations(f.db, 1).map((r) => r.id), [pinned.id]);
 
   // Asking for them by id without saying the user chose them is also refused, and nothing is trashed twice.
   assert.deepEqual(moveToTrash(f.db, [fav.id, pinned.id, plain.id], f.trash, { now: NOW }), { moved: 0, skipped: 3, failed: 0 });
@@ -159,7 +161,7 @@ test('deleting a favorite or pinned item yourself moves it to the Trash, and res
 
   assert.deepEqual(moveToTrash(f.db, [fav.id, pinned.id], f.trash, { now: NOW, includeKept: true }), { moved: 2, skipped: 0, failed: 0 });
   assert.equal(fs.existsSync(favFile), false);
-  assert.deepEqual(listPinnedGenerations(f.db, true), [], 'a trashed pin is out of Library > Prompts');
+  assert.deepEqual(listPinnedGenerations(f.db, 1), [], 'a trashed pin is out of Library > Prompts');
   assert.deepEqual(listFavoriteIds(f.db), [], 'the startup favorites sync must leave a trashed favorite in the Trash');
 
   assert.deepEqual(restoreFromTrash(f.db, [fav.id, pinned.id]), { restored: 2, failed: 0 });
@@ -194,9 +196,9 @@ test('the cleanup moves what the preview promised', () => {
   f.add('a.png', 40);
   f.add('b.png', 40);
   f.add('new.png', 1);
-  assert.deepEqual(runCleanup(f.db, 30, f.trash, NOW), { moved: 2, skipped: 0, failed: 0 });
-  assert.equal(trashStats(f.db).count, 2);
-  assert.equal(countGenerations(f.db, VIDEO_FAMILIES, false, true).image, 1);
+  assert.deepEqual(runCleanup(f.db, 1, 30, f.trash, NOW), { moved: 2, skipped: 0, failed: 0 });
+  assert.equal(trashStats(f.db, 1).count, 2);
+  assert.equal(countGenerations(f.db, VIDEO_FAMILIES, false, 1).image, 1);
 });
 
 test('restoring puts the file and the record back where they were', () => {
@@ -209,7 +211,7 @@ test('restoring puts the file and the record back where they were', () => {
   assert.equal(record.trashedAt, null);
   assert.equal(record.imagePath, item.file);
   assert.equal(fs.existsSync(item.file), true);
-  assert.deepEqual(listGenerations(f.db, VIDEO_FAMILIES, 'image', 50, null, false, true).map((r) => r.id), [item.id]);
+  assert.deepEqual(listGenerations(f.db, VIDEO_FAMILIES, 'image', 50, null, false, 1).map((r) => r.id), [item.id]);
 });
 
 test('an item whose file vanished from the Trash cannot be restored, and a taken name is not overwritten', () => {
@@ -254,7 +256,7 @@ test('an item the Recycle Bin will not take stays in the Trash, whole', async ()
     await f.recycle(file);
   };
 
-  assert.deepEqual(await emptyTrash(f.db, f.sources, picky), { deleted: 1, failed: 1 });
+  assert.deepEqual(await emptyTrash(f.db, 1, f.sources, picky), { deleted: 1, failed: 1 });
   assert.notEqual(getGenerationById(f.db, stuck.id), null, 'record kept');
   assert.equal(fs.existsSync(stuckPath), true, 'file kept');
   assert.notEqual(getGenerationById(f.db, stuck.id)!.trashedAt, null, 'still restorable');
@@ -269,7 +271,7 @@ test('an item whose file is already gone is removed without needing the Recycle 
   const never: Recycle = async () => {
     throw new Error('should not be asked');
   };
-  assert.deepEqual(await emptyTrash(f.db, f.sources, never), { deleted: 1, failed: 0 });
+  assert.deepEqual(await emptyTrash(f.db, 1, f.sources, never), { deleted: 1, failed: 0 });
   assert.equal(getGenerationById(f.db, ghost.id), null);
 });
 
@@ -280,7 +282,7 @@ test('removing for good also drops a video\'s kept source image once nothing els
   const kept = keepSourceImage(original, f.sources)!;
   const file = path.join(f.images, 'clip.mp4');
   fs.writeFileSync(file, 'v');
-  const video = insertGeneration(f.db, { prompt: 'v', width: 8, height: 8, seed: 1, steps: 1, cfg: 1, length: 81 }, 'wan22-i2v', file, null, false, kept);
+  const video = insertGeneration(f.db, { prompt: 'v', width: 8, height: 8, seed: 1, steps: 1, cfg: 1, length: 81 }, 'wan22-i2v', file, null, 1, kept);
   f.db.prepare('UPDATE generations SET created_at = ? WHERE id = ?').run(daysAgo(40), video.id);
 
   moveToTrash(f.db, [video.id], f.trash, { now: NOW });
@@ -296,11 +298,11 @@ test('emptying the Trash can be limited to what has sat there long enough', asyn
   moveToTrash(f.db, [longAgo.id], f.trash, { now: new Date(NOW.getTime() - 40 * 24 * 60 * 60 * 1000) });
   moveToTrash(f.db, [justNow.id], f.trash, { now: NOW });
 
-  assert.deepEqual(await emptyTrash(f.db, f.sources, f.recycle, 30, NOW), { deleted: 1, failed: 0 });
+  assert.deepEqual(await emptyTrash(f.db, 1, f.sources, f.recycle, 30, NOW), { deleted: 1, failed: 0 });
   assert.equal(getGenerationById(f.db, longAgo.id), null);
   assert.notEqual(getGenerationById(f.db, justNow.id), null);
-  assert.deepEqual(await emptyTrash(f.db, f.sources, f.recycle), { deleted: 1, failed: 0 }, 'with no limit, everything goes');
-  assert.equal(trashStats(f.db).count, 0);
+  assert.deepEqual(await emptyTrash(f.db, 1, f.sources, f.recycle), { deleted: 1, failed: 0 }, 'with no limit, everything goes');
+  assert.equal(trashStats(f.db, 1).count, 0);
 });
 
 test('outside clients cannot see anything in the Trash', () => {
@@ -314,19 +316,32 @@ test('outside clients cannot see anything in the Trash', () => {
 
 // ---- The automatic schedules ------------------------------------------------------------
 
-function schedule(f: Fixture, settings: Partial<CleanupSettings>) {
-  let current: CleanupSettings = { ...DEFAULT_CLEANUP_SETTINGS, ...settings };
+function workspaceWith(id: number, cleanup: CleanupSettings): Workspace {
+  return { id, name: `Workspace ${id}`, theme: null, hidden: false, cleanup, createdAt: NOW.toISOString() };
+}
+
+/** The scheduler's dependencies for a fixture whose first workspace has these rules (and, with `others`, more workspaces with theirs). */
+function schedule(f: Fixture, settings: Partial<CleanupSettings>, others: Record<number, Partial<CleanupSettings>> = {}) {
+  const rules = new Map<number, CleanupSettings>([[1, { ...DEFAULT_CLEANUP_SETTINGS, ...settings }]]);
+  for (const [id, over] of Object.entries(others)) rules.set(Number(id), { ...DEFAULT_CLEANUP_SETTINGS, ...over });
   const deps: CleanupDeps = {
     getDb: () => f.db,
-    getSettings: () => current,
-    saveSettings: (s) => {
-      current = s;
+    listWorkspaces: () => [...rules.entries()].map(([id, cleanup]) => workspaceWith(id, cleanup)),
+    getSettings: (_db, id) => rules.get(id) ?? null,
+    saveSettings: (_db, id, s) => {
+      rules.set(id, s);
     },
     trashDir: () => f.trash,
     sourcesDir: () => f.sources,
     recycle: f.recycle,
   };
-  return { deps, settings: () => current };
+  return { deps, settings: (id = 1) => rules.get(id) as CleanupSettings };
+}
+
+/** One check of the schedule, as what it did in the first workspace. */
+async function runAutoCleanupOnce(deps: CleanupDeps, now: Date) {
+  const [first] = await runAutoCleanupIfDue(deps, now);
+  return { trashed: first.trashed, emptied: first.emptied };
 }
 
 test('the schedules do nothing at all unless turned on', async () => {
@@ -334,9 +349,9 @@ test('the schedules do nothing at all unless turned on', async () => {
   const old = f.add('old.png', 400);
   moveToTrash(f.db, [f.add('trashed.png', 400).id], f.trash, { now: new Date(NOW.getTime() - 400 * 24 * 60 * 60 * 1000) });
   const s = schedule(f, {});
-  assert.deepEqual(await runAutoCleanupIfDue(s.deps, NOW), { trashed: null, emptied: null });
+  assert.deepEqual(await runAutoCleanupOnce(s.deps, NOW), { trashed: null, emptied: null });
   assert.equal(getGenerationById(f.db, old.id)!.trashedAt, null);
-  assert.equal(trashStats(f.db).count, 1);
+  assert.equal(trashStats(f.db, 1).count, 1);
   assert.equal(fs.readdirSync(f.bin).length, 0);
   assert.equal(s.settings().lastAutoTrashRun, null);
   assert.equal(s.settings().lastAutoEmptyRun, null);
@@ -349,7 +364,7 @@ test('only moving to the Trash is on: old items go to the Trash and nothing reac
   moveToTrash(f.db, [stale.id], f.trash, { now: new Date(NOW.getTime() - 99 * 24 * 60 * 60 * 1000) });
   const s = schedule(f, { autoTrashEnabled: true, olderThanDays: 30 });
 
-  const result = await runAutoCleanupIfDue(s.deps, NOW);
+  const result = await runAutoCleanupOnce(s.deps, NOW);
   assert.equal(result.trashed, 'Moved 1 item to the Trash.');
   assert.equal(result.emptied, null);
   assert.notEqual(getGenerationById(f.db, old.id)!.trashedAt, null);
@@ -368,7 +383,7 @@ test('only emptying is on: long-trashed items go to the Recycle Bin and nothing 
   moveToTrash(f.db, [recent.id], f.trash, { now: new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1000) });
   const s = schedule(f, { autoEmptyEnabled: true, trashRetentionDays: 30 });
 
-  const result = await runAutoCleanupIfDue(s.deps, NOW);
+  const result = await runAutoCleanupOnce(s.deps, NOW);
   assert.equal(result.emptied, 'Sent 1 item to the Recycle Bin.');
   assert.equal(result.trashed, null);
   assert.equal(getGenerationById(f.db, stale.id), null);
@@ -383,13 +398,36 @@ test('each schedule runs at most once a day, on its own clock', async () => {
   f.add('old.png', 100);
   const s = schedule(f, { autoTrashEnabled: true, olderThanDays: 30, autoEmptyEnabled: true, trashRetentionDays: 30 });
 
-  const first = await runAutoCleanupIfDue(s.deps, NOW);
+  const first = await runAutoCleanupOnce(s.deps, NOW);
   assert.equal(first.trashed, 'Moved 1 item to the Trash.');
   assert.equal(first.emptied, 'Sent 0 items to the Recycle Bin.');
 
   f.add('another-old.png', 100);
   const later = new Date(NOW.getTime() + 60 * 60 * 1000);
-  assert.deepEqual(await runAutoCleanupIfDue(s.deps, later), { trashed: null, emptied: null });
+  assert.deepEqual(await runAutoCleanupOnce(s.deps, later), { trashed: null, emptied: null });
   const nextDay = new Date(NOW.getTime() + 25 * 60 * 60 * 1000);
-  assert.equal((await runAutoCleanupIfDue(s.deps, nextDay)).trashed, 'Moved 1 item to the Trash.');
+  assert.equal((await runAutoCleanupOnce(s.deps, nextDay)).trashed, 'Moved 1 item to the Trash.');
+});
+
+test("one workspace's rules never touch another workspace's items", async () => {
+  const f = fixture();
+  const second = createWorkspace(f.db, 'Second').id;
+  const inFirst = f.add('first-old.png', 100);
+  const file = path.join(f.images, 'second-old.png');
+  fs.writeFileSync(file, 'x');
+  const inSecond = insertGeneration(f.db, { prompt: 'second-old', width: 8, height: 8, seed: 99, steps: 1, cfg: 1 }, 'z-image', file, null, second);
+  f.db.prepare('UPDATE generations SET created_at = ? WHERE id = ?').run(daysAgo(100), inSecond.id);
+
+  // Only the second workspace has the automatic move turned on.
+  const s = schedule(f, {}, { [second]: { autoTrashEnabled: true, olderThanDays: 30 } });
+  const results = await runAutoCleanupIfDue(s.deps, NOW);
+  assert.equal(results.find((r) => r.workspaceId === second)!.trashed, 'Moved 1 item to the Trash.');
+  assert.equal(results.find((r) => r.workspaceId === 1)!.trashed, null);
+  assert.notEqual(getGenerationById(f.db, inSecond.id)!.trashedAt, null);
+  assert.equal(getGenerationById(f.db, inFirst.id)!.trashedAt, null, 'the first workspace has it off, so its old item stays');
+  assert.equal(s.settings(second).lastAutoTrashRun, NOW.toISOString());
+  assert.equal(s.settings(1).lastAutoTrashRun, null);
+  assert.equal(trashStats(f.db, second).count, 1);
+  assert.equal(trashStats(f.db, 1).count, 0);
+  assert.deepEqual(listTrashed(f.db, 1, 10, null), []);
 });

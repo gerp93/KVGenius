@@ -4,7 +4,6 @@ import { randomBytes } from 'crypto';
 import { app, shell, dialog } from 'electron';
 import { DEFAULT_COMFYUI_HOST } from './comfyui';
 import { PromptSlot, sanitizeSlots } from '../shared/promptSlots';
-import { normalizeHiddenWords } from '../shared/hiddenWords';
 import { CleanupSettings, normalizeCleanupSettings } from '../shared/cleanup';
 
 interface AppConfig {
@@ -15,8 +14,7 @@ interface AppConfig {
   comfyuiModelsDir?: string;
   theme?: string;
   promptSlots?: PromptSlot[];
-  hiddenWords?: string[];
-  /** Library cleanup (Settings): the thresholds, and whether the automatic schedule is on (off by default). */
+  /** Library cleanup as it was before workspaces (each workspace has its own now): only read once, to give the first workspace what was set. */
   cleanup?: CleanupSettings;
   activePromptSlotId?: string;
   /** Whether the local control API (for MCP clients) is on. Off unless the user turns it on. */
@@ -316,22 +314,7 @@ export function setComfyUIModelsDir(dir: string | null): void {
   writeConfig(config);
 }
 
-export function getHiddenWords(): string[] {
-  return normalizeHiddenWords(readConfig().hiddenWords);
-}
-
-export function setHiddenWords(words: string[]): string[] {
-  const cleaned = normalizeHiddenWords(words);
-  writeConfig({ ...readConfig(), hiddenWords: cleaned });
-  return cleaned;
-}
-
 export function getCleanupSettings(): CleanupSettings {
   return normalizeCleanupSettings(readConfig().cleanup);
 }
 
-export function saveCleanupSettings(settings: CleanupSettings): CleanupSettings {
-  const cleaned = normalizeCleanupSettings(settings);
-  writeConfig({ ...readConfig(), cleanup: cleaned });
-  return cleaned;
-}

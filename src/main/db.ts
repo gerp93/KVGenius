@@ -9,7 +9,7 @@ import { JOBS_SCHEMA } from './jobStore';
 import { migrateFamilyKeys } from './familyMigration';
 import { IMPORTS_SCHEMA } from './library';
 import { ASSEMBLIES_SCHEMA } from './assembly';
-import { STYLES_SCHEMA } from './styles';
+import { STYLES_NAME_INDEX, STYLES_SCHEMA } from './styles';
 import { PROMPT_TEMPLATES_SCHEMA } from './promptTemplates';
 import { STYLE_SAMPLES_SCHEMA } from './styleSamples';
 import { isFaceReferenceFamily } from '../shared/faceReference';
@@ -19,6 +19,8 @@ import { T2V_FAMILY } from '../shared/textToVideo';
 import { V2V_FAMILY } from '../shared/videoToVideo';
 import { MODEL_PROFILES_SCHEMA } from './modelProfiles';
 import { ModelSettings, parseModelSettings, serializeModelSettings } from '../shared/modelProfiles';
+import { CleanupSettings, DEFAULT_CLEANUP_SETTINGS } from '../shared/cleanup';
+import { DEFAULT_WORKSPACE_ID, WORKSPACES_SCHEMA, migrateToWorkspaces } from './workspaces';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -34,7 +36,7 @@ CREATE TABLE IF NOT EXISTS generations (
   model_family TEXT NOT NULL,
   image_path TEXT NOT NULL,
   favorite INTEGER NOT NULL DEFAULT 0,
-  hidden INTEGER NOT NULL DEFAULT 0,
+  workspace_id INTEGER NOT NULL DEFAULT 1,
   pinned_at TEXT,
   source_image_path TEXT,
   trashed_at TEXT,
@@ -78,9 +80,25 @@ function migrateSchema(db: DatabaseSync): void {
   if (!columns.some((c) => c.name === 'favorite')) {
     db.exec('ALTER TABLE generations ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;');
   }
-  if (!columns.some((c) => c.name === 'hidden')) {
-    db.exec('ALTER TABLE generations ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;');
+  // Workspaces (see shared/workspaces.ts): everything that existed before belongs to the first one (id 1, made by migrateToWorkspaces).
+  if (!columns.some((c) => c.name === 'workspace_id')) {
+    db.exec('ALTER TABLE generations ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1;');
   }
+  // After the column exists: an older database only gets it above, so the index cannot be part of the table's own schema.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_generations_workspace ON generations (workspace_id);');
+  for (const table of ['jobs', 'imports', 'assemblies']) {
+    const tableColumns = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as ColumnInfo[];
+    if (tableColumns.length > 0 && !tableColumns.some((c) => c.name === 'workspace_id')) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1;`);
+    }
+  }
+  // A style belongs to one workspace, or to none (null: every workspace). Every style made before workspaces stays shared;
+  // every element made before them belongs to the first workspace.
+  if (styleColumns.length > 0 && !styleColumns.some((c) => c.name === 'workspace_id')) {
+    db.exec('ALTER TABLE styles ADD COLUMN workspace_id INTEGER;');
+    db.exec(`UPDATE styles SET workspace_id = ${DEFAULT_WORKSPACE_ID} WHERE kind = 'element';`);
+  }
+  db.exec(STYLES_NAME_INDEX);
   // Timings gained the model variant they were made with (so accuracy can be told apart per model).
   const timingColumns = db.prepare('PRAGMA table_info(timing_stats)').all() as unknown as ColumnInfo[];
   if (!timingColumns.some((c) => c.name === 'model_name')) {
@@ -148,7 +166,7 @@ function migrateSchema(db: DatabaseSync): void {
 /**
  * One-time conversion of the old saved-prompts table (a name, prompt text and tags with no picture)
  * into pins on the generations themselves. Each saved prompt pins the newest generation made from
- * exactly that text (preferring one that is not hidden), keeping the saved prompt's date as the pin
+ * exactly that text (newest first), keeping the saved prompt's date as the pin
  * date so the order survives. A prompt with no matching generation has nothing to pin, so those are
  * written to a text file at `exportPath` first; the table is only dropped once every row is either
  * pinned or exported. With no `exportPath` and something unmatched, or if the file cannot be written,
@@ -165,7 +183,7 @@ export function migrateSavedPrompts(db: DatabaseSync, exportPath: string | null)
     tags: string | null;
     created_at: string;
   }[];
-  const findMatch = db.prepare('SELECT id FROM generations WHERE prompt = ? ORDER BY hidden, id DESC LIMIT 1');
+  const findMatch = db.prepare('SELECT id FROM generations WHERE prompt = ? ORDER BY id DESC LIMIT 1');
   const matched: { id: number; createdAt: string }[] = [];
   const unmatched: typeof saved = [];
   for (const row of saved) {
@@ -212,10 +230,11 @@ export function migrateSavedPrompts(db: DatabaseSync, exportPath: string | null)
   return { pinned: new Set(matched.map((m) => m.id)).size, exported: unmatched.length };
 }
 
-export function initDatabase(dbPath: string): DatabaseSync {
+export function initDatabase(dbPath: string, legacyCleanup: CleanupSettings = DEFAULT_CLEANUP_SETTINGS): DatabaseSync {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = WAL;');
+  db.exec(WORKSPACES_SCHEMA);
   db.exec(SCHEMA);
   db.exec(TIMING_SCHEMA);
   db.exec(JOBS_SCHEMA);
@@ -226,6 +245,7 @@ export function initDatabase(dbPath: string): DatabaseSync {
   db.exec(STYLE_SAMPLES_SCHEMA);
   db.exec(MODEL_PROFILES_SCHEMA);
   migrateSchema(db);
+  migrateToWorkspaces(db, legacyCleanup);
   backfillTimingModels(db);
   try {
     const family = migrateFamilyKeys(db, dbPath);
@@ -252,7 +272,7 @@ interface GenerationRow {
   model_family: string;
   image_path: string;
   favorite: number;
-  hidden: number;
+  workspace_id: number;
   pinned_at: string | null;
   source_image_path: string | null;
   trashed_at: string | null;
@@ -297,7 +317,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     modelFamily: row.model_family,
     imagePath: row.image_path,
     favorite: row.favorite === 1,
-    hidden: row.hidden === 1,
+    workspaceId: row.workspace_id,
     pinned: row.pinned_at !== null,
     sourceImagePath: row.source_image_path,
     trashedAt: row.trashed_at,
@@ -330,7 +350,8 @@ export function insertGeneration(
   modelFamily: string,
   imagePath: string,
   timingId: number | null = null,
-  hidden = false,
+  /** The workspace the result belongs to. */
+  workspaceId: number = DEFAULT_WORKSPACE_ID,
   /** A video's kept copy of its source image (see sourceImages.ts), so it can be re-run in place. */
   sourceImagePath: string | null = null,
   /** An inpainting result's kept copy of its mask. */
@@ -347,7 +368,7 @@ export function insertGeneration(
   const outpaint = serializeOutpaint(params.outpaint);
   const sourceVideoPath = params.sourceVideoPath ?? null;
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, hidden, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, outpaint, source_video_path, extended_frames, timing_id, created_at)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, workspace_id, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, outpaint, source_video_path, extended_frames, timing_id, created_at)
     VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
@@ -360,7 +381,7 @@ export function insertGeneration(
     length,
     modelFamily,
     imagePath,
-    hidden ? 1 : 0,
+    workspaceId,
     sourceImagePath,
     styleName,
     modelName,
@@ -386,7 +407,7 @@ export function insertGeneration(
     modelFamily,
     imagePath,
     favorite: false,
-    hidden,
+    workspaceId,
     pinned: false,
     sourceImagePath,
     trashedAt: null,
@@ -439,11 +460,11 @@ export function styleCondition(styles: string[] | undefined): { sql: string; par
   };
 }
 
-/** Every style and element named on a picture in the Library (not the Trash), alphabetical - what the style filter offers. */
-export function listStyleTags(db: DatabaseSync): string[] {
+/** Every style and element named on a picture in a workspace's Library (not the Trash), alphabetical - what the style filter offers. */
+export function listStyleTags(db: DatabaseSync, workspaceId: number): string[] {
   const rows = db
-    .prepare("SELECT DISTINCT style_name FROM generations WHERE style_name IS NOT NULL AND style_name <> '' AND trashed_at IS NULL ORDER BY style_name")
-    .all() as unknown as { style_name: string }[];
+    .prepare("SELECT DISTINCT style_name FROM generations WHERE workspace_id = ? AND style_name IS NOT NULL AND style_name <> '' AND trashed_at IS NULL ORDER BY style_name")
+    .all(workspaceId) as unknown as { style_name: string }[];
   // The filter's LIKE ignores case, so names that differ only by case are one entry.
   const names = new Map<string, string>();
   for (const row of rows) for (const tag of styleTags(row.style_name)) if (!names.has(tag.toLowerCase())) names.set(tag.toLowerCase(), tag);
@@ -461,10 +482,11 @@ export function searchCondition(search: string | undefined): { sql: string; para
   };
 }
 
-/** The Library's filters as SQL: anything in the Trash is always left out, favorites only on request,
- * and hidden ones left out unless asked for. */
-function filterSql(favoritesOnly: boolean, showHidden: boolean): string {
-  return 'AND trashed_at IS NULL ' + (favoritesOnly ? 'AND favorite = 1 ' : '') + (showHidden ? '' : 'AND hidden = 0');
+/** The Library's filters as SQL: only the given workspace's items, anything in the Trash always left out,
+ * and favorites only on request. The id is checked to be a whole number, so it is safe to write into the query. */
+function filterSql(favoritesOnly: boolean, workspaceId: number): string {
+  const workspace = Number.isInteger(workspaceId) ? workspaceId : -1;
+  return `AND workspace_id = ${workspace} AND trashed_at IS NULL ` + (favoritesOnly ? 'AND favorite = 1 ' : '');
 }
 
 /** Narrows a listing to the items whose prompt is exactly `prompt` (what opening a stack shows). */
@@ -539,7 +561,7 @@ export function listGenerations(
   limit: number,
   beforeId: number | null,
   favoritesOnly: boolean,
-  showHidden: boolean,
+  workspaceId: number,
   extension: string | null = null,
   options: LibraryListOptions = {}
 ): GenerationRecord[] {
@@ -553,14 +575,14 @@ export function listGenerations(
   if (options.grouped && prompt.sql === '') {
     return listPromptStacks(
       db,
-      `${condition.sql} ${ext.sql}${origin.sql}${search.sql}${style.sql}${filterSql(favoritesOnly, showHidden)}`,
+      `${condition.sql} ${ext.sql}${origin.sql}${search.sql}${style.sql}${filterSql(favoritesOnly, workspaceId)}`,
       [...condition.params, ...ext.params, ...origin.params, ...search.params, ...style.params],
       limit,
       beforeId
     );
   }
 
-  const cursor = ext.sql + origin.sql + search.sql + style.sql + prompt.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, showHidden);
+  const cursor = ext.sql + origin.sql + search.sql + style.sql + prompt.sql + (beforeId === null ? '' : 'AND g.id < ? ') + filterSql(favoritesOnly, workspaceId);
   const params: (string | number)[] = [...condition.params, ...ext.params, ...origin.params, ...search.params, ...style.params, ...prompt.params];
   if (beforeId !== null) params.push(beforeId);
   params.push(limit);
@@ -575,7 +597,7 @@ export function listGenerationRefs(
   videoFamilies: string[],
   kind: GenerationKind,
   favoritesOnly: boolean,
-  showHidden: boolean,
+  workspaceId: number,
   extension: string | null = null,
   options: LibraryListOptions = {}
 ): GenerationRef[] {
@@ -587,7 +609,7 @@ export function listGenerationRefs(
   const style = styleCondition(kind === 'image' ? options.styles : undefined);
   const rows = db
     .prepare(
-      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${style.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)} ORDER BY id DESC`
+      `SELECT id, image_path, favorite, pinned_at IS NOT NULL AS pinned FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${style.sql}${prompt.sql}${filterSql(favoritesOnly, workspaceId)} ORDER BY id DESC`
     )
     .all(...condition.params, ...ext.params, ...origin.params, ...search.params, ...style.params, ...prompt.params) as unknown as { id: number; image_path: string; favorite: number; pinned: number }[];
   return rows.map((r) => ({ id: r.id, imagePath: r.image_path, favorite: r.favorite === 1, pinned: r.pinned === 1 }));
@@ -597,7 +619,7 @@ export function countGenerations(
   db: DatabaseSync,
   videoFamilies: string[],
   favoritesOnly: boolean,
-  showHidden: boolean,
+  workspaceId: number,
   imageExtension: string | null = null,
   options: LibraryListOptions = {}
 ): Record<GenerationKind, number> {
@@ -612,7 +634,7 @@ export function countGenerations(
     const style = styleCondition(kind === 'image' ? options.styles : undefined);
     const row = db
       .prepare(
-        `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${style.sql}${prompt.sql}${filterSql(favoritesOnly, showHidden)}`
+        `SELECT ${grouped ? 'COUNT(DISTINCT prompt)' : 'COUNT(*)'} AS n FROM generations WHERE ${condition.sql} ${ext.sql}${origin.sql}${search.sql}${style.sql}${prompt.sql}${filterSql(favoritesOnly, workspaceId)}`
       )
       .get(...condition.params, ...ext.params, ...origin.params, ...search.params, ...style.params, ...prompt.params) as unknown as { n: number };
     return row.n;
@@ -621,28 +643,28 @@ export function countGenerations(
 }
 
 /** The file extensions (lowercase, no dot) present among the images, most common first. */
-export function listImageExtensions(db: DatabaseSync, videoFamilies: string[]): string[] {
+export function listImageExtensions(db: DatabaseSync, videoFamilies: string[], workspaceId: number): string[] {
   const condition = kindCondition(videoFamilies, 'image');
   // The text after the last '.': RTRIM drops the trailing non-dot characters, leaving "...name.",
   // which REPLACE then removes from the path.
   const rows = db
     .prepare(
       `SELECT LOWER(REPLACE(image_path, RTRIM(image_path, REPLACE(image_path, '.', '')), '')) AS ext, COUNT(*) AS n
-       FROM generations WHERE ${condition.sql} AND trashed_at IS NULL GROUP BY ext ORDER BY n DESC, ext`
+       FROM generations WHERE ${condition.sql} AND workspace_id = ? AND trashed_at IS NULL GROUP BY ext ORDER BY n DESC, ext`
     )
-    .all(...condition.params) as unknown as { ext: string }[];
+    .all(...condition.params, workspaceId) as unknown as { ext: string }[];
   return rows.map((r) => r.ext).filter((ext) => /^[a-z0-9]{1,8}$/.test(ext));
 }
 
 /** The kept source images (see sourceImages.ts) and what was made from each, most recently used first.
  * Results in the Trash still count: they keep their source until they are deleted for good. */
-export function listKeptSources(db: DatabaseSync): Array<{ path: string; uses: number; families: string[]; lastUsedAt: string }> {
+export function listKeptSources(db: DatabaseSync, workspaceId: number): Array<{ path: string; uses: number; families: string[]; lastUsedAt: string }> {
   const rows = db
     .prepare(
       `SELECT source_image_path AS path, COUNT(*) AS uses, GROUP_CONCAT(DISTINCT model_family) AS families, MAX(created_at) AS lastUsedAt
-       FROM generations WHERE source_image_path IS NOT NULL GROUP BY source_image_path ORDER BY MAX(id) DESC`
+       FROM generations WHERE workspace_id = ? AND source_image_path IS NOT NULL GROUP BY source_image_path ORDER BY MAX(id) DESC`
     )
-    .all() as unknown as { path: string; uses: number; families: string | null; lastUsedAt: string }[];
+    .all(workspaceId) as unknown as { path: string; uses: number; families: string | null; lastUsedAt: string }[];
   return rows.map((r) => ({ path: r.path, uses: r.uses, families: r.families ? r.families.split(',') : [], lastUsedAt: r.lastUsedAt }));
 }
 
@@ -712,15 +734,17 @@ export function setGenerationPinned(db: DatabaseSync, id: number, pinned: boolea
 
 /** How many pinned generations (in the Library) have exactly this prompt - the size of the group
  * they form under Library > Prompts, where one tile cycles through them. */
-export function countPinnedWithPrompt(db: DatabaseSync, prompt: string): number {
+export function countPinnedWithPrompt(db: DatabaseSync, prompt: string, workspaceId: number): number {
   const row = db
-    .prepare('SELECT COUNT(*) AS n FROM generations WHERE pinned_at IS NOT NULL AND trashed_at IS NULL AND prompt = ?')
-    .get(prompt) as unknown as { n: number };
+    .prepare('SELECT COUNT(*) AS n FROM generations WHERE workspace_id = ? AND pinned_at IS NOT NULL AND trashed_at IS NULL AND prompt = ?')
+    .get(workspaceId, prompt) as unknown as { n: number };
   return row.n;
 }
 
 /** The settings that make a run produce the same output. */
 export interface DuplicateQuery {
+  /** Only a repeat inside this workspace counts: the same picture in another workspace is not in the way. */
+  workspaceId: number;
   prompt: string;
   width: number;
   height: number;
@@ -761,12 +785,13 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
   const row = db
     .prepare(
       `${GENERATION_SELECT}
-       WHERE g.model_family = ? AND g.trashed_at IS NULL AND TRIM(g.prompt) = ? AND g.width = ? AND g.height = ?
+       WHERE g.workspace_id = ? AND g.model_family = ? AND g.trashed_at IS NULL AND TRIM(g.prompt) = ? AND g.width = ? AND g.height = ?
          AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ? AND g.model_settings IS ? AND g.denoise IS ? AND g.outpaint IS ?
          ${needsSource ? 'AND g.source_image_path = ?' : ''} ${needsMask ? 'AND g.mask_image_path = ?' : ''} ${needsVideo ? 'AND g.source_video_path = ?' : ''}
        ORDER BY g.id DESC LIMIT 1`
     )
     .get(
+      query.workspaceId,
       modelFamily,
       query.prompt.trim(),
       query.width,
@@ -785,46 +810,12 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
   return row ? rowToRecord(row) : null;
 }
 
-/** Every pinned generation, most recently pinned first; hidden ones only when `showHidden`. */
-export function listPinnedGenerations(db: DatabaseSync, showHidden: boolean): GenerationRecord[] {
+/** Every pinned generation in a workspace, most recently pinned first. */
+export function listPinnedGenerations(db: DatabaseSync, workspaceId: number): GenerationRecord[] {
   const rows = db
-    .prepare(
-      `${GENERATION_SELECT} WHERE g.pinned_at IS NOT NULL AND g.trashed_at IS NULL ${showHidden ? '' : 'AND g.hidden = 0'} ORDER BY g.pinned_at DESC, g.id DESC`
-    )
-    .all() as unknown as GenerationRow[];
+    .prepare(`${GENERATION_SELECT} WHERE g.workspace_id = ? AND g.pinned_at IS NOT NULL AND g.trashed_at IS NULL ORDER BY g.pinned_at DESC, g.id DESC`)
+    .all(workspaceId) as unknown as GenerationRow[];
   return rows.map(rowToRecord);
-}
-
-export function setGenerationHidden(db: DatabaseSync, id: number, hidden: boolean): void {
-  db.prepare('UPDATE generations SET hidden = ? WHERE id = ?').run(hidden ? 1 : 0, id);
-}
-
-/** Hides every not-yet-hidden generation whose prompt matches. Only ever hides - never un-hides -
- * so things hidden by hand survive a re-run. Returns how many were checked and newly hidden. */
-export function applyHiddenRule(
-  db: DatabaseSync,
-  matches: (prompt: string) => boolean
-): { checked: number; newlyHidden: number } {
-  const rows = db.prepare('SELECT id, prompt FROM generations WHERE hidden = 0').all() as unknown as {
-    id: number;
-    prompt: string;
-  }[];
-  const hide = db.prepare('UPDATE generations SET hidden = 1 WHERE id = ?');
-  let newlyHidden = 0;
-  db.exec('BEGIN');
-  try {
-    for (const row of rows) {
-      if (matches(row.prompt)) {
-        hide.run(row.id);
-        newlyHidden++;
-      }
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
-  return { checked: rows.length, newlyHidden };
 }
 
 export function getGenerationById(db: DatabaseSync, id: number): GenerationRecord | null {

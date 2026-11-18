@@ -19,44 +19,44 @@ const base = { prompt: 'a red fox', width: 1024, height: 1024, seed: 7, steps: 8
 
 function add(db: DatabaseSync, over: Partial<typeof base> & { length?: number } = {}, family = 'z-image', source: string | null = null) {
   const params = { ...base, ...over };
-  return insertGeneration(db, params, family, `/out/${Math.random()}.png`, null, false, source);
+  return insertGeneration(db, params, family, `/out/${Math.random()}.png`, null, 1, source);
 }
 
 test('the same prompt, size, seed, steps and cfg is a duplicate; any difference is not', () => {
   const db = initDatabase(':memory:');
   const made = add(db);
-  assert.equal(findDuplicateGeneration(db, 'z-image', base)?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...base })?.id, made.id);
 
   for (const change of [{ seed: 8 }, { width: 1280 }, { height: 896 }, { steps: 9 }, { cfg: 2 }, { prompt: 'a red fox!' }]) {
-    assert.equal(findDuplicateGeneration(db, 'z-image', { ...base, ...change }), null, JSON.stringify(change));
+    assert.equal(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...{ ...base, ...change } }), null, JSON.stringify(change));
   }
-  assert.equal(findDuplicateGeneration(db, 'upscale-image', base), null, 'another model family is not the same output');
+  assert.equal(findDuplicateGeneration(db, 'upscale-image', { workspaceId: 1, ...base }), null, 'another model family is not the same output');
 });
 
 test('a prompt that differs only by surrounding whitespace is still a duplicate', () => {
   const db = initDatabase(':memory:');
   const made = add(db, { prompt: 'a red fox ' });
-  assert.equal(findDuplicateGeneration(db, 'z-image', { ...base, prompt: '  a red fox' })?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...{ ...base, prompt: '  a red fox' } })?.id, made.id);
 });
 
 test('what is in the Trash does not count, and the newest match is the one reported', () => {
   const db = initDatabase(':memory:');
   const older = add(db);
   const newer = add(db);
-  assert.equal(findDuplicateGeneration(db, 'z-image', base)?.id, newer.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...base })?.id, newer.id);
 
   moveToTrash(db, [newer.id], fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-trash-')), { includeKept: true });
-  assert.equal(findDuplicateGeneration(db, 'z-image', base)?.id, older.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...base })?.id, older.id);
 });
 
 test('a video is a duplicate only with the same length and the same source image', () => {
   const db = initDatabase(':memory:');
   const made = add(db, { length: 81 }, 'wan22-i2v', '/sources/a.png');
   const query = { ...base, length: 81, sourceImagePath: '/sources/a.png' };
-  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', query)?.id, made.id);
-  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { ...query, length: 97 }), null);
-  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { ...query, sourceImagePath: '/sources/b.png' }), null);
-  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { ...query, sourceImagePath: null }), null, 'no source yet: nothing to compare');
+  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { workspaceId: 1, ...query })?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { workspaceId: 1, ...{ ...query, length: 97 } }), null);
+  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { workspaceId: 1, ...{ ...query, sourceImagePath: '/sources/b.png' } }), null);
+  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { workspaceId: 1, ...{ ...query, sourceImagePath: null } }), null, 'no source yet: nothing to compare');
 });
 
 test('pinned items with the same prompt form a group of that size', () => {
@@ -65,12 +65,12 @@ test('pinned items with the same prompt form a group of that size', () => {
   const b = add(db, { seed: 2 });
   const other = add(db, { seed: 3, prompt: 'a blue owl' });
   setGenerationPinned(db, a.id, true);
-  assert.equal(countPinnedWithPrompt(db, 'a red fox'), 1);
+  assert.equal(countPinnedWithPrompt(db, 'a red fox', 1), 1);
   setGenerationPinned(db, b.id, true);
   setGenerationPinned(db, other.id, true);
-  assert.equal(countPinnedWithPrompt(db, 'a red fox'), 2);
+  assert.equal(countPinnedWithPrompt(db, 'a red fox', 1), 2);
   setGenerationPinned(db, a.id, false);
-  assert.equal(countPinnedWithPrompt(db, 'a red fox'), 1);
+  assert.equal(countPinnedWithPrompt(db, 'a red fox', 1), 1);
 });
 
 test('a stack lists its own pictures for its card to cycle through, the cover first', () => {
@@ -79,7 +79,7 @@ test('a stack lists its own pictures for its card to cycle through, the cover fi
   const lone = add(db, { seed: 9, prompt: 'a blue owl' });
   setGenerationPinned(db, items[0].id, true); // the pinned item becomes the cover
 
-  const list = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { grouped: true });
+  const list = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, null, { grouped: true });
   const fox = list.find((r) => r.prompt === 'a red fox')!;
   const owl = list.find((r) => r.id === lone.id)!;
   assert.equal(fox.id, items[0].id);
@@ -92,7 +92,7 @@ test('a stack lists its own pictures for its card to cycle through, the cover fi
 test('a stack previews no more than a dozen pictures', () => {
   const db = initDatabase(':memory:');
   for (let seed = 1; seed <= 20; seed++) add(db, { seed });
-  const [stack] = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, false, null, { grouped: true });
+  const [stack] = listGenerations(db, VIDEO_FAMILIES, 'image', 50, null, false, 1, null, { grouped: true });
   assert.equal(stack.groupCount, 20);
   assert.equal(stack.groupPreviewPaths?.length, 12);
 });
@@ -101,32 +101,32 @@ test('an outpainting run is a duplicate only of the same picture extended by the
   const db = initDatabase(':memory:');
   const pad = { left: 256, top: 0, right: 256, bottom: 0 };
   const query = { ...base, sourceImagePath: '/s/pic.png', outpaint: pad };
-  const made = insertGeneration(db, { ...base, outpaint: pad }, 'z-image-outpaint', '/out/x.png', null, false, '/s/pic.png');
+  const made = insertGeneration(db, { ...base, outpaint: pad }, 'z-image-outpaint', '/out/x.png', null, 1, '/s/pic.png');
   assert.deepEqual(made.outpaint, pad);
-  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', query)?.id, made.id);
-  assert.deepEqual(findDuplicateGeneration(db, 'z-image-outpaint', query)?.outpaint, pad, 'read back from the database');
-  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { ...query, outpaint: { ...pad, top: 64 } }), null, 'a different extension');
-  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { ...query, sourceImagePath: '/s/other.png' }), null, 'a different picture');
-  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { ...query, outpaint: null }), null, 'no extension yet means nothing to compare');
+  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { workspaceId: 1, ...query })?.id, made.id);
+  assert.deepEqual(findDuplicateGeneration(db, 'z-image-outpaint', { workspaceId: 1, ...query })?.outpaint, pad, 'read back from the database');
+  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { workspaceId: 1, ...{ ...query, outpaint: { ...pad, top: 64 } } }), null, 'a different extension');
+  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { workspaceId: 1, ...{ ...query, sourceImagePath: '/s/other.png' } }), null, 'a different picture');
+  assert.equal(findDuplicateGeneration(db, 'z-image-outpaint', { workspaceId: 1, ...{ ...query, outpaint: null } }), null, 'no extension yet means nothing to compare');
 });
 
 test('a text-to-video run is a duplicate of the same prompt, size, seed and length - it has no source image to compare', () => {
   const db = initDatabase(':memory:');
   const made = insertGeneration(db, { ...base, length: 81 }, 'wan22-t2v', '/out/v.mp4');
-  assert.equal(findDuplicateGeneration(db, 'wan22-t2v', { ...base, length: 81 })?.id, made.id);
-  assert.equal(findDuplicateGeneration(db, 'wan22-t2v', { ...base, length: 65 }), null);
+  assert.equal(findDuplicateGeneration(db, 'wan22-t2v', { workspaceId: 1, ...{ ...base, length: 81 } })?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'wan22-t2v', { workspaceId: 1, ...{ ...base, length: 65 } }), null);
   // an image-to-video run of the same settings is a different family
-  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { ...base, length: 81, sourceImagePath: '/s/pic.png' }), null);
+  assert.equal(findDuplicateGeneration(db, 'wan22-i2v', { workspaceId: 1, ...{ ...base, length: 81, sourceImagePath: '/s/pic.png' } }), null);
 });
 
 test('an inpainting run is a duplicate only of the same picture with the same mask', () => {
   const db = initDatabase(':memory:');
   const query = { ...base, denoise: 0.8, sourceImagePath: '/s/pic.png', maskImagePath: '/s/mask-a.png' };
-  const made = insertGeneration(db, { ...base, denoise: 0.8 }, 'z-image-inpaint', '/out/x.png', null, false, '/s/pic.png', '/s/mask-a.png');
-  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', query)?.id, made.id);
-  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { ...query, maskImagePath: '/s/mask-b.png' }), null, 'a different mask');
-  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { ...query, sourceImagePath: '/s/other.png' }), null, 'a different picture');
-  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { ...query, maskImagePath: null }), null, 'no mask yet means nothing to compare');
+  const made = insertGeneration(db, { ...base, denoise: 0.8 }, 'z-image-inpaint', '/out/x.png', null, 1, '/s/pic.png', '/s/mask-a.png');
+  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { workspaceId: 1, ...query })?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { workspaceId: 1, ...{ ...query, maskImagePath: '/s/mask-b.png' } }), null, 'a different mask');
+  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { workspaceId: 1, ...{ ...query, sourceImagePath: '/s/other.png' } }), null, 'a different picture');
+  assert.equal(findDuplicateGeneration(db, 'z-image-inpaint', { workspaceId: 1, ...{ ...query, maskImagePath: null } }), null, 'no mask yet means nothing to compare');
 });
 
 test('a GIF made before it kept its source picture gets the one from the video it was converted from', () => {

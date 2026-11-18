@@ -31,7 +31,7 @@ export default function LibraryPicker({ title, kind = 'image', onPick, onClose }
     setLoading(true);
     setError(null);
     try {
-      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favoritesOnly, false);
+      const page = await window.kvgenius.listGenerations(kind, PAGE_SIZE, beforeId, favoritesOnly);
       setMore(page.length === PAGE_SIZE);
       const usable = kind === 'video' ? page : page.filter((r) => !r.imagePath.toLowerCase().endsWith('.gif'));
       setRecords((prev) => (replace ? usable : [...prev, ...usable]));
