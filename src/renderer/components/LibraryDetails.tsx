@@ -45,7 +45,6 @@ interface Props {
   onExpand: () => void;
   onToggleFavorite: (record: GenerationRecord) => void;
   onTogglePinned: (record: GenerationRecord) => void;
-  onToggleHidden: (record: GenerationRecord) => void;
   onDelete: (record: GenerationRecord) => void;
   /** Load the generation into a Generate tab. */
   onRerack: (record: GenerationRecord) => void;
@@ -80,7 +79,6 @@ export default function LibraryDetails({
   onExpand,
   onToggleFavorite,
   onTogglePinned,
-  onToggleHidden,
   onDelete,
   onRerack,
   onImageToVideo,
@@ -296,9 +294,6 @@ export default function LibraryDetails({
           }
         >
           {record.pinned ? '📌 Pinned' : '📌 Pin'}
-        </button>
-        <button type="button" onClick={() => onToggleHidden(record)}>
-          {record.hidden ? 'Unhide' : 'Hide'}
         </button>
       </span>
     </div>

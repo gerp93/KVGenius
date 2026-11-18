@@ -47,6 +47,7 @@ before(() => {
     comfyAvailable: async () => true,
     imageSize: () => ({ width: 1600, height: 900 }),
     imagePreviewFallback: async () => null,
+    workspaceId: () => 1,
   });
 });
 
@@ -267,7 +268,7 @@ test('generate_image without a style sends the prompt untouched, with one it app
   released.shift()?.();
   await call('get_job', { job_id: plain.job_id, wait_seconds: 5 });
 
-  saveStyle(db, { name: '1930s movie poster', text: 'bold lithograph, limited palette' });
+  saveStyle(db, { name: '1930s movie poster', text: 'bold lithograph, limited palette' }, null, 1);
   const styled = await call('generate_image', { prompt: 'a red fox', style: '1930S MOVIE POSTER' });
   assert.equal(styled.prompt, 'a red fox, bold lithograph, limited palette');
   assert.equal(styled.style, '1930s movie poster');
@@ -573,8 +574,8 @@ withFfmpeg('assemble_video validates its inputs', async () => {
 });
 
 test('generate_image adds elements before the style, and a wrong kind says which argument to use', async () => {
-  saveStyle(db, { name: 'Red coat', text: 'wearing a red trench coat', kind: 'element' });
-  saveStyle(db, { name: 'Wide hat', text: 'wide-brim hat', kind: 'element' });
+  saveStyle(db, { name: 'Red coat', text: 'wearing a red trench coat', kind: 'element' }, null, 1);
+  saveStyle(db, { name: 'Wide hat', text: 'wide-brim hat', kind: 'element' }, null, 1);
   const job = await call('generate_image', { prompt: 'a fox', style: '1930s movie poster', elements: ['red coat', 'Wide hat'] });
   assert.equal(job.prompt, 'a fox, wearing a red trench coat, wide-brim hat, bold lithograph, limited palette');
   assert.equal(job.style, '1930s movie poster + Red coat + Wide hat');

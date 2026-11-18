@@ -33,6 +33,8 @@ export interface JobQueueOptions {
   prepare?: (request: JobRequest) => JobRequest;
   /** Called when a job ends without producing a result (failed or cancelled), so what was kept for it can be let go. */
   onUnfinished?: (job: JobInfo) => void;
+  /** The workspace a job without one is queued into: the one the window is in. */
+  currentWorkspaceId?: () => number;
 }
 
 type JobListener = (job: JobInfo) => void;
@@ -69,7 +71,8 @@ export class JobQueue {
     if (countQueuedJobs(this.db) >= MAX_QUEUED_JOBS) {
       throw new Error(`The queue is full (${MAX_QUEUED_JOBS} jobs waiting). Wait for some to finish or cancel some.`);
     }
-    const prepared = this.options.prepare ? this.options.prepare(request) : request;
+    const placed = request.workspaceId === undefined && this.options.currentWorkspaceId ? { ...request, workspaceId: this.options.currentWorkspaceId() } : request;
+    const prepared = this.options.prepare ? this.options.prepare(placed) : placed;
     const job = insertJob(this.db, prepared);
     this.estimates.set(job.id, request.estimate ?? null);
     this.emitJob(job);

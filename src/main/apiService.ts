@@ -40,6 +40,8 @@ export interface ApiServiceDeps {
   imageSize: (file: string) => { width: number; height: number } | null;
   /** A JPEG preview of an image for when ffmpeg is not available. */
   imagePreviewFallback: (file: string) => Promise<Buffer | null>;
+  /** The workspace the app is in. What a client makes goes there, and the styles it can name are that workspace's. */
+  workspaceId: () => number;
 }
 
 const FAMILIES: Record<string, { kind: 'image' | 'video'; description: string }> = {
@@ -315,7 +317,7 @@ export class ApiService {
         height = info?.height ?? null;
         duration = info?.durationSeconds ?? null;
       }
-      items.push(upsertImport(this.deps.db, { path: file, kind, origin: 'imported', width, height, duration, batch }));
+      items.push(upsertImport(this.deps.db, { path: file, kind, origin: 'imported', width, height, duration, batch, workspaceId: this.deps.workspaceId() }));
     }
     return { imported: items.length, truncated, limit: truncated ? MAX_IMPORT_FILES : undefined, items };
   }
@@ -415,10 +417,10 @@ export class ApiService {
   /** The saved style (`style`, a name) and elements (`elements`, a list of names) a generate_image call asks for. Throws, naming what exists, for a
    * name that is not saved or is the wrong kind - a style is a look (one), an element is a reusable part of the picture (any number). */
   private resolveWording(args: Args): { style: PromptStyle | null; elements: PromptStyle[] } {
-    const all = listStyles(this.deps.db);
+    const all = listStyles(this.deps.db, this.deps.workspaceId());
     const names = (kind: 'style' | 'element') => all.filter((s) => s.kind === kind).map((s) => `"${s.name}"`);
     const find = (name: string, kind: 'style' | 'element', argument: string): PromptStyle => {
-      const found = findStyleByName(this.deps.db, name);
+      const found = findStyleByName(this.deps.db, name, this.deps.workspaceId());
       if (!found) {
         const saved = names(kind);
         throw new ApiError(
@@ -442,7 +444,7 @@ export class ApiService {
   }
 
   private listStylesTool() {
-    const styles = listStyles(this.deps.db).map((s) => ({ name: s.name, kind: s.kind, text: s.text }));
+    const styles = listStyles(this.deps.db, this.deps.workspaceId()).map((s) => ({ name: s.name, kind: s.kind, text: s.text }));
     return {
       styles,
       note: styles.length

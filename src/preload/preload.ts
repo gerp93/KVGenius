@@ -6,6 +6,7 @@ import { PromptTemplateInput } from '../shared/promptTemplates';
 import { ModelProfileInput } from '../shared/modelProfiles';
 import type { ModelImportProgress } from '../shared/modelCheck';
 import type { BackgroundWork } from '../shared/backgroundWork';
+import type { WorkspaceUpdate } from '../shared/workspaces';
 
 // Videos are served by a local HTTP server, everything else by the kvimage:// protocol - the same
 // rule as imageUrlFor() in main.ts (the sandboxed preload can't import it).
@@ -50,20 +51,20 @@ const api: KVGeniusAPI = {
     limit: number,
     beforeId: number | null,
     favoritesOnly: boolean,
-    showHidden: boolean,
     extension?: string | null,
     options?: LibraryListOptions
-  ) => ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly, showHidden, extension ?? null, options),
-  countGenerations: (favoritesOnly: boolean, showHidden: boolean, imageExtension?: string | null, options?: LibraryListOptions) =>
-    ipcRenderer.invoke('countGenerations', favoritesOnly, showHidden, imageExtension ?? null, options),
+  ) => ipcRenderer.invoke('listGenerations', kind, limit, beforeId, favoritesOnly, extension ?? null, options),
+  countGenerations: (favoritesOnly: boolean, imageExtension?: string | null, options?: LibraryListOptions) =>
+    ipcRenderer.invoke('countGenerations', favoritesOnly, imageExtension ?? null, options),
   listImageExtensions: () => ipcRenderer.invoke('listImageExtensions'),
   listStyleTags: () => ipcRenderer.invoke('listStyleTags'),
-  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, showHidden: boolean, extension?: string | null, options?: LibraryListOptions) =>
-    ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly, showHidden, extension ?? null, options),
-  setGenerationHidden: (id: number, hidden: boolean) => ipcRenderer.invoke('setGenerationHidden', id, hidden),
-  getHiddenWords: () => ipcRenderer.invoke('getHiddenWords'),
-  setHiddenWords: (words: string[]) => ipcRenderer.invoke('setHiddenWords', words),
-  applyHiddenWords: () => ipcRenderer.invoke('applyHiddenWords'),
+  listGenerationRefs: (kind: GenerationKind, favoritesOnly: boolean, extension?: string | null, options?: LibraryListOptions) =>
+    ipcRenderer.invoke('listGenerationRefs', kind, favoritesOnly, extension ?? null, options),
+  listWorkspaces: (includeHidden: boolean) => ipcRenderer.invoke('listWorkspaces', includeHidden),
+  createWorkspace: (name: string) => ipcRenderer.invoke('createWorkspace', name),
+  updateWorkspace: (id: number, patch: WorkspaceUpdate) => ipcRenderer.invoke('updateWorkspace', id, patch),
+  deleteWorkspace: (id: number) => ipcRenderer.invoke('deleteWorkspace', id),
+  setActiveWorkspace: (id: number | null) => ipcRenderer.invoke('setActiveWorkspace', id),
   getFileSize: (imagePath: string) => ipcRenderer.invoke('getFileSize', imagePath),
   exportGenerations: (imagePaths: string[]) => ipcRenderer.invoke('exportGenerations', imagePaths),
   setGenerationFavorite: (id: number, favorite: boolean) => ipcRenderer.invoke('setGenerationFavorite', id, favorite),
@@ -96,23 +97,22 @@ const api: KVGeniusAPI = {
 
   setGenerationPinned: (id: number, pinned: boolean) => ipcRenderer.invoke('setGenerationPinned', id, pinned),
   findDuplicateGeneration: (family: string, params: GenerationParams) => ipcRenderer.invoke('findDuplicateGeneration', family, params),
-  listPinnedGenerations: (showHidden: boolean) => ipcRenderer.invoke('listPinnedGenerations', showHidden),
+  listPinnedGenerations: () => ipcRenderer.invoke('listPinnedGenerations'),
 
-  getCleanupSettings: () => ipcRenderer.invoke('getCleanupSettings'),
-  setCleanupSettings: (patch: {
+  setCleanupSettings: (workspaceId: number, patch: {
     autoTrashEnabled?: boolean;
     olderThanDays?: number;
     autoEmptyEnabled?: boolean;
     trashRetentionDays?: number;
-  }) => ipcRenderer.invoke('setCleanupSettings', patch),
-  previewCleanup: (days: number) => ipcRenderer.invoke('previewCleanup', days),
-  runCleanup: (days: number) => ipcRenderer.invoke('runCleanup', days),
+  }) => ipcRenderer.invoke('setCleanupSettings', workspaceId, patch),
+  previewCleanup: (workspaceId: number, days: number) => ipcRenderer.invoke('previewCleanup', workspaceId, days),
+  runCleanup: (workspaceId: number, days: number) => ipcRenderer.invoke('runCleanup', workspaceId, days),
   trashGenerations: (ids: number[], options?: { includeKept?: boolean }) => ipcRenderer.invoke('trashGenerations', ids, options),
-  getTrashStats: () => ipcRenderer.invoke('getTrashStats'),
+  getTrashStats: (workspaceId?: number) => ipcRenderer.invoke('getTrashStats', workspaceId ?? null),
   listTrashed: (limit: number, beforeId: number | null) => ipcRenderer.invoke('listTrashed', limit, beforeId),
   restoreGenerations: (ids: number[]) => ipcRenderer.invoke('restoreGenerations', ids),
   deleteTrashed: (ids: number[]) => ipcRenderer.invoke('deleteTrashed', ids),
-  emptyTrash: () => ipcRenderer.invoke('emptyTrash'),
+  emptyTrash: (workspaceId?: number) => ipcRenderer.invoke('emptyTrash', workspaceId ?? null),
 
   getPromptSlots: () => ipcRenderer.invoke('getPromptSlots'),
   savePromptSlots: (slots: PromptSlot[], activeId: string) => ipcRenderer.invoke('savePromptSlots', slots, activeId),

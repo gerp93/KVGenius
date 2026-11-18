@@ -36,7 +36,7 @@ test('a clip is joined onto the end of the video it continues, and the frames of
     assert.equal(frameCount(out), 48, '32 + 17 frames, less the repeated first frame of the clip');
 
     // extending the extended video again counts everything before the new clip
-    const second = insertGeneration(db, { ...params, length: 17 }, 'wan22-i2v', out, null, false, null, null, 32);
+    const second = insertGeneration(db, { ...params, length: 17 }, 'wan22-i2v', out, null, 1, null, null, 32);
     const again = await joinOntoVideo(db, ff, second.id, clip, path.join(dir, 'joined2.mp4'));
     assert.deepEqual(again, { extendedFrames: 32 + 17 });
     assert.equal(second.extendedFrames, 32);

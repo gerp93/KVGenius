@@ -68,11 +68,11 @@ test('the same seed and settings on a different model is not a duplicate', () =>
   const b: ModelSettings = { ...a, files: { ...a.files, diffusionModel: 'b.safetensors' } };
   insertGeneration(db, { ...params, modelName: 'A', modelSettings: a }, 'z-image', '/out/a.png');
   const query = { prompt: 'a fox', width: 64, height: 64, seed: 1, steps: 30, cfg: 4 };
-  assert.ok(findDuplicateGeneration(db, 'z-image', { ...query, modelSettings: a }));
-  assert.equal(findDuplicateGeneration(db, 'z-image', { ...query, modelSettings: b }), null);
-  assert.equal(findDuplicateGeneration(db, 'z-image', query), null);
+  assert.ok(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...{ ...query, modelSettings: a } }));
+  assert.equal(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...{ ...query, modelSettings: b } }), null);
+  assert.equal(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...query }), null);
   insertGeneration(db, params, 'z-image', '/out/plain.png');
-  assert.ok(findDuplicateGeneration(db, 'z-image', query));
+  assert.ok(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...query }));
 });
 
 test('the generations table has the model columns', () => {
@@ -85,18 +85,18 @@ test('the duplicate guard tells apart strengths and start pictures of image to i
   const db = initDatabase(':memory:');
   const base = { ...params, denoise: 0.6, sourceImagePath: '/kept/a.png' };
   // the Library keeps its own copy of the start picture; that copy's path is what a re-run is compared by
-  insertGeneration(db, base, 'z-image-i2i', '/out/i1.png', null, false, '/kept/a.png');
+  insertGeneration(db, base, 'z-image-i2i', '/out/i1.png', null, 1, '/kept/a.png');
   const query = { prompt: 'a fox', width: 64, height: 64, seed: 1, steps: 30, cfg: 4, denoise: 0.6, sourceImagePath: '/kept/a.png' };
-  assert.ok(findDuplicateGeneration(db, 'z-image-i2i', query));
-  assert.equal(findDuplicateGeneration(db, 'z-image-i2i', { ...query, denoise: 0.5 }), null, 'another strength is another picture');
-  assert.equal(findDuplicateGeneration(db, 'z-image-i2i', { ...query, sourceImagePath: '/kept/b.png' }), null, 'another start picture too');
-  assert.equal(findDuplicateGeneration(db, 'z-image-i2i', { ...query, sourceImagePath: null }), null, 'no start picture is nothing to compare');
-  assert.equal(findDuplicateGeneration(db, 'z-image', { ...query, denoise: null, sourceImagePath: null }), null, 'text to image never matches it');
+  assert.ok(findDuplicateGeneration(db, 'z-image-i2i', { workspaceId: 1, ...query }));
+  assert.equal(findDuplicateGeneration(db, 'z-image-i2i', { workspaceId: 1, ...{ ...query, denoise: 0.5 } }), null, 'another strength is another picture');
+  assert.equal(findDuplicateGeneration(db, 'z-image-i2i', { workspaceId: 1, ...{ ...query, sourceImagePath: '/kept/b.png' } }), null, 'another start picture too');
+  assert.equal(findDuplicateGeneration(db, 'z-image-i2i', { workspaceId: 1, ...{ ...query, sourceImagePath: null } }), null, 'no start picture is nothing to compare');
+  assert.equal(findDuplicateGeneration(db, 'z-image', { workspaceId: 1, ...{ ...query, denoise: null, sourceImagePath: null } }), null, 'text to image never matches it');
 });
 
 test('a generation records its strength, and text to image records none', () => {
   const db = initDatabase(':memory:');
-  const i2i = insertGeneration(db, { ...params, denoise: 0.35 }, 'z-image-i2i', '/out/i.png', null, false, '/kept/a.png');
+  const i2i = insertGeneration(db, { ...params, denoise: 0.35 }, 'z-image-i2i', '/out/i.png', null, 1, '/kept/a.png');
   assert.equal(getGenerationById(db, i2i.id)?.denoise, 0.35);
   const plain = insertGeneration(db, params, 'z-image', '/out/t.png');
   assert.equal(getGenerationById(db, plain.id)?.denoise, null);

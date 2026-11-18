@@ -22,7 +22,7 @@ import {
 /**
  * The Styles page's example pictures (see shared/styleSamples.ts). Each is an ordinary Library item - made through the
  * normal queue (last in line: a picture from the Generate tab always goes first, see nextQueuedJob; and not listed in the
- * queue panel, which only says they are using the queue - see shared/backgroundWork.ts), hidden from the Library's lists unless "Show hidden" is on - that this table points at, with the wording and
+ * queue panel, which only says they are using the queue - see shared/backgroundWork.ts), kept in a workspace of the app's own that is never opened - that this table points at, with the wording and
  * standard prompt it was made from, so a later change shows up as "outdated".
  */
 export const STYLE_SAMPLES_SCHEMA = `
@@ -132,8 +132,8 @@ export interface StyleSamplesDeps {
   queue: StyleSamplesQueue;
   /** Sends a picture to the Trash (the one an example replaces). */
   trash: (ids: number[]) => void;
-  /** Hides a new example from the Library's lists. */
-  hide: (id: number) => void;
+  /** The workspace the examples are made in: the app's own, which is never opened, so they never show in a Library. */
+  workspaceId: () => number;
   getRecord: (id: number) => GenerationRecord | null;
   imageUrlFor: (imagePath: string) => string;
   listStyles: () => PromptStyle[];
@@ -184,7 +184,7 @@ export class StyleSampleService {
       const running = this.pending.get(id);
       const runningJob = running === undefined ? null : this.deps.queue.get(running);
       if (runningJob && (runningJob.status === 'queued' || runningJob.status === 'running')) continue;
-      const job = this.deps.queue.submit(sampleRequest(settings, style));
+      const job = this.deps.queue.submit({ ...sampleRequest(settings, style), workspaceId: this.deps.workspaceId() });
       this.pending.set(id, job.id);
       this.failures.delete(id);
       queued++;
@@ -206,7 +206,6 @@ export class StyleSampleService {
       this.deps.trash([job.generationId]);
       return;
     }
-    this.deps.hide(job.generationId);
     const replaced = putStoredSample(this.deps.db, id, job.generationId, snapshot, new Date().toISOString());
     if (replaced !== null) this.deps.trash([replaced]);
   }

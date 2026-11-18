@@ -8,8 +8,6 @@ export type GenerationChange =
   | { kind: 'pinned'; id: number; pinned: boolean }
   /** Moved to the Trash: it has left the Library. */
   | { kind: 'trashed'; id: number; imagePath: string }
-  /** Hidden or unhidden, so it may have to enter or leave a Library list. */
-  | { kind: 'hidden'; id: number; hidden: boolean }
   /** A new item was made from another (a GIF from a video). */
   | { kind: 'created'; id: number }
   /** The app-wide details panel opened for a queue result: a Library page closes its own. */

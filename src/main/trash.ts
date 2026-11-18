@@ -38,19 +38,19 @@ function totalBytes(paths: string[]): number {
   return bytes;
 }
 
-/** What a cleanup of items older than `days` days would move: not favorited, not pinned, not already trashed. */
-export function cleanupCandidates(db: DatabaseSync, days: number, now: Date = new Date()): { id: number; imagePath: string }[] {
+/** What a cleanup of a workspace's items older than `days` days would move: not favorited, not pinned, not already trashed. */
+export function cleanupCandidates(db: DatabaseSync, workspaceId: number, days: number, now: Date = new Date()): { id: number; imagePath: string }[] {
   const rows = db
     .prepare(
       `SELECT id, image_path FROM generations
-       WHERE trashed_at IS NULL AND favorite = 0 AND pinned_at IS NULL AND created_at < ? ORDER BY id`
+       WHERE workspace_id = ? AND trashed_at IS NULL AND favorite = 0 AND pinned_at IS NULL AND created_at < ? ORDER BY id`
     )
-    .all(cutoffIso(days, now)) as unknown as { id: number; image_path: string }[];
+    .all(workspaceId, cutoffIso(days, now)) as unknown as { id: number; image_path: string }[];
   return rows.map((r) => ({ id: r.id, imagePath: r.image_path }));
 }
 
-export function previewCleanup(db: DatabaseSync, days: number, now: Date = new Date()): TrashStats {
-  const candidates = cleanupCandidates(db, days, now);
+export function previewCleanup(db: DatabaseSync, workspaceId: number, days: number, now: Date = new Date()): TrashStats {
+  const candidates = cleanupCandidates(db, workspaceId, days, now);
   return { count: candidates.length, bytes: totalBytes(candidates.map((c) => c.imagePath)) };
 }
 
@@ -103,20 +103,20 @@ export function moveToTrash(db: DatabaseSync, ids: number[], trashDir: string, o
 }
 
 /** Cleanup: moves everything `cleanupCandidates` finds. Never a favorite or pinned item. */
-export function runCleanup(db: DatabaseSync, days: number, trashDir: string, now: Date = new Date()): TrashMoveResult {
-  return moveToTrash(db, cleanupCandidates(db, days, now).map((c) => c.id), trashDir, { now });
+export function runCleanup(db: DatabaseSync, workspaceId: number, days: number, trashDir: string, now: Date = new Date()): TrashMoveResult {
+  return moveToTrash(db, cleanupCandidates(db, workspaceId, days, now).map((c) => c.id), trashDir, { now });
 }
 
-export function trashStats(db: DatabaseSync): TrashStats {
-  const rows = db.prepare('SELECT image_path FROM generations WHERE trashed_at IS NOT NULL').all() as unknown as { image_path: string }[];
+export function trashStats(db: DatabaseSync, workspaceId: number): TrashStats {
+  const rows = db.prepare('SELECT image_path FROM generations WHERE workspace_id = ? AND trashed_at IS NOT NULL').all(workspaceId) as unknown as { image_path: string }[];
   return { count: rows.length, bytes: totalBytes(rows.map((r) => r.image_path)) };
 }
 
-/** Everything in the Trash, newest generation first. Paged by id like the Library. */
-export function listTrashed(db: DatabaseSync, limit: number, beforeId: number | null): GenerationRecord[] {
+/** Everything in a workspace's Trash, newest generation first. Paged by id like the Library. */
+export function listTrashed(db: DatabaseSync, workspaceId: number, limit: number, beforeId: number | null): GenerationRecord[] {
   const ids = db
-    .prepare(`SELECT id FROM generations WHERE trashed_at IS NOT NULL ${beforeId === null ? '' : 'AND id < ?'} ORDER BY id DESC LIMIT ?`)
-    .all(...(beforeId === null ? [limit] : [beforeId, limit])) as unknown as { id: number }[];
+    .prepare(`SELECT id FROM generations WHERE workspace_id = ? AND trashed_at IS NOT NULL ${beforeId === null ? '' : 'AND id < ?'} ORDER BY id DESC LIMIT ?`)
+    .all(...(beforeId === null ? [workspaceId, limit] : [workspaceId, beforeId, limit])) as unknown as { id: number }[];
   return ids.map((r) => getGenerationById(db, r.id)).filter((r): r is GenerationRecord => r !== null);
 }
 
@@ -192,9 +192,10 @@ export async function deleteFromTrash(db: DatabaseSync, ids: number[], sourcesDi
   return emptyRows(db, rows, sourcesDir, recycle);
 }
 
-/** Empties the Trash into the Recycle Bin. With `olderThanDays`, only what has been there at least that long. */
+/** Empties a workspace's Trash into the Recycle Bin. With `olderThanDays`, only what has been there at least that long. */
 export async function emptyTrash(
   db: DatabaseSync,
+  workspaceId: number,
   sourcesDir: string,
   recycle: Recycle,
   olderThanDays: number | null = null,
@@ -202,10 +203,10 @@ export async function emptyTrash(
 ): Promise<TrashEmptyResult> {
   const rows = (
     olderThanDays === null
-      ? db.prepare('SELECT id, image_path, trash_from FROM generations WHERE trashed_at IS NOT NULL').all()
+      ? db.prepare('SELECT id, image_path, trash_from FROM generations WHERE workspace_id = ? AND trashed_at IS NOT NULL').all(workspaceId)
       : db
-          .prepare('SELECT id, image_path, trash_from FROM generations WHERE trashed_at IS NOT NULL AND trashed_at < ?')
-          .all(cutoffIso(olderThanDays, now))
+          .prepare('SELECT id, image_path, trash_from FROM generations WHERE workspace_id = ? AND trashed_at IS NOT NULL AND trashed_at < ?')
+          .all(workspaceId, cutoffIso(olderThanDays, now))
   ) as unknown as Row[];
   return emptyRows(db, rows, sourcesDir, recycle);
 }
