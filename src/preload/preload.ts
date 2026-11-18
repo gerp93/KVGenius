@@ -116,8 +116,8 @@ const api: KVGeniusAPI = {
   deleteTrashed: (ids: number[]) => ipcRenderer.invoke('deleteTrashed', ids),
   emptyTrash: (workspaceId?: number) => ipcRenderer.invoke('emptyTrash', workspaceId ?? null),
 
-  getPromptSlots: () => ipcRenderer.invoke('getPromptSlots'),
-  savePromptSlots: (slots: PromptSlot[], activeId: string) => ipcRenderer.invoke('savePromptSlots', slots, activeId),
+  getPromptSlots: (workspaceId: number) => ipcRenderer.invoke('getPromptSlots', workspaceId),
+  savePromptSlots: (workspaceId: number, slots: PromptSlot[], activeId: string) => ipcRenderer.invoke('savePromptSlots', workspaceId, slots, activeId),
 
   listStyles: () => ipcRenderer.invoke('listStyles'),
   saveStyle: (input: PromptStyleInput, id?: number | null) => ipcRenderer.invoke('saveStyle', input, id ?? null),

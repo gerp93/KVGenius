@@ -128,3 +128,12 @@ export function splitStyledPrompt(
   }
   return combinePrompt(rest, pieces) === fullPrompt ? { prompt: rest, style, elements } : null;
 }
+
+/** A list of styles or elements split by who can use them: the ones shared by every workspace (kept once, in one place, and listed the same
+ * in each workspace) and the ones that belong to the workspace the app is in. Each keeps its order. */
+export function splitByScope(list: readonly PromptStyle[]): { shared: PromptStyle[]; local: PromptStyle[] } {
+  return { shared: list.filter((s) => s.workspaceId === null), local: list.filter((s) => s.workspaceId !== null) };
+}
+
+export const SHARED_STYLES_LABEL = 'Shared by all workspaces';
+export const LOCAL_STYLES_LABEL = 'Only in this workspace';

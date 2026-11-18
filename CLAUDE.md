@@ -182,7 +182,15 @@ implementation here is exactly the kind of drift it exists to prevent.
   the "Move to workspace" dialog from the details panel and Select Multiple) moves the file first and the record second (reverting the file if
   the update fails), copies kept sources/masks across, re-points video-to-video sources, and leaves a file outside `output` where it is.
   **Merging** (`mergeWorkspaces`, the grid's Edit panel) moves everything including the Trash, imports, assemblies, jobs and the workspace's own
-  styles (renamed "Name (from X)" on a clash), then deletes the workspace and its empty folders; if any item could not move it is kept.
+  styles (renamed "Name (from X)" on a clash) and its Generate tabs (appended, empty ones left out), then deletes the workspace; if any item could not move it is kept.
+  **A workspace's folders exist from the moment it does** (`ensureWorkspaceDirs`, on create and at every start) **and are removed with it**
+  (`removeWorkspaceFolder`, on merge and delete: whatever a record still needs, e.g. a shared kept source, is first copied to its own
+  workspace, files nothing refers to go to the Recycle Bin, then the tree is removed with retries); `sweepStaleWorkspaceFolders` clears
+  folders left under `output` by earlier merges/deletes (only ones that belong to no workspace and are shaped like one).
+  **Generate's prompt tabs belong to a workspace** (`workspaces.prompt_slots`/`active_prompt_slot`; every `getPromptSlots`/`savePromptSlots`
+  call names the workspace, so a late save cannot land in the next one; the old global list seeded the first workspace once).
+  **Shared vs workspace styles are one table row each, never copies**; the Styles page and Generate's dropdowns list the shared ones
+  ("Shared by all workspaces") apart from the workspace's own (`splitByScope`).
 - **Navigation is a left sidebar, not a top bar** (`components/SideNav.tsx`/`.css`, rendered by `App.tsx`). Pages are
   grouped in sections (Create: Image / Video, Upscale, Styles; Library: Output/Prompts/Sources/Trash; Utilities:
   Timing/Hardpoint) in the `SECTIONS` data at the top of `SideNav.tsx` - add a page there. The footer holds

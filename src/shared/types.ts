@@ -479,8 +479,9 @@ export interface KVGeniusAPI {
   emptyTrash: (workspaceId?: number) => Promise<TrashEmptyResult>;
 
   /** The Generate page's prompt "tabs" (whole form per tab), persisted across restarts. */
-  getPromptSlots: () => Promise<{ slots: PromptSlot[]; activeId: string | null }>;
-  savePromptSlots: (slots: PromptSlot[], activeId: string) => Promise<void>;
+  /** A workspace's Generate tabs (each workspace has its own) and the one that was open. */
+  getPromptSlots: (workspaceId: number) => Promise<{ slots: PromptSlot[]; activeId: string | null }>;
+  savePromptSlots: (workspaceId: number, slots: PromptSlot[], activeId: string) => Promise<void>;
 
   /** User-defined prompt styles for the Generate page's Style dropdown (see shared/styles.ts). */
   listStyles: () => Promise<PromptStyle[]>;

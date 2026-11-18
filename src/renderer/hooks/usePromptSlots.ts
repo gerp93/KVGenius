@@ -18,7 +18,7 @@ const PERSIST_DEBOUNCE_MS = 600;
  * across restarts. Mirrors the individual useState calls Generate.tsx used to own directly, so it
  * can be dropped in with the same field names.
  */
-export function usePromptSlots() {
+export function usePromptSlots(workspaceId: number) {
   const [loaded, setLoaded] = useState(false);
   const [slots, setSlots] = useState<PromptSlot[]>([]);
   const [activeSlotId, setActiveSlotId] = useState<string>('');
@@ -91,11 +91,11 @@ export function usePromptSlots() {
     setLastRunSignature(data.lastRunSignature ?? null);
   }
 
-  // Load once on mount (Generate stays mounted for the whole session, so this never re-runs).
+  // Load once on mount (Generate stays mounted while the app is in this workspace; the shell is remounted for the next one, which loads its own tabs).
   useEffect(() => {
     let cancelled = false;
     window.kvgenius
-      .getPromptSlots()
+      .getPromptSlots(workspaceId)
       .then(({ slots: loadedSlots, activeId }) => {
         if (cancelled) return;
         const list = loadedSlots.length > 0 ? loadedSlots : [newPromptSlot()];
@@ -164,7 +164,7 @@ export function usePromptSlots() {
     const timer = setTimeout(() => {
       setSlots((prev) => {
         const merged = prev.map((s) => (s.id === activeSlotId ? { ...s, data: snapshotFromState() } : s));
-        void window.kvgenius.savePromptSlots(merged, activeSlotId);
+        void window.kvgenius.savePromptSlots(workspaceId, merged, activeSlotId);
         return merged;
       });
     }, PERSIST_DEBOUNCE_MS);
@@ -215,7 +215,7 @@ export function usePromptSlots() {
     setSlots(next);
     setActiveSlotId(id);
     applySnapshot(target.data);
-    void window.kvgenius.savePromptSlots(next, id);
+    void window.kvgenius.savePromptSlots(workspaceId, next, id);
   }
 
   /** Adds a fresh tab and switches to it. Returns its id, or null when every tab is in use. */
@@ -226,7 +226,7 @@ export function usePromptSlots() {
     setSlots(next);
     setActiveSlotId(fresh.id);
     applySnapshot(fresh.data);
-    void window.kvgenius.savePromptSlots(next, fresh.id);
+    void window.kvgenius.savePromptSlots(workspaceId, next, fresh.id);
     return fresh.id;
   }
 
@@ -241,7 +241,7 @@ export function usePromptSlots() {
     setSlots(next);
     setActiveSlotId(copy.id);
     applySnapshot(copy.data);
-    void window.kvgenius.savePromptSlots(next, copy.id);
+    void window.kvgenius.savePromptSlots(workspaceId, next, copy.id);
     return copy.id;
   }
 
@@ -251,7 +251,7 @@ export function usePromptSlots() {
     const next = moveSlot(merged, id, toIndex);
     if (next === merged) return;
     setSlots(next);
-    void window.kvgenius.savePromptSlots(next, activeSlotId);
+    void window.kvgenius.savePromptSlots(workspaceId, next, activeSlotId);
   }
 
   function closeSlot(id: string) {
@@ -267,7 +267,7 @@ export function usePromptSlots() {
     }
     setSlots(remaining);
     setActiveSlotId(nextActiveId);
-    void window.kvgenius.savePromptSlots(remaining, nextActiveId);
+    void window.kvgenius.savePromptSlots(workspaceId, remaining, nextActiveId);
   }
 
   function renameSlot(id: string, rawName: string) {
@@ -276,7 +276,7 @@ export function usePromptSlots() {
     const withSnapshot = slots.map((s) => (s.id === activeSlotId ? { ...s, data: snapshotFromState() } : s));
     const next = withSnapshot.map((s) => (s.id === id ? { ...s, name } : s));
     setSlots(next);
-    void window.kvgenius.savePromptSlots(next, activeSlotId);
+    void window.kvgenius.savePromptSlots(workspaceId, next, activeSlotId);
   }
 
   function labelFor(slot: PromptSlot): string {

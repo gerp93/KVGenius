@@ -25,7 +25,6 @@ import {
   setTheme,
   getPromptSlots,
   getActivePromptSlotId,
-  savePromptSlots,
   getApiEnabled,
   setApiEnabled,
   getApiToken,
@@ -48,6 +47,8 @@ import {
   currentWorkspaceId,
   deleteWorkspace,
   getWorkspace,
+  getWorkspacePromptSlots,
+  saveWorkspacePromptSlots,
   listWorkspaces,
   saveWorkspaceCleanup,
   setActiveWorkspaceId,
@@ -57,7 +58,7 @@ import {
   workspaceDirsOf,
 } from './workspaces';
 import { WorkspaceDirs } from './workspaceFolders';
-import { MoveContext, mergeWorkspaces, moveGenerations, pruneEmptyDirs } from './moveItems';
+import { MoveContext, ensureWorkspaceDirs, mergeWorkspaces, moveGenerations, removeWorkspaceFolder, sweepStaleWorkspaceFolders } from './moveItems';
 import { migrateOutputLayout } from './outputLayout';
 import { WorkspaceUpdate } from '../shared/workspaces';
 import { PromptTemplateInput } from '../shared/promptTemplates';
@@ -283,7 +284,7 @@ function outputDirsOf(workspaceId: number) {
 /** What moving items between workspaces needs. */
 function moveContext(): MoveContext {
   if (!db) throw new Error('Database not initialized');
-  return { db, outputRoot: getOutputRoot(), dirsOf, videoFamilies: videoFamilyList() };
+  return { db, outputRoot: getOutputRoot(), dirsOf, videoFamilies: videoFamilyList(), recycle: recycleFile };
 }
 
 /** A file in a workspace's kept-sources folder (output/<workspace>/sources/<file>). */
@@ -653,7 +654,10 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle('createWorkspace', (_event, name: string) => {
     if (!db) throw new Error('Database not initialized');
-    return createWorkspace(db, name);
+    const workspace = createWorkspace(db, name);
+    // Its folders exist from now, not from its first picture.
+    ensureWorkspaceDirs(dirsOf(workspace.id));
+    return workspace;
   });
   ipcMain.handle('updateWorkspace', (_event, id: number, patch: WorkspaceUpdate) => {
     if (!db) throw new Error('Database not initialized');
@@ -664,12 +668,13 @@ function registerIpcHandlers(): void {
       ...(typeof patch?.hidden === 'boolean' ? { hidden: patch.hidden } : {}),
     });
   });
-  ipcMain.handle('deleteWorkspace', (_event, id: number) => {
+  ipcMain.handle('deleteWorkspace', async (_event, id: number) => {
     if (!db) throw new Error('Database not initialized');
     if (!Number.isInteger(id)) return;
     const root = getWorkspace(db, id) ? dirsOf(id).root : null;
     deleteWorkspace(db, id);
-    if (root) pruneEmptyDirs(root);
+    // Its folders go with it (anything nothing needs still in them goes to the Recycle Bin).
+    if (root) await removeWorkspaceFolder(moveContext(), root);
   });
   // Moving items into another workspace (their files move into its folders), and merging a whole workspace into another.
   ipcMain.handle('moveGenerations', (_event, ids: number[], targetId: number) => {
@@ -1023,13 +1028,17 @@ function registerIpcHandlers(): void {
     return emptyTrash(db, workspaceOf(workspaceId), (id) => dirsOf(id).sources, recycleFile);
   });
 
-  ipcMain.handle('getPromptSlots', () => ({
-    slots: getPromptSlots(),
-    activeId: getActivePromptSlotId(),
-  }));
+  // The Generate tabs belong to a workspace. The window names the workspace in each call (rather than the main process using "the
+  // current one"), so a save still on its way from a workspace the window has just left cannot land in the next one.
+  ipcMain.handle('getPromptSlots', (_event, workspaceId: number) => {
+    if (!db) throw new Error('Database not initialized');
+    return getWorkspacePromptSlots(db, workspaceOf(workspaceId));
+  });
 
-  ipcMain.handle('savePromptSlots', (_event, slots: PromptSlot[], activeId: string) => {
-    savePromptSlots(slots, activeId);
+  ipcMain.handle('savePromptSlots', (_event, workspaceId: number, slots: PromptSlot[], activeId: string) => {
+    if (!db) throw new Error('Database not initialized');
+    if (!Number.isInteger(workspaceId) || !getWorkspace(db, workspaceId)) return;
+    saveWorkspacePromptSlots(db, workspaceId, slots, typeof activeId === 'string' ? activeId : null);
   });
 
   ipcMain.handle('listStyles', () => {
@@ -1441,7 +1450,7 @@ app
     migrateLegacyDefaultDbLocation();
     enforceDevDatabaseIsolation();
     // The cleanup rules that used to be global become the first workspace's (only read when the database is first moved to workspaces).
-    db = initDatabase(getEffectiveDbPath(), getCleanupSettings());
+    db = initDatabase(getEffectiveDbPath(), getCleanupSettings(), { slots: getPromptSlots(), activeId: getActivePromptSlotId() });
     const startedDb = db;
     // Files used to share output/{images,videos,gifs,sources,trash}; each workspace now has a folder of its own. Moves the old folders
     // (and the paths stored for them) once, and finishes what an interrupted start left. A problem is logged, not fatal.
@@ -1450,6 +1459,14 @@ app
       if (layout.problems > 0) logStartupFailure('migrateOutputLayout', new Error(`${layout.problems} item(s) could not be moved yet; they are tried again next start.`));
     } catch (error) {
       logStartupFailure('migrateOutputLayout', error);
+    }
+    // Every workspace has its folders from the start (after the move above, which needs the new ones not to exist yet), and folders left by
+    // a workspace that was merged away or deleted are cleared. Neither is fatal.
+    try {
+      for (const workspace of listWorkspaces(startedDb, true)) ensureWorkspaceDirs(dirsOf(workspace.id));
+      void sweepStaleWorkspaceFolders(moveContext()).catch((error) => logStartupFailure('sweepStaleWorkspaceFolders', error));
+    } catch (error) {
+      logStartupFailure('ensureWorkspaceDirs', error);
     }
     jobQueue = new JobQueue(db, createGenerationRunner(() => db, getFfmpeg, getOutputRoot), {
       // A picture queued from the window (or by an outside client) goes to the workspace the window is in, when it was queued.

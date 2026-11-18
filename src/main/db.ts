@@ -20,7 +20,7 @@ import { V2V_FAMILY } from '../shared/videoToVideo';
 import { MODEL_PROFILES_SCHEMA } from './modelProfiles';
 import { ModelSettings, parseModelSettings, serializeModelSettings } from '../shared/modelProfiles';
 import { CleanupSettings, DEFAULT_CLEANUP_SETTINGS } from '../shared/cleanup';
-import { DEFAULT_WORKSPACE_ID, WORKSPACES_SCHEMA, assignWorkspaceFolders, migrateToWorkspaces } from './workspaces';
+import { DEFAULT_WORKSPACE_ID, WORKSPACES_SCHEMA, assignWorkspaceFolders, migrateToWorkspaces, seedPromptSlots } from './workspaces';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -84,6 +84,11 @@ function migrateSchema(db: DatabaseSync): void {
   const workspaceColumns = db.prepare('PRAGMA table_info(workspaces)').all() as unknown as ColumnInfo[];
   if (workspaceColumns.length > 0 && !workspaceColumns.some((c) => c.name === 'folder')) {
     db.exec("ALTER TABLE workspaces ADD COLUMN folder TEXT NOT NULL DEFAULT '';");
+  }
+  // The Generate tabs belong to a workspace too (null: it never saved any).
+  if (workspaceColumns.length > 0 && !workspaceColumns.some((c) => c.name === 'prompt_slots')) {
+    db.exec('ALTER TABLE workspaces ADD COLUMN prompt_slots TEXT;');
+    db.exec('ALTER TABLE workspaces ADD COLUMN active_prompt_slot TEXT;');
   }
   // Workspaces (see shared/workspaces.ts): everything that existed before belongs to the first one (id 1, made by migrateToWorkspaces).
   if (!columns.some((c) => c.name === 'workspace_id')) {
@@ -235,7 +240,12 @@ export function migrateSavedPrompts(db: DatabaseSync, exportPath: string | null)
   return { pinned: new Set(matched.map((m) => m.id)).size, exported: unmatched.length };
 }
 
-export function initDatabase(dbPath: string, legacyCleanup: CleanupSettings = DEFAULT_CLEANUP_SETTINGS): DatabaseSync {
+export function initDatabase(
+  dbPath: string,
+  legacyCleanup: CleanupSettings = DEFAULT_CLEANUP_SETTINGS,
+  /** The Generate tabs as they were when they were one list for the whole app; the first workspace takes them (once). */
+  legacyPromptSlots: { slots: unknown; activeId: string | null } | null = null
+): DatabaseSync {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = WAL;');
@@ -252,6 +262,7 @@ export function initDatabase(dbPath: string, legacyCleanup: CleanupSettings = DE
   migrateSchema(db);
   migrateToWorkspaces(db, legacyCleanup);
   assignWorkspaceFolders(db);
+  seedPromptSlots(db, legacyPromptSlots);
   backfillTimingModels(db);
   try {
     const family = migrateFamilyKeys(db, dbPath);

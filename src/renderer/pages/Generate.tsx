@@ -15,7 +15,7 @@ import { usePromptSlots } from '../hooks/usePromptSlots';
 import { useTemplatedPrompt } from '../hooks/useTemplatedPrompt';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import type { PromptTabsModel } from '../utils/promptTabs';
-import { PromptStyle, combinePrompt, extraWording, splitStyledPrompt, styleLabel } from '../../shared/styles';
+import { LOCAL_STYLES_LABEL, PromptStyle, SHARED_STYLES_LABEL, combinePrompt, extraWording, splitByScope, splitStyledPrompt, styleLabel } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { PROFILE_FAMILIES, SAMPLER_LIMITS, profileFamily, profileFamilyKey } from '../../shared/modelFamilies';
 import { TEXT_TO_IMAGE_FAMILIES } from '../../shared/families';
@@ -38,6 +38,8 @@ const FAMILY_FOR_MODE: Record<Mode, string> = {
 };
 
 interface Props {
+  /** The workspace whose prompt tabs this page shows and saves. */
+  workspaceId: number;
   queue: GenerationQueue;
   recallRecord: GenerationRecord | null;
   onRecalled: () => void;
@@ -106,7 +108,27 @@ const VIDEO_SIZE_PRESETS: SizePreset[] = [
   { label: '480p landscape (16:9)', width: 832, height: 480 },
 ];
 
+/** The options of a style or element dropdown: shared ones and this workspace's own, grouped when there are both. */
+function styleOptions(list: readonly PromptStyle[]) {
+  const { shared, local } = splitByScope(list);
+  const option = (style: PromptStyle) => (
+    <option key={style.id} value={style.id}>
+      {style.name}
+    </option>
+  );
+  if (shared.length === 0 || local.length === 0) return list.map(option);
+  return [
+    <optgroup key="shared" label={SHARED_STYLES_LABEL}>
+      {shared.map(option)}
+    </optgroup>,
+    <optgroup key="local" label={LOCAL_STYLES_LABEL}>
+      {local.map(option)}
+    </optgroup>,
+  ];
+}
+
 export default function Generate({
+  workspaceId,
   queue,
   recallRecord,
   onRecalled,
@@ -121,7 +143,7 @@ export default function Generate({
 }: Props) {
   // The left-hand form is one of several independent "tabs" (prompt + every setting below it),
   // switchable and persisted across restarts - see usePromptSlots for the field definitions.
-  const slotState = usePromptSlots();
+  const slotState = usePromptSlots(workspaceId);
   const {
     slots,
     activeSlotId,
@@ -1300,13 +1322,7 @@ export default function Generate({
                 style={{ width: '100%' }}
               >
                 <option value="">{activeElements.length > 0 ? '+ Add another element...' : '+ Add an element (an outfit, a character...)'}</option>
-                {styles
-                  .filter((style) => style.kind === 'element' && !activeElements.some((element) => element.id === style.id))
-                  .map((style) => (
-                    <option key={style.id} value={style.id}>
-                      {style.name}
-                    </option>
-                  ))}
+                {styleOptions(styles.filter((style) => style.kind === 'element' && !activeElements.some((element) => element.id === style.id)))}
               </select>
             </div>
           )}
@@ -1322,13 +1338,7 @@ export default function Generate({
                 style={{ width: '100%' }}
               >
                 <option value="">None - use the prompt as written</option>
-                {styles
-                  .filter((style) => style.kind === 'style')
-                  .map((style) => (
-                    <option key={style.id} value={style.id}>
-                      {style.name}
-                    </option>
-                  ))}
+                {styleOptions(styles.filter((style) => style.kind === 'style'))}
               </select>
               {activeStyle && (
                 <p className="style-picker__preview" title="Added after your prompt. Edit it in the Styles tab.">

@@ -266,6 +266,7 @@ function WorkspaceShell({ workspace, theme, appTheme, onAppThemeChange, onSwitch
                 when it rendered through <Routes> - needed for its flex: 1 height to keep working. */}
             <div style={{ display: location.pathname === '/' ? 'contents' : 'none' }}>
               <Generate
+                workspaceId={workspace.id}
                 queue={queue}
                 recallRecord={recallRecord}
                 onRecalled={() => setRecallRecord(null)}

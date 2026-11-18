@@ -223,17 +223,13 @@ export function setTheme(themeId: string): void {
   writeConfig({ ...readConfig(), theme: themeId.trim() });
 }
 
-/** The Generate page's saved prompt "tabs" - always at least one, even on a fresh install. */
+/** The Generate page's prompt "tabs" as they were when they were one list for the whole app (each workspace has its own now): only read once, to give the first workspace what was there. */
 export function getPromptSlots(): PromptSlot[] {
   return sanitizeSlots(readConfig().promptSlots);
 }
 
 export function getActivePromptSlotId(): string | null {
   return readConfig().activePromptSlotId ?? null;
-}
-
-export function savePromptSlots(slots: PromptSlot[], activeId: string): void {
-  writeConfig({ ...readConfig(), promptSlots: sanitizeSlots(slots), activePromptSlotId: activeId });
 }
 
 export function getApiEnabled(): boolean {

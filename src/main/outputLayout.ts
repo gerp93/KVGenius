@@ -30,6 +30,8 @@ function freeBackupPath(dbPath: string): string {
 function adoptDir(from: string, to: string): { moved: boolean; problems: number } {
   let problems = 0;
   try {
+    // An empty folder already there (made ahead of time) is no reason to move file by file.
+    if (fs.existsSync(to) && fs.readdirSync(to).length === 0) fs.rmdirSync(to);
     if (!fs.existsSync(to)) {
       fs.mkdirSync(path.dirname(to), { recursive: true });
       fs.renameSync(from, to);
