@@ -160,7 +160,11 @@ implementation here is exactly the kind of drift it exists to prevent.
   `jobs`, `imports` and `assemblies` carry `workspace_id` (default 1, the **Default** workspace everything made before workspaces moved
   into). The main process holds the window's current workspace (`setActiveWorkspaceId`, `currentWorkspaceId(db)`); the IPC handlers and the
   MCP/API tools read it, so the renderer never passes it for Library calls, and a job stores the workspace it was queued in (`JobRequest.workspaceId`,
-  filled by `JobQueue`'s `currentWorkspaceId`), so switching while it runs does not move it. **Styles are shared (`styles.workspace_id` NULL) or
+  filled by `JobQueue`'s `currentWorkspaceId`), so switching while it runs does not move it. The MCP/API tools also take an optional `workspace` (a name,
+  case-insensitive, hidden ones too, never the system one; an unknown name is an error listing the existing names - the API never creates one),
+  resolved in `ApiService.namedWorkspace()`; `get_image_file` hands a client an image's original bytes (base64 in `images[0]`, 25 MB cap, same
+  client-only scope as `get_item`); and `generate_image` snaps z-image sizes to 16 (816x1056 is exact), the other families to 64 - see
+  `docs/mcp-plan.md` "As built". **Styles are shared (`styles.workspace_id` NULL) or
   one workspace's** - chosen when made (default: a style is shared, an element is the workspace's); older styles stay shared and older elements
   went to Default; names are unique among what one workspace can see (`nameClashes`). Prompt templates, model profiles, timing stats and
   every Settings value stay global, except **theme** (`workspaces.theme`, null = the app's; `App` applies `workspace.theme ?? appTheme`) and

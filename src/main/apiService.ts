@@ -19,6 +19,7 @@ import { FfmpegPaths, MediaInfo, EndBehavior, Transition, makePoster, probeMedia
 import { PromptStyle, combinePrompt, extraWording, styleLabel } from '../shared/styles';
 import { findStyleByName, listStyles } from './styles';
 import { ItemKind, ItemOrigin, ItemView, getItem, kindForExtension, listItems, upsertImport } from './library';
+import { listWorkspaces } from './workspaces';
 
 /** A problem with the request itself (or the machine's state), reported to the client as-is. */
 export class ApiError extends Error {
@@ -40,7 +41,8 @@ export interface ApiServiceDeps {
   imageSize: (file: string) => { width: number; height: number } | null;
   /** A JPEG preview of an image for when ffmpeg is not available. */
   imagePreviewFallback: (file: string) => Promise<Buffer | null>;
-  /** The workspace the app is in. What a client makes goes there, and the styles it can name are that workspace's. */
+  /** The workspace the app is in. What a client makes goes there, and the styles it can name are that workspace's - unless the call names
+   * another with its `workspace` argument. */
   workspaceId: () => number;
 }
 
@@ -59,6 +61,19 @@ const VIDEO_LONG_SIDE = 640;
 const MAX_IMPORT_FILES = 500;
 const MAX_WAIT_SECONDS = 60;
 const ITEM_ID_HINT = 'an item id such as "gen-12" or "imp-5"';
+/** The largest picture file get_image_file will hand over (the bytes travel base64-encoded inside JSON, about a third larger). */
+export const MAX_IMAGE_FILE_BYTES = 25 * 1024 * 1024;
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.gif': 'image/gif',
+};
+/** z-image's latent needs sides that are multiples of 16; the other families keep the coarser 64 grid until their limits are known. */
+const IMAGE_SIZE_MULTIPLE_Z_IMAGE = 16;
+const IMAGE_SIZE_MULTIPLE_DEFAULT = 64;
 
 type Args = Record<string, unknown>;
 
@@ -145,6 +160,28 @@ export class ApiService {
     return job && job.source === 'mcp' ? job : null;
   }
 
+  /** The workspace named by the call's optional `workspace` argument (case-insensitive; hidden ones included), or null when it names none.
+   * A name that matches nothing is an error that lists the workspaces there are - one is never created here. */
+  private namedWorkspace(args: Args): { id: number; name: string } | null {
+    const wanted = optString(args, 'workspace', 200)?.trim();
+    if (wanted === undefined) return null;
+    const all = listWorkspaces(this.deps.db, true);
+    const found = all.find((w) => w.name.toLowerCase() === wanted.toLowerCase());
+    if (!found) {
+      const names = all.map((w) => `"${w.name}"`);
+      throw new ApiError(
+        'not_found',
+        `No workspace named "${wanted}". ${names.length ? `Existing workspaces: ${names.join(', ')}.` : 'There are no workspaces.'} Workspaces are created in the KVGenius app (the workspace grid), never through the API - create it there first, then use its name.`
+      );
+    }
+    return { id: found.id, name: found.name };
+  }
+
+  /** Where a call's work goes: the workspace it names, else the one the app is in. */
+  private workspaceFor(args: Args): number {
+    return this.namedWorkspace(args)?.id ?? this.deps.workspaceId();
+  }
+
   async callTool(name: string, rawArgs: unknown): Promise<ToolResult> {
     if (!TOOLS.some((t) => t.name === name)) throw new ApiError('unknown_tool', `Unknown tool "${name}".`);
     if (rawArgs !== undefined && rawArgs !== null && (typeof rawArgs !== 'object' || Array.isArray(rawArgs))) {
@@ -157,7 +194,7 @@ export class ApiService {
       case 'import_folder':
         return { data: await this.importFolder(args) };
       case 'list_styles':
-        return { data: this.listStylesTool() };
+        return { data: this.listStylesTool(args) };
       case 'list_models':
         return { data: this.listModelsTool() };
       case 'generate_image':
@@ -174,6 +211,8 @@ export class ApiService {
         return { data: this.listLibrary(args) };
       case 'get_item':
         return this.getItemTool(args);
+      case 'get_image_file':
+        return this.getImageFileTool(args);
       case 'probe_media':
         return { data: await this.probeMediaTool(args) };
       case 'assemble_video':
@@ -189,11 +228,18 @@ export class ApiService {
   private async listCapabilities() {
     const [comfyReachable] = await Promise.all([this.deps.comfyAvailable()]);
     const ff = this.deps.ffmpeg();
+    const currentWorkspace = this.deps.workspaceId();
+    const workspaces = listWorkspaces(this.deps.db, true);
     return {
       comfyui_reachable: comfyReachable,
       comfyui_note: comfyReachable ? null : 'ComfyUI is not reachable. Generation jobs will fail until it is running (check the address in KVGenius Settings).',
       ffmpeg_available: ff !== null,
       ffmpeg_note: ff ? null : 'ffmpeg was not found: previews of videos, probe_media and assemble_video are unavailable. Set its location in KVGenius Settings.',
+      workspaces: {
+        note: 'Every tool that makes or lists work takes an optional `workspace` (a name from this list, case-insensitive). Without it, work goes to the workspace the app is in. An unknown name is an error - workspaces are only created in the app.',
+        current: workspaces.find((w) => w.id === currentWorkspace)?.name ?? null,
+        available: workspaces.map((w) => ({ name: w.name, hidden: w.hidden })),
+      },
       families: [
         {
           family: 'z-image',
@@ -202,9 +248,10 @@ export class ApiService {
           fields: {
             prompt: 'text',
             style: 'optional name of a saved style (see list_styles), added after the prompt',
-            width: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
-            height: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
+            width: { min: 256, max: 2048, multiple_of: IMAGE_SIZE_MULTIPLE_Z_IMAGE, default: 1024 },
+            height: { min: 256, max: 2048, multiple_of: IMAGE_SIZE_MULTIPLE_Z_IMAGE, default: 1024 },
             seed: 'integer, random by default',
+            workspace: 'optional workspace name (see `workspaces`); default the one the app is in',
             model: 'optional name of a saved model variant (see list_models); its steps and cfg become the defaults',
             source: 'optional library picture id: image to image - start from it instead of from nothing; width and height then default to its shape',
             strength: { min: DENOISE_LIMITS.min, max: DENOISE_LIMITS.max, default: DEFAULT_DENOISE, note: 'with source: 1 ignores the picture, small keeps most of it' },
@@ -221,9 +268,10 @@ export class ApiService {
             fields: {
               prompt: 'text',
               style: 'optional name of a saved style (see list_styles), added after the prompt',
-              width: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
-              height: { min: 256, max: 2048, multiple_of: 64, default: 1024 },
+              width: { min: 256, max: 2048, multiple_of: IMAGE_SIZE_MULTIPLE_DEFAULT, default: 1024 },
+              height: { min: 256, max: 2048, multiple_of: IMAGE_SIZE_MULTIPLE_DEFAULT, default: 1024 },
               seed: 'integer, random by default',
+              workspace: 'optional workspace name (see `workspaces`); default the one the app is in',
               model: 'optional name of a saved model variant of this family (see list_models); its steps and cfg become the defaults',
               steps: { min: SAMPLER_LIMITS.steps.min, max: SAMPLER_LIMITS.steps.max, default: sampler?.steps },
               cfg: { min: SAMPLER_LIMITS.cfg.min, max: SAMPLER_LIMITS.cfg.max, default: sampler?.cfg, ...(key === 'flux-dev' ? { note: 'the guidance value of the model (its sampler CFG stays 1)' } : {}) },
@@ -242,6 +290,7 @@ export class ApiService {
             width: { min: 256, max: 1280, multiple_of: 16, default: 'from source aspect ratio, ~640 long side' },
             height: { min: 256, max: 1280, multiple_of: 16, default: 'from source aspect ratio, ~640 long side' },
             seed: 'integer, random by default',
+            workspace: 'optional workspace name (see `workspaces`); default the one the app is in',
           },
         },
         {
@@ -255,6 +304,7 @@ export class ApiService {
             width: { min: 256, max: 1280, multiple_of: 16, default: 640 },
             height: { min: 256, max: 1280, multiple_of: 16, default: 640 },
             seed: 'integer, random by default',
+            workspace: 'optional workspace name (see `workspaces`); default the one the app is in',
           },
         },
       ],
@@ -269,6 +319,7 @@ export class ApiService {
     if (!path.isAbsolute(target)) fail('"path" must be an absolute path.');
     const recursive = optBool(args, 'recursive', false);
     const batch = optBatch(args);
+    const workspaceId = this.workspaceFor(args);
 
     let stat: fs.Stats;
     try {
@@ -317,7 +368,7 @@ export class ApiService {
         height = info?.height ?? null;
         duration = info?.durationSeconds ?? null;
       }
-      items.push(upsertImport(this.deps.db, { path: file, kind, origin: 'imported', width, height, duration, batch, workspaceId: this.deps.workspaceId() }));
+      items.push(upsertImport(this.deps.db, { path: file, kind, origin: 'imported', width, height, duration, batch, workspaceId }));
     }
     return { imported: items.length, truncated, limit: truncated ? MAX_IMPORT_FILES : undefined, items };
   }
@@ -326,6 +377,7 @@ export class ApiService {
 
   private generateImage(args: Args) {
     const prompt = reqString(args, 'prompt');
+    const workspaceId = this.workspaceFor(args);
     // With no family given, a saved model decides it (the user named a Flux model: that is the Flux family); otherwise Z-Image.
     const named = optString(args, 'model', 200);
     const namedProfile = named ? findModelProfileByName(this.deps.db, named.trim()) : null;
@@ -336,7 +388,7 @@ export class ApiService {
     if (FAMILY_KIND[family] !== 'image') fail(`"${family}" is not an image family. Image families: ${Object.keys(FAMILY_KIND).filter((f) => FAMILY_KIND[f] === 'image').join(', ')}.`);
     // A style's words are added here, so the job (and the Library record) holds the full prompt that is
     // sent. With no style the prompt is passed through untouched.
-    const { style, elements } = this.resolveWording(args);
+    const { style, elements } = this.resolveWording(args, workspaceId);
     // With a `source` picture this is image to image: same model, but the sampler starts from that picture.
     const sourceId = optString(args, 'source', 64);
     if ((sourceId !== undefined || (args.extend !== undefined && args.extend !== null)) && family !== Z_IMAGE_FAMILY) {
@@ -359,11 +411,12 @@ export class ApiService {
     if (extend && !source) fail('"extend" needs a "source": the library picture to extend.');
     if (extend && (!sourceSize || sourceSize.width <= 0)) throw new ApiError('unreadable_image', `Could not read the size of ${source?.id}, so it cannot be extended.`);
     const extendedSize = extend && source && sourceSize ? outpaintOutputSize(source.width || sourceSize.width, source.height || sourceSize.height, extend) : null;
+    const multiple = family === Z_IMAGE_FAMILY ? IMAGE_SIZE_MULTIPLE_Z_IMAGE : IMAGE_SIZE_MULTIPLE_DEFAULT;
     const params: GenerationParams = {
       prompt: combinePrompt(prompt, extraWording(elements, style)),
       ...(styleLabel(elements, style) ? { styleName: styleLabel(elements, style) as string } : {}),
-      width: extendedSize ? extendedSize.width : snap(optNumber(args, 'width', 64, 8192, true) ?? defaultWidth, 64, 256, 2048),
-      height: extendedSize ? extendedSize.height : snap(optNumber(args, 'height', 64, 8192, true) ?? defaultHeight, 64, 256, 2048),
+      width: extendedSize ? extendedSize.width : snap(optNumber(args, 'width', 64, 8192, true) ?? defaultWidth, multiple, 256, 2048),
+      height: extendedSize ? extendedSize.height : snap(optNumber(args, 'height', 64, 8192, true) ?? defaultHeight, multiple, 256, 2048),
       seed: optNumber(args, 'seed', 0, 2 ** 32 - 1, true) ?? Math.floor(Math.random() * 2 ** 32),
       steps: samplerDefaults ? (optNumber(args, 'steps', SAMPLER_LIMITS.steps.min, SAMPLER_LIMITS.steps.max, true) ?? samplerDefaults.steps) : (optNumber(args, 'steps', 1, 20, true) ?? 8),
       cfg: samplerDefaults ? (optNumber(args, 'cfg', SAMPLER_LIMITS.cfg.min, SAMPLER_LIMITS.cfg.max) ?? samplerDefaults.cfg) : (optNumber(args, 'cfg', 0.5, 3) ?? 1),
@@ -371,7 +424,7 @@ export class ApiService {
       ...(source && extend ? { sourceImagePath: source.path, outpaint: extend, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max), OUTPAINT_DEFAULT_DENOISE) } : {}),
       ...(source && !extend ? { sourceImagePath: source.path, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max)) } : {}),
     };
-    return this.jobView(this.deps.queue.submit({ family: extend ? OUTPAINT_FAMILY : source ? I2I_FAMILY : family, params, source: 'mcp', batch: optBatch(args) }));
+    return this.jobView(this.deps.queue.submit({ family: extend ? OUTPAINT_FAMILY : source ? I2I_FAMILY : family, params, source: 'mcp', batch: optBatch(args), workspaceId }));
   }
 
   /** The saved model named `name`, or null for the built-in one (no name, "default", or its own name). */
@@ -416,11 +469,11 @@ export class ApiService {
 
   /** The saved style (`style`, a name) and elements (`elements`, a list of names) a generate_image call asks for. Throws, naming what exists, for a
    * name that is not saved or is the wrong kind - a style is a look (one), an element is a reusable part of the picture (any number). */
-  private resolveWording(args: Args): { style: PromptStyle | null; elements: PromptStyle[] } {
-    const all = listStyles(this.deps.db, this.deps.workspaceId());
+  private resolveWording(args: Args, workspaceId: number): { style: PromptStyle | null; elements: PromptStyle[] } {
+    const all = listStyles(this.deps.db, workspaceId);
     const names = (kind: 'style' | 'element') => all.filter((s) => s.kind === kind).map((s) => `"${s.name}"`);
     const find = (name: string, kind: 'style' | 'element', argument: string): PromptStyle => {
-      const found = findStyleByName(this.deps.db, name, this.deps.workspaceId());
+      const found = findStyleByName(this.deps.db, name, workspaceId);
       if (!found) {
         const saved = names(kind);
         throw new ApiError(
@@ -443,8 +496,8 @@ export class ApiService {
     return { style, elements };
   }
 
-  private listStylesTool() {
-    const styles = listStyles(this.deps.db, this.deps.workspaceId()).map((s) => ({ name: s.name, kind: s.kind, text: s.text }));
+  private listStylesTool(args: Args) {
+    const styles = listStyles(this.deps.db, this.workspaceFor(args)).map((s) => ({ name: s.name, kind: s.kind, text: s.text }));
     return {
       styles,
       note: styles.length
@@ -455,6 +508,7 @@ export class ApiService {
 
   private generateVideo(args: Args) {
     const prompt = reqString(args, 'prompt');
+    const workspaceId = this.workspaceFor(args);
     // With a source picture it is image to video, without one text to video - unless the family says otherwise.
     const sourceId = optString(args, 'source', 64);
     const family = optString(args, 'family', 64) ?? videoFamilyFor(sourceId !== undefined);
@@ -489,7 +543,7 @@ export class ApiService {
       ...(source ? { sourceImagePath: source.path } : {}),
       ...(model ? { modelName: model.name, modelSettings: profileSettings(model) } : {}),
     };
-    return this.jobView(this.deps.queue.submit({ family, params, source: 'mcp', batch: optBatch(args) }));
+    return this.jobView(this.deps.queue.submit({ family, params, source: 'mcp', batch: optBatch(args), workspaceId }));
   }
 
   // -- jobs --------------------------------------------------------------------------------------
@@ -532,6 +586,8 @@ export class ApiService {
       batch: optBatch(args),
       status: optEnum<JobStatus>(args, 'status', ['queued', 'running', 'done', 'failed', 'cancelled', 'interrupted']),
       limit: optNumber(args, 'limit', 1, 500, true),
+      // Only narrowed when a workspace is named: with none, jobs from every workspace are listed, as before.
+      workspaceId: this.namedWorkspace(args)?.id,
     };
     const jobs = this.deps.queue.list(filter);
     const counts: Record<string, number> = {};
@@ -584,6 +640,8 @@ export class ApiService {
       batch: optBatch(args),
       limit: optNumber(args, 'limit', 1, 200, true),
       clientOnly: true,
+      // Only narrowed when a workspace is named: with none, items from every workspace are listed, as before.
+      workspaceId: this.namedWorkspace(args)?.id,
     });
     return { count: items.length, items };
   }
@@ -603,6 +661,23 @@ export class ApiService {
     if (poster) result.images = [{ mimeType: 'image/jpeg', data: poster.toString('base64') }];
     else (result.data as Record<string, unknown>).preview_note = item.kind === 'video' && !ff ? 'No preview: ffmpeg was not found.' : 'No preview could be made.';
     return result;
+  }
+
+  /** The original picture file, byte for byte, base64-encoded in `images[0]` (the same slot get_item's preview uses, but with the file's own
+   * mimeType). Read-only: nothing is ever written anywhere. Out-of-scope and missing ids look the same as in get_item. */
+  private async getImageFileTool(args: Args): Promise<ToolResult> {
+    const item = this.requireItem(reqString(args, 'item_id', 64), ['image'], 'item_id');
+    const mimeType = IMAGE_MIME_TYPES[path.extname(item.path).toLowerCase()];
+    if (!mimeType) fail(`"item_id": ${item.id} (${item.name}) is not a picture file type this tool can return.`);
+    const size = fs.statSync(item.path).size;
+    if (size > MAX_IMAGE_FILE_BYTES) {
+      throw new ApiError('too_large', `${item.id} is ${(size / 1024 / 1024).toFixed(1)} MB; get_image_file returns files up to ${MAX_IMAGE_FILE_BYTES / 1024 / 1024} MB.`);
+    }
+    const bytes = await fs.promises.readFile(item.path);
+    return {
+      data: { item_id: item.id, file_name: item.name, mime_type: mimeType, bytes: bytes.length, width: item.width, height: item.height, note: 'The file itself is in images[0].data, base64-encoded.' },
+      images: [{ mimeType, data: bytes.toString('base64') }],
+    };
   }
 
   private async probeMediaTool(args: Args) {
@@ -633,6 +708,7 @@ export class ApiService {
   // -- assembling --------------------------------------------------------------------------------
 
   private async assembleVideo(args: Args) {
+    const workspaceId = this.workspaceFor(args);
     if (!this.deps.ffmpeg()) {
       throw new ApiError('ffmpeg_missing', 'ffmpeg was not found, so videos cannot be assembled. Set its location in KVGenius Settings.');
     }
@@ -658,6 +734,7 @@ export class ApiService {
       fadeSeconds: optNumber(args, 'fade_seconds', 0.1, 30) ?? 2,
       name: optString(args, 'name', 80) ?? null,
       batch: optBatch(args) ?? null,
+      workspaceId,
     };
     const started = this.deps.assemblies.start(spec);
     const wait = (optNumber(args, 'wait_seconds', 0, MAX_WAIT_SECONDS) ?? 0) * 1000;

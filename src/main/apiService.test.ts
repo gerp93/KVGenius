@@ -99,10 +99,10 @@ test('import_folder validates its path', async () => {
   await rejects(service.callTool('import_folder', { path: path.join(dir, 'a.txt') }), 'invalid_argument');
 });
 
-test('generate_image snaps sizes, applies defaults, and queues a job', async () => {
+test('generate_image snaps sizes (to 16 for z-image), applies defaults, and queues a job', async () => {
   const job = await call('generate_image', { prompt: 'a red fox', width: 1000, height: 700, batch: 'b1' });
   assert.equal(job.status === 'queued' || job.status === 'running', true);
-  assert.equal(job.width, 1024);
+  assert.equal(job.width, 1008, 'z-image snaps to multiples of 16');
   assert.equal(job.height, 704);
   assert.equal(job.kind, 'image');
   assert.equal(job.batch, 'b1');

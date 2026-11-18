@@ -33,6 +33,8 @@ export interface AssemblySpec {
   fadeSeconds: number;
   name?: string | null;
   batch?: string | null;
+  /** The workspace the assembly (and its video) goes to; the app's current one when absent. */
+  workspaceId?: number;
 }
 
 export interface AssemblyView {
@@ -103,7 +105,7 @@ export class AssemblyManager {
     if (!this.deps.ffmpeg()) throw new Error('ffmpeg was not found.');
     const result = this.db
       .prepare("INSERT INTO assemblies (status, batch, spec, workspace_id, created_at) VALUES ('running', ?, ?, ?, ?)")
-      .run(spec.batch ?? null, JSON.stringify(spec), this.deps.workspaceId?.() ?? 1, new Date().toISOString());
+      .run(spec.batch ?? null, JSON.stringify(spec), spec.workspaceId ?? this.deps.workspaceId?.() ?? 1, new Date().toISOString());
     const id = Number(result.lastInsertRowid);
     this.running.set(id, 'preparing');
     void this.execute(id, spec);
