@@ -466,7 +466,7 @@ async function startApi(): Promise<void> {
         return size.width > 0 && size.height > 0 ? size : null;
       },
       workspaceId: () => currentWorkspaceId(database),
-      setFavorite: (generationId, favorite) => applyFavorite(database, generationId, favorite, outputDirs(), videoFamilyList()).imagePath,
+      setFavorite: (generationId, favorite) => applyFavorite(database, generationId, favorite, outputDirsOf, videoFamilyList()).imagePath,
       imagePreviewFallback: async (file) => {
         const image = nativeImage.createFromPath(file);
         if (image.isEmpty()) return null;
