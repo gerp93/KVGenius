@@ -20,10 +20,16 @@ import { releaseSourceImage } from './sourceImages';
 /** Sends a file to the operating system's Recycle Bin (Electron's `shell.trashItem`). Rejects if it cannot. */
 export type Recycle = (file: string) => Promise<void>;
 
+/** A folder, or what gives the folder for a workspace (each workspace keeps its own Trash and kept sources). */
+export type DirFor = string | ((workspaceId: number) => string);
+
+const dirFor = (dir: DirFor, workspaceId: number): string => (typeof dir === 'string' ? dir : dir(workspaceId));
+
 interface Row {
   id: number;
   image_path: string;
   trash_from: string | null;
+  workspace_id: number;
 }
 
 function totalBytes(paths: string[]): number {
@@ -64,14 +70,14 @@ export interface MoveOptions {
 /** Moves the given generations into the Trash. Each file is moved first and its record updated second;
  * if the update fails the file goes back, so a record never points at a file that is not there. A file
  * that is already missing is still trashed (there is just nothing to move). */
-export function moveToTrash(db: DatabaseSync, ids: number[], trashDir: string, options: MoveOptions = {}): TrashMoveResult {
+export function moveToTrash(db: DatabaseSync, ids: number[], trashDir: DirFor, options: MoveOptions = {}): TrashMoveResult {
   const now = options.now ?? new Date();
   const result: TrashMoveResult = { moved: 0, skipped: 0, failed: 0 };
-  const find = db.prepare('SELECT id, image_path, favorite, pinned_at, trashed_at FROM generations WHERE id = ?');
+  const find = db.prepare('SELECT id, image_path, favorite, pinned_at, trashed_at, workspace_id FROM generations WHERE id = ?');
   const mark = db.prepare('UPDATE generations SET trashed_at = ?, trash_from = ?, image_path = ? WHERE id = ?');
   for (const id of ids) {
     const row = find.get(id) as unknown as
-      | { id: number; image_path: string; favorite: number; pinned_at: string | null; trashed_at: string | null }
+      | { id: number; image_path: string; favorite: number; pinned_at: string | null; trashed_at: string | null; workspace_id: number }
       | undefined;
     if (!row) continue;
     const kept = row.favorite === 1 || row.pinned_at !== null;
@@ -84,7 +90,7 @@ export function moveToTrash(db: DatabaseSync, ids: number[], trashDir: string, o
     let movedFile = false;
     try {
       if (fs.existsSync(from)) {
-        newPath = moveFileUnique(from, trashDir);
+        newPath = moveFileUnique(from, dirFor(trashDir, row.workspace_id));
         movedFile = true;
       }
     } catch {
@@ -103,7 +109,7 @@ export function moveToTrash(db: DatabaseSync, ids: number[], trashDir: string, o
 }
 
 /** Cleanup: moves everything `cleanupCandidates` finds. Never a favorite or pinned item. */
-export function runCleanup(db: DatabaseSync, workspaceId: number, days: number, trashDir: string, now: Date = new Date()): TrashMoveResult {
+export function runCleanup(db: DatabaseSync, workspaceId: number, days: number, trashDir: DirFor, now: Date = new Date()): TrashMoveResult {
   return moveToTrash(db, cleanupCandidates(db, workspaceId, days, now).map((c) => c.id), trashDir, { now });
 }
 
@@ -161,7 +167,7 @@ export function restoreFromTrash(db: DatabaseSync, ids: number[]): { restored: n
 
 /** Sends each item's file to the Recycle Bin, then deletes its record. An item the Recycle Bin will not
  * take stays in the Trash, whole, and is counted as failed. */
-async function emptyRows(db: DatabaseSync, rows: Row[], sourcesDir: string, recycle: Recycle): Promise<TrashEmptyResult> {
+async function emptyRows(db: DatabaseSync, rows: Row[], sourcesDir: DirFor, recycle: Recycle): Promise<TrashEmptyResult> {
   const sources = db.prepare('SELECT source_image_path, mask_image_path FROM generations WHERE id = ?');
   const remove = db.prepare('DELETE FROM generations WHERE id = ?');
   const result: TrashEmptyResult = { deleted: 0, failed: 0 };
@@ -177,8 +183,8 @@ async function emptyRows(db: DatabaseSync, rows: Row[], sourcesDir: string, recy
     const kept = sources.get(row.id) as unknown as { source_image_path: string | null; mask_image_path: string | null } | undefined;
     remove.run(row.id);
     // The kept copy of a video's source image (and an inpainting result's mask) is the app's own duplicate, not something to recycle.
-    releaseSourceImage(db, kept?.source_image_path ?? null, sourcesDir);
-    releaseSourceImage(db, kept?.mask_image_path ?? null, sourcesDir);
+    releaseSourceImage(db, kept?.source_image_path ?? null, dirFor(sourcesDir, row.workspace_id));
+    releaseSourceImage(db, kept?.mask_image_path ?? null, dirFor(sourcesDir, row.workspace_id));
     result.deleted++;
   }
   return result;
@@ -186,8 +192,8 @@ async function emptyRows(db: DatabaseSync, rows: Row[], sourcesDir: string, recy
 
 /** Removes the given items from the Trash: their files go to the Recycle Bin and they can no longer be
  * restored into the app. Only ever touches items that are in the Trash. */
-export async function deleteFromTrash(db: DatabaseSync, ids: number[], sourcesDir: string, recycle: Recycle): Promise<TrashEmptyResult> {
-  const find = db.prepare('SELECT id, image_path, trash_from FROM generations WHERE id = ? AND trashed_at IS NOT NULL');
+export async function deleteFromTrash(db: DatabaseSync, ids: number[], sourcesDir: DirFor, recycle: Recycle): Promise<TrashEmptyResult> {
+  const find = db.prepare('SELECT id, image_path, trash_from, workspace_id FROM generations WHERE id = ? AND trashed_at IS NOT NULL');
   const rows = ids.map((id) => find.get(id) as unknown as Row | undefined).filter((r): r is Row => r !== undefined);
   return emptyRows(db, rows, sourcesDir, recycle);
 }
@@ -196,16 +202,16 @@ export async function deleteFromTrash(db: DatabaseSync, ids: number[], sourcesDi
 export async function emptyTrash(
   db: DatabaseSync,
   workspaceId: number,
-  sourcesDir: string,
+  sourcesDir: DirFor,
   recycle: Recycle,
   olderThanDays: number | null = null,
   now: Date = new Date()
 ): Promise<TrashEmptyResult> {
   const rows = (
     olderThanDays === null
-      ? db.prepare('SELECT id, image_path, trash_from FROM generations WHERE workspace_id = ? AND trashed_at IS NOT NULL').all(workspaceId)
+      ? db.prepare('SELECT id, image_path, trash_from, workspace_id FROM generations WHERE workspace_id = ? AND trashed_at IS NOT NULL').all(workspaceId)
       : db
-          .prepare('SELECT id, image_path, trash_from FROM generations WHERE workspace_id = ? AND trashed_at IS NOT NULL AND trashed_at < ?')
+          .prepare('SELECT id, image_path, trash_from, workspace_id FROM generations WHERE workspace_id = ? AND trashed_at IS NOT NULL AND trashed_at < ?')
           .all(workspaceId, cutoffIso(olderThanDays, now))
   ) as unknown as Row[];
   return emptyRows(db, rows, sourcesDir, recycle);

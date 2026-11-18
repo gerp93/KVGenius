@@ -56,11 +56,13 @@ export function applyFavorite(
   db: DatabaseSync,
   id: number,
   favorite: boolean,
-  dirs: OutputDirs,
+  dirsFor: OutputDirs | ((workspaceId: number) => OutputDirs),
   videoFamilies: string[]
 ): { imagePath: string } {
   const record = getGenerationById(db, id);
   if (!record) throw new Error('That generation no longer exists.');
+  // Each workspace has its own images / videos / gifs folders, and a favorite stays inside its own.
+  const dirs = typeof dirsFor === 'function' ? dirsFor(record.workspaceId) : dirsFor;
 
   const from = path.resolve(record.imagePath);
   const base = videoFamilies.includes(record.modelFamily) ? dirs.videos : record.modelFamily === GIF_FAMILY ? dirs.gifs : dirs.images;
@@ -83,7 +85,7 @@ export function applyFavorite(
 
 /** Startup tidy-up: files of already-favorited generations (favorited before this folder existed)
  * are moved into the favorites folder. Returns how many were moved. */
-export function syncFavoriteFiles(db: DatabaseSync, dirs: OutputDirs, videoFamilies: string[]): number {
+export function syncFavoriteFiles(db: DatabaseSync, dirs: OutputDirs | ((workspaceId: number) => OutputDirs), videoFamilies: string[]): number {
   let moved = 0;
   for (const id of listFavoriteIds(db)) {
     try {

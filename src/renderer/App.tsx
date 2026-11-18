@@ -8,6 +8,7 @@ import TopBar from './components/TopBar';
 import LibraryDetails from './components/LibraryDetails';
 import DetailsDock, { DetailsSlotContext } from './components/DetailsDock';
 import GalleryLightbox from './components/GalleryLightbox';
+import MoveToWorkspaceDialog from './components/MoveToWorkspaceDialog';
 import { useBorrowedRecord } from './hooks/useBorrowedRecord';
 import { useGenerationQueue } from './hooks/useGenerationQueue';
 import { useBackgroundWork } from './hooks/useBackgroundWork';
@@ -76,6 +77,8 @@ function WorkspaceShell({ workspace, theme, appTheme, onAppThemeChange, onSwitch
   const [queueCollapsed, setQueueCollapsedState] = useState(true); // the queue always starts folded to the slim bar; opening it lasts until the app is closed
   // A short confirmation from an action in the queue bar (pinned, moved to the Trash).
   const [queueNotice, setQueueNotice] = useState<string | null>(null);
+  // The queue result being moved to another workspace (the dialog is open for it).
+  const [movingRecord, setMovingRecord] = useState<GenerationRecord | null>(null);
   // One queue for the whole app: Generate and the Library's Upscale both feed it.
   const queue = useGenerationQueue();
   const backgroundWork = useBackgroundWork();
@@ -382,6 +385,7 @@ function WorkspaceShell({ workspace, theme, appTheme, onAppThemeChange, onSwitch
               onToggleFavorite={handleQueueFavorite}
               onTogglePinned={handleQueuePin}
               onDelete={handleQueueDelete}
+              onMove={setMovingRecord}
               onRerack={handleRerack}
               onImageToVideo={handleQueueImageToVideo}
               onImageToImage={handleQueueImageToImage}
@@ -396,6 +400,26 @@ function WorkspaceShell({ workspace, theme, appTheme, onAppThemeChange, onSwitch
             />
           </DetailsDock>
         )}
+      {movingRecord && (
+        <MoveToWorkspaceDialog
+          ids={[movingRecord.id]}
+          currentWorkspaceId={workspace.id}
+          onClose={() => setMovingRecord(null)}
+          onMoved={(result, target) => {
+            const record = movingRecord;
+            setMovingRecord(null);
+            if (result.moved === 0) {
+              showQueueNotice('Could not move it - its file may be in use.');
+              return;
+            }
+            // It has left this workspace: out of the queue's results, and any open Library list is told it is gone.
+            queue.removeRecord(record.id);
+            setDetailsId(null);
+            announceGenerationChange({ kind: 'trashed', id: record.id, imagePath: record.imagePath });
+            showQueueNotice(`Moved to ${target.name}.`);
+          }}
+        />
+      )}
       {detailsExpanded && detailsRecord && (
         <GalleryLightbox
           src={window.kvgenius.imageUrlFor(detailsRecord.imagePath)}

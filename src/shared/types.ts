@@ -10,7 +10,7 @@ import type { OutpaintPadding } from './imageToImage';
 import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
 import type { PromptStyle, PromptStyleInput } from './styles';
-import type { Workspace, WorkspaceSummary, WorkspaceUpdate } from './workspaces';
+import type { MergeResult, MoveResult, Workspace, WorkspaceSummary, WorkspaceUpdate } from './workspaces';
 import type { PromptTemplate, PromptTemplateInput } from './promptTemplates';
 import type { StyleSampleSettings, StyleSamplesView } from './styleSamples';
 
@@ -393,6 +393,10 @@ export interface KVGeniusAPI {
   updateWorkspace: (id: number, patch: WorkspaceUpdate) => Promise<Workspace>;
   /** Deletes a workspace that holds nothing. */
   deleteWorkspace: (id: number) => Promise<void>;
+  /** Moves Library items (and anything in the Trash among them) into another workspace: their files move into its folders. */
+  moveGenerations: (ids: number[], targetWorkspaceId: number) => Promise<MoveResult>;
+  /** Merges the first workspace into the second: everything in it moves across, then it is deleted. */
+  mergeWorkspaces: (fromWorkspaceId: number, intoWorkspaceId: number) => Promise<MergeResult>;
   /** Tells the main process which workspace the window is in (null: it shows the grid of workspaces, and the app falls back to the
    * oldest one for anything that needs "the current workspace"). Returns that workspace. Jobs already queued keep their own. */
   setActiveWorkspace: (id: number | null) => Promise<Workspace | null>;

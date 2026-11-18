@@ -173,6 +173,16 @@ implementation here is exactly the kind of drift it exists to prevent.
   switcher until the grid's "Show hidden" is on). `migrateToWorkspaces` (run from `initDatabase`) moved old hidden items into a hidden
   workspace named "Hidden" and old style examples into the system workspace; it is safe to re-run. There is no moving items between
   workspaces and no copying prompts across them. Deleting a workspace is only allowed when it is empty.
+  **Each workspace has its own folders**: `output/<workspaces.folder>/{images,videos,gifs,sources,trash}` (`main/workspaceFolders.ts`; the
+  folder name is made from the workspace's name when it is created and never changes on rename; `workspaceDirsOf(db, root, id)`). The runner
+  writes into the job's workspace, favorites/trash/kept sources are per workspace, and `mediaDirs()` allows the whole `output` root.
+  `migrateOutputLayout` (`outputLayout.ts`, run at startup before anything else) moves the old flat `output/{images,...}` folders whole under
+  the first workspace's folder (a rename on the same drive), rewrites every stored path to follow, then moves items of other workspaces into
+  their own folders; it is idempotent and finishes an interrupted run. **Moving items** (`moveItems.ts` `moveGenerations`, IPC `moveGenerations`,
+  the "Move to workspace" dialog from the details panel and Select Multiple) moves the file first and the record second (reverting the file if
+  the update fails), copies kept sources/masks across, re-points video-to-video sources, and leaves a file outside `output` where it is.
+  **Merging** (`mergeWorkspaces`, the grid's Edit panel) moves everything including the Trash, imports, assemblies, jobs and the workspace's own
+  styles (renamed "Name (from X)" on a clash), then deletes the workspace and its empty folders; if any item could not move it is kept.
 - **Navigation is a left sidebar, not a top bar** (`components/SideNav.tsx`/`.css`, rendered by `App.tsx`). Pages are
   grouped in sections (Create: Image / Video, Upscale, Styles; Library: Output/Prompts/Sources/Trash; Utilities:
   Timing/Hardpoint) in the `SECTIONS` data at the top of `SideNav.tsx` - add a page there. The footer holds

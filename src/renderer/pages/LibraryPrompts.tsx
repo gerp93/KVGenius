@@ -18,6 +18,8 @@ import { usePromptView } from '../hooks/usePromptView';
 import { useScrollKeeper } from '../hooks/useScrollKeeper';
 import { SIMILARITY, clusterPrompts, orderBySimilarity, similarityMatrix, varyingWords } from '../../shared/promptSimilarity';
 import { pinNotice } from '../utils/library';
+import MoveToWorkspaceDialog from '../components/MoveToWorkspaceDialog';
+import type { MoveResult, WorkspaceSummary } from '../../shared/workspaces';
 import { sourceMissingMessage } from '../../shared/sourceFamilies';
 import { useSourceMissing } from '../hooks/useMissingSources';
 
@@ -260,6 +262,8 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The item being moved to another workspace (the dialog is open for it).
+  const [moving, setMoving] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [gridWidth, setGridWidth] = useState(0);
   const [infoId, setInfoId] = useState<number | null>(null);
@@ -439,6 +443,19 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
   }
 
   // Delete moves to the Trash with no confirmation: undo it here, or restore it from Library > Trash.
+  /** The move dialog finished: the item left this workspace, so it leaves the list. */
+  function handleMoved(result: MoveResult, target: WorkspaceSummary) {
+    const id = moving;
+    setMoving(null);
+    if (id === null) return;
+    if (result.moved > 0) {
+      forget(id);
+      setNotice(`Moved to ${target.name}.`);
+    } else if (result.failed > 0) {
+      fail(new Error('Could not move it - its file may be in use.'));
+    }
+  }
+
   async function handleDelete(record: GenerationRecord) {
     try {
       const result = await window.kvgenius.trashGenerations([record.id], { includeKept: true });
@@ -639,6 +656,7 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}
             onDelete={handleDelete}
+            onMove={(record) => setMoving(record.id)}
             onRerack={handleRerack}
             onImageToVideo={handleImageToVideo}
             onImageToImage={handleImageToImage}
@@ -653,6 +671,10 @@ export default function LibraryPrompts({ queue, onRecallPrompt, onRecall, onImag
             onNotice={setNotice}
           />
         </DetailsDock>
+      )}
+
+      {moving !== null && (
+        <MoveToWorkspaceDialog ids={[moving]} currentWorkspaceId={infoRecord?.workspaceId ?? records[0]?.workspaceId ?? 0} onClose={() => setMoving(null)} onMoved={handleMoved} />
       )}
 
       {borrow.expanded && infoRecord && (

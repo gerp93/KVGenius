@@ -7,6 +7,8 @@ import CompareOverlay from '../components/CompareOverlay';
 import CopyButton from '../components/CopyButton';
 import CycleMedia from '../components/CycleMedia';
 import DetailsDock from '../components/DetailsDock';
+import MoveToWorkspaceDialog from '../components/MoveToWorkspaceDialog';
+import type { MoveResult, WorkspaceSummary } from '../../shared/workspaces';
 import ModelBadge from '../components/ModelBadge';
 import OriginBadge from '../components/OriginBadge';
 import StyleTags from '../components/StyleTags';
@@ -103,6 +105,8 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, onShowQ
   const [notice, setNotice] = useState<string | null>(null);
   // What the last Delete moved to the Trash, so its notice can offer to put it back.
   const [trashNotice, setTrashNotice] = useState<{ text: string; ids: number[] } | null>(null);
+  // Items being moved to another workspace (the dialog is open for them).
+  const [moving, setMoving] = useState<number[] | null>(null);
   // Bumped to make the list load again from the top (after an undo, or a change made elsewhere).
   // Bumped when what the list holds changed under it (an item deleted or hidden, a stack changed, ...):
   // the list is then refreshed in place - without clearing it, so the scroll position stays - rather
@@ -654,6 +658,21 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, onShowQ
     }
   }
 
+  /** The move dialog finished: those items left this workspace, so they leave the list. */
+  function handleMoved(result: MoveResult, target: WorkspaceSummary) {
+    const ids = moving ?? [];
+    setMoving(null);
+    exitSelectMode();
+    if (result.failed > 0) {
+      // Which ones could not move is not known here: show the list as it now is.
+      setReloadKey((k) => k + 1);
+      setError(`${result.failed} item${result.failed === 1 ? '' : 's'} could not be moved - their files may be in use.`);
+    } else {
+      forgetIds(ids, tab);
+    }
+    if (result.moved > 0) setNotice(`Moved ${result.moved} item${result.moved === 1 ? '' : 's'} to ${target.name}.`);
+  }
+
   async function handleDeleteSelected() {
     const ids = [...selection.keys()];
     if (ids.length === 0) return;
@@ -843,6 +862,9 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, onShowQ
               </button>
               <button type="button" onClick={handleExportSelected} disabled={busy || selection.size === 0}>
                 Export Selected ({selection.size})
+              </button>
+              <button type="button" onClick={() => setMoving([...selection.keys()])} disabled={busy || selection.size === 0}>
+                Move Selected ({selection.size})
               </button>
               <button type="button" onClick={handleDeleteSelected} disabled={busy || selection.size === 0}>
                 Delete Selected ({selection.size})
@@ -1069,6 +1091,7 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, onShowQ
             onToggleFavorite={handleToggleFavorite}
             onTogglePinned={handleTogglePinned}
             onDelete={handleDelete}
+            onMove={(record) => setMoving([record.id])}
             onRerack={handleRecreate}
             onImageToVideo={handleImageToVideo}
             onImageToImage={handleImageToImage}
@@ -1082,6 +1105,10 @@ export default function LibraryOutput({ queue, onRecall, onImageToVideo, onShowQ
             onNotice={setNotice}
           />
         </DetailsDock>
+      )}
+
+      {moving && (
+        <MoveToWorkspaceDialog ids={moving} currentWorkspaceId={infoRecord?.workspaceId ?? records[0]?.workspaceId ?? 0} onClose={() => setMoving(null)} onMoved={handleMoved} />
       )}
 
       {compare && (

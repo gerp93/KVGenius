@@ -46,6 +46,8 @@ interface Props {
   onToggleFavorite: (record: GenerationRecord) => void;
   onTogglePinned: (record: GenerationRecord) => void;
   onDelete: (record: GenerationRecord) => void;
+  /** Opens the "move to workspace" choice for this item. */
+  onMove: (record: GenerationRecord) => void;
   /** Load the generation into a Generate tab. */
   onRerack: (record: GenerationRecord) => void;
   onImageToVideo: (record: GenerationRecord) => void;
@@ -80,6 +82,7 @@ export default function LibraryDetails({
   onToggleFavorite,
   onTogglePinned,
   onDelete,
+  onMove,
   onRerack,
   onImageToVideo,
   onImageToImage,
@@ -454,6 +457,9 @@ export default function LibraryDetails({
         </button>
         <button type="button" onClick={() => onReveal(record)} title="Show in File Manager">
           📂
+        </button>
+        <button type="button" onClick={() => onMove(record)} title="Move to another workspace (its file moves into that workspace's folders)">
+          Move to workspace...
         </button>
         <button type="button" onClick={() => onDelete(record)} title="Delete (moves to the Trash)">
           🗑️

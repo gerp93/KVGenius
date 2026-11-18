@@ -20,7 +20,7 @@ import { V2V_FAMILY } from '../shared/videoToVideo';
 import { MODEL_PROFILES_SCHEMA } from './modelProfiles';
 import { ModelSettings, parseModelSettings, serializeModelSettings } from '../shared/modelProfiles';
 import { CleanupSettings, DEFAULT_CLEANUP_SETTINGS } from '../shared/cleanup';
-import { DEFAULT_WORKSPACE_ID, WORKSPACES_SCHEMA, migrateToWorkspaces } from './workspaces';
+import { DEFAULT_WORKSPACE_ID, WORKSPACES_SCHEMA, assignWorkspaceFolders, migrateToWorkspaces } from './workspaces';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS generations (
@@ -79,6 +79,11 @@ function migrateSchema(db: DatabaseSync): void {
   }
   if (!columns.some((c) => c.name === 'favorite')) {
     db.exec('ALTER TABLE generations ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;');
+  }
+  // A workspace names the folder its files live in (see workspaceFolders.ts); older ones are given one by assignWorkspaceFolders.
+  const workspaceColumns = db.prepare('PRAGMA table_info(workspaces)').all() as unknown as ColumnInfo[];
+  if (workspaceColumns.length > 0 && !workspaceColumns.some((c) => c.name === 'folder')) {
+    db.exec("ALTER TABLE workspaces ADD COLUMN folder TEXT NOT NULL DEFAULT '';");
   }
   // Workspaces (see shared/workspaces.ts): everything that existed before belongs to the first one (id 1, made by migrateToWorkspaces).
   if (!columns.some((c) => c.name === 'workspace_id')) {
@@ -246,6 +251,7 @@ export function initDatabase(dbPath: string, legacyCleanup: CleanupSettings = DE
   db.exec(MODEL_PROFILES_SCHEMA);
   migrateSchema(db);
   migrateToWorkspaces(db, legacyCleanup);
+  assignWorkspaceFolders(db);
   backfillTimingModels(db);
   try {
     const family = migrateFamilyKeys(db, dbPath);

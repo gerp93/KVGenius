@@ -13,10 +13,7 @@ import {
   setDbPath,
   resetToDefaultDbPath,
   revealDbInFileManager,
-  getImagesDir,
-  getVideosDir,
-  getGifsDir,
-  getSourcesDir,
+  getOutputRoot,
   getLegacyOutputDir,
   dbPathInsideFolder,
   enforceDevDatabaseIsolation,
@@ -38,7 +35,6 @@ import {
   getComfyUIModelsDir,
   setComfyUIModelsDir,
   setComfyUILaunchPath,
-  getTrashDir,
   getCleanupSettings,
 } from './dbLocation';
 import { isExternalWebUrl } from '../shared/externalUrl';
@@ -47,6 +43,7 @@ import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
 import { deleteStyle, getStyle, listStyles, saveStyle } from './styles';
 import {
+  DEFAULT_WORKSPACE_ID,
   createWorkspace,
   currentWorkspaceId,
   deleteWorkspace,
@@ -57,7 +54,11 @@ import {
   styleExamplesWorkspaceId,
   summarizeWorkspaces,
   updateWorkspace,
+  workspaceDirsOf,
 } from './workspaces';
+import { WorkspaceDirs } from './workspaceFolders';
+import { MoveContext, mergeWorkspaces, moveGenerations, pruneEmptyDirs } from './moveItems';
+import { migrateOutputLayout } from './outputLayout';
 import { WorkspaceUpdate } from '../shared/workspaces';
 import { PromptTemplateInput } from '../shared/promptTemplates';
 import { deletePromptTemplate, listPromptTemplates, savePromptTemplate } from './promptTemplates';
@@ -261,17 +262,43 @@ function createWindow(): void {
 // is allowed individually so the Generate page can preview it.
 const pickedSourceImages = new Set<string>();
 
-function outputDirs() {
-  return { images: getImagesDir(), videos: getVideosDir(), gifs: getGifsDir(), legacy: getLegacyOutputDir() };
+/** The folders of a workspace: output/<its folder>/{images,videos,gifs,sources,trash}. */
+function dirsOf(workspaceId: number): WorkspaceDirs {
+  if (!db) throw new Error('Database not initialized');
+  return workspaceDirsOf(db, getOutputRoot(), workspaceId);
+}
+
+/** The folders of the workspace the window is in. */
+function currentDirs(): WorkspaceDirs {
+  if (!db) throw new Error('Database not initialized');
+  return dirsOf(currentWorkspaceId(db));
+}
+
+/** What favoriting needs to know about one workspace's folders. */
+function outputDirsOf(workspaceId: number) {
+  const dirs = dirsOf(workspaceId);
+  return { images: dirs.images, videos: dirs.videos, gifs: dirs.gifs, legacy: getLegacyOutputDir() };
+}
+
+/** What moving items between workspaces needs. */
+function moveContext(): MoveContext {
+  if (!db) throw new Error('Database not initialized');
+  return { db, outputRoot: getOutputRoot(), dirsOf, videoFamilies: videoFamilyList() };
+}
+
+/** A file in a workspace's kept-sources folder (output/<workspace>/sources/<file>). */
+function isKeptSourceFile(resolved: string): boolean {
+  const parts = path.relative(path.resolve(getOutputRoot()), resolved).split(path.sep);
+  return parts.length === 3 && parts[1] === 'sources' && !parts[0].startsWith('..');
 }
 
 function videoFamilyList(): string[] {
   return Object.keys(FAMILY_KIND).filter((family) => FAMILY_KIND[family] === 'video');
 }
 
-/** Every folder the renderer may be shown files from: the output folders, the kept source images, and the Trash. */
+/** Every folder the renderer may be shown files from: the output folder (every workspace's images, videos, kept source images and Trash) and the old flat folder. */
 function mediaDirs(): string[] {
-  return [getImagesDir(), getVideosDir(), getGifsDir(), getSourcesDir(), getTrashDir(), getLegacyOutputDir()];
+  return [getOutputRoot(), getLegacyOutputDir()];
 }
 
 /** Sends a file to the operating system's Recycle Bin / Trash. */
@@ -422,7 +449,7 @@ async function startApi(): Promise<void> {
   if (!assemblies) {
     assemblies = new AssemblyManager(db, {
       ffmpeg: getFfmpeg,
-      outputDir: getVideosDir,
+      outputDir: () => dirsOf(currentWorkspaceId(database)).videos,
       tempDir: () => path.join(app.getPath('temp'), 'kvgenius-assembly'),
       workspaceId: () => currentWorkspaceId(database),
     });
@@ -500,7 +527,7 @@ function styleSamples(): StyleSampleService | null {
   styleSampleService ??= new StyleSampleService({
     db: database,
     queue,
-    trash: (ids) => void moveToTrash(database, ids, getTrashDir()),
+    trash: (ids) => void moveToTrash(database, ids, (workspaceId) => dirsOf(workspaceId).trash),
     workspaceId: () => styleExamplesWorkspaceId(database),
     getRecord: (id) => getGenerationById(database, id),
     imageUrlFor,
@@ -640,7 +667,20 @@ function registerIpcHandlers(): void {
   ipcMain.handle('deleteWorkspace', (_event, id: number) => {
     if (!db) throw new Error('Database not initialized');
     if (!Number.isInteger(id)) return;
+    const root = getWorkspace(db, id) ? dirsOf(id).root : null;
     deleteWorkspace(db, id);
+    if (root) pruneEmptyDirs(root);
+  });
+  // Moving items into another workspace (their files move into its folders), and merging a whole workspace into another.
+  ipcMain.handle('moveGenerations', (_event, ids: number[], targetId: number) => {
+    if (!db) throw new Error('Database not initialized');
+    if (!Number.isInteger(targetId) || !getWorkspace(db, targetId)) throw new Error('That workspace no longer exists.');
+    return moveGenerations(moveContext(), cleanIds(ids), targetId);
+  });
+  ipcMain.handle('mergeWorkspaces', (_event, fromId: number, intoId: number) => {
+    if (!db) throw new Error('Database not initialized');
+    if (!Number.isInteger(fromId) || !Number.isInteger(intoId)) throw new Error('That workspace no longer exists.');
+    return mergeWorkspaces(moveContext(), fromId, intoId);
   });
   // Null when the window goes back to the grid. Jobs already queued keep the workspace they were queued in.
   ipcMain.handle('setActiveWorkspace', (_event, id: number | null) => {
@@ -666,7 +706,8 @@ function registerIpcHandlers(): void {
     const gifWidth = Math.min(width, info.width);
     const gifHeight = Math.max(2, Math.round((info.height * gifWidth) / info.width / 2) * 2);
 
-    const outputDir = getGifsDir();
+    // The GIF stays in the workspace of the video it was made from.
+    const outputDir = dirsOf(source.workspaceId).gifs;
     fs.mkdirSync(outputDir, { recursive: true });
     const finalPath = path.join(outputDir, `${Date.now()}-${source.seed}.gif`);
     const partial = `${finalPath}.part`;
@@ -713,7 +754,7 @@ function registerIpcHandlers(): void {
     try {
       await runFfmpeg(ff, planLastFrame(source.imagePath, png), 1, () => {}).done;
       if (!fs.existsSync(png) || fs.statSync(png).size === 0) throw new Error('Could not read the last frame of the video.');
-      const kept = keepSourceImage(png, getSourcesDir());
+      const kept = keepSourceImage(png, currentDirs().sources);
       if (!kept) throw new Error('Could not keep the last frame of the video.');
       const info = await probeMedia(ff, source.imagePath);
       return { path: kept, width: info.width ?? source.width, height: info.height ?? source.height };
@@ -751,7 +792,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('setGenerationFavorite', (_event, id: number, favorite: boolean) => {
     if (!db) throw new Error('Database not initialized');
-    return applyFavorite(db, id, !!favorite, outputDirs(), videoFamilies);
+    return applyFavorite(db, id, !!favorite, outputDirsOf, videoFamilies);
   });
 
   ipcMain.handle('imageUrlFor', (_event, imagePath: string) => imageUrlFor(imagePath));
@@ -814,13 +855,12 @@ function registerIpcHandlers(): void {
   ipcMain.handle('readMaskImage', (_event, filePath: unknown) => {
     if (typeof filePath !== 'string') throw new Error('Not a mask file.');
     const resolved = path.resolve(filePath);
-    const dir = path.resolve(getSourcesDir());
-    if (!resolved.startsWith(dir + path.sep) || path.extname(resolved).toLowerCase() !== '.png') throw new Error('Not a mask file.');
+    if (!isKeptSourceFile(resolved) || path.extname(resolved).toLowerCase() !== '.png') throw new Error('Not a mask file.');
     return `data:image/png;base64,${fs.readFileSync(resolved).toString('base64')}`;
   });
 
   // A mask painted in the editor (a PNG data URL) becomes a file in the sources folder - the only way a mask gets on disk.
-  ipcMain.handle('saveMaskImage', (_event, dataUrl: unknown) => saveMaskPng(dataUrl, getSourcesDir()));
+  ipcMain.handle('saveMaskImage', (_event, dataUrl: unknown) => saveMaskPng(dataUrl, currentDirs().sources));
 
   // Which of a result's kept source images are gone from disk (deleted by hand, a moved data folder...),
   // so Re-rack can be switched off for them. Only files the app itself serves are looked at.
@@ -840,7 +880,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('findOriginalGeneration', (_event, id: number) => {
     if (!db) throw new Error('Database not initialized');
     const record = getGenerationById(db, id);
-    return record ? findOriginalOf(db, record, getSourcesDir()) : null;
+    return record ? findOriginalOf(db, record, dirsOf(record.workspaceId).sources) : null;
   });
 
   // Library > Sources: every picture kept for the videos and upscales made from it.
@@ -946,14 +986,14 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('runCleanup', (_event, workspaceId: number, days: number) => {
     if (!db) throw new Error('Database not initialized');
-    return runCleanup(db, workspaceOf(workspaceId), normalizeDays(days, 30), getTrashDir());
+    return runCleanup(db, workspaceOf(workspaceId), normalizeDays(days, 30), (id) => dirsOf(id).trash);
   });
 
   // Deleting in the app moves to the Trash (no confirmation: it can be restored from there). Favorites and
   // pinned items are only moved when the caller says the user asked for that item specifically.
   ipcMain.handle('trashGenerations', (_event, ids: number[], options?: { includeKept?: boolean }) => {
     if (!db) throw new Error('Database not initialized');
-    return moveToTrash(db, cleanIds(ids), getTrashDir(), { includeKept: options?.includeKept === true });
+    return moveToTrash(db, cleanIds(ids), (id) => dirsOf(id).trash, { includeKept: options?.includeKept === true });
   });
 
   ipcMain.handle('getTrashStats', (_event, workspaceId?: number | null) => {
@@ -975,12 +1015,12 @@ function registerIpcHandlers(): void {
   // Step two of a delete: the files go to the operating system's Recycle Bin.
   ipcMain.handle('deleteTrashed', (_event, ids: number[]) => {
     if (!db) throw new Error('Database not initialized');
-    return deleteFromTrash(db, cleanIds(ids), getSourcesDir(), recycleFile);
+    return deleteFromTrash(db, cleanIds(ids), (id) => dirsOf(id).sources, recycleFile);
   });
 
   ipcMain.handle('emptyTrash', (_event, workspaceId?: number | null) => {
     if (!db) throw new Error('Database not initialized');
-    return emptyTrash(db, workspaceOf(workspaceId), getSourcesDir(), recycleFile);
+    return emptyTrash(db, workspaceOf(workspaceId), (id) => dirsOf(id).sources, recycleFile);
   });
 
   ipcMain.handle('getPromptSlots', () => ({
@@ -1403,17 +1443,29 @@ app
     // The cleanup rules that used to be global become the first workspace's (only read when the database is first moved to workspaces).
     db = initDatabase(getEffectiveDbPath(), getCleanupSettings());
     const startedDb = db;
-    jobQueue = new JobQueue(db, createGenerationRunner(() => db, getFfmpeg), {
+    // Files used to share output/{images,videos,gifs,sources,trash}; each workspace now has a folder of its own. Moves the old folders
+    // (and the paths stored for them) once, and finishes what an interrupted start left. A problem is logged, not fatal.
+    try {
+      const layout = migrateOutputLayout(moveContext(), getEffectiveDbPath());
+      if (layout.problems > 0) logStartupFailure('migrateOutputLayout', new Error(`${layout.problems} item(s) could not be moved yet; they are tried again next start.`));
+    } catch (error) {
+      logStartupFailure('migrateOutputLayout', error);
+    }
+    jobQueue = new JobQueue(db, createGenerationRunner(() => db, getFfmpeg, getOutputRoot), {
       // A picture queued from the window (or by an outside client) goes to the workspace the window is in, when it was queued.
       currentWorkspaceId: () => currentWorkspaceId(startedDb),
       cancelRunning: cancelCurrentGeneration,
       isCancellation: (err) => err instanceof GenerationCancelledError,
       // A job made from a picture works from the app's own copy of it, made when it is queued - not from wherever the original is.
-      prepare: (request) => ({ ...request, params: keepJobSources(canonicalFamily(request.family), request.params, getSourcesDir()) }),
+      // (into the kept-sources folder of the workspace the job is queued in)
+      prepare: (request) => ({
+        ...request,
+        params: keepJobSources(canonicalFamily(request.family), request.params, dirsOf(request.workspaceId ?? currentWorkspaceId(startedDb)).sources),
+      }),
       // A job that never produced a result lets go of the copies that only it was holding.
       onUnfinished: (job) => {
         if (!db) return;
-        for (const file of keptFilesOfParams(job.family, job.params)) releaseSourceImage(db, file, getSourcesDir());
+        for (const file of keptFilesOfParams(job.family, job.params)) releaseSourceImage(db, file, dirsOf(job.workspaceId).sources);
       },
     });
     // The Styles page's examples (and outside clients' requests) share the queue but are not the window's own jobs: the
@@ -1432,17 +1484,19 @@ app
       // A failure to start the API (say, a locked-down loopback) must not stop the app itself.
       await startApi().catch((error) => logStartupFailure('startApi', error));
     }
-    moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), getImagesDir(), getVideosDir());
+    // Output from before images and videos had folders of their own goes into the first workspace's.
+    const first = dirsOf(DEFAULT_WORKSPACE_ID);
+    moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), first.images, first.videos);
     // Favorited before the favorites folder existed: move those files into it.
-    syncFavoriteFiles(db, outputDirs(), videoFamilyList());
+    syncFavoriteFiles(db, outputDirsOf, videoFamilyList());
     // The automatic cleanup does nothing unless the user turned it on in Settings (it is off by default).
     startCleanupSchedule({
       getDb: () => db,
       listWorkspaces: (database) => listWorkspaces(database, true),
       getSettings: (database, workspaceId) => getWorkspace(database, workspaceId)?.cleanup ?? null,
       saveSettings: (database, workspaceId, settings) => void saveWorkspaceCleanup(database, workspaceId, settings),
-      trashDir: getTrashDir,
-      sourcesDir: getSourcesDir,
+      trashDir: (workspaceId) => dirsOf(workspaceId).trash,
+      sourcesDir: (workspaceId) => dirsOf(workspaceId).sources,
       recycle: recycleFile,
     });
 

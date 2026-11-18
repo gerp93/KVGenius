@@ -13,10 +13,25 @@ function itemsLabel(count: number): string {
 }
 
 /** The edit panel on a workspace's card: its name, its own theme, whether it is hidden, and (when empty) deleting it. */
-function EditPanel({ workspace, onDone, onChanged }: { workspace: WorkspaceSummary; onDone: () => void; onChanged: () => void }) {
+function EditPanel({
+  workspace,
+  others,
+  onDone,
+  onChanged,
+  onMerged,
+}: {
+  workspace: WorkspaceSummary;
+  /** The other workspaces on the grid, which this one can be merged into. */
+  others: WorkspaceSummary[];
+  onDone: () => void;
+  onChanged: () => void;
+  /** Tells the grid what a merge did (this panel is gone once the workspace is). */
+  onMerged: (message: string) => void;
+}) {
   const [name, setName] = useState(workspace.name);
   const [theme, setTheme] = useState(workspace.theme ?? '');
   const [hidden, setHidden] = useState(workspace.hidden);
+  const [mergeInto, setMergeInto] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +46,39 @@ function EditPanel({ workspace, onDone, onChanged }: { workspace: WorkspaceSumma
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function merge() {
+    const into = others.find((w) => String(w.id) === mergeInto);
+    if (!into) return;
+    const items = workspace.itemCount === 1 ? '1 item' : `${workspace.itemCount} items`;
+    if (
+      !window.confirm(
+        `Merge "${workspace.name}" (${items}) into "${into.name}"?
+
+Everything in "${workspace.name}" - its items, their files, its prompts and its own styles and elements - moves into "${into.name}", ` +
+          `and "${workspace.name}" is deleted. It cannot be undone as a whole; items can be moved back one at a time.`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.kvgenius.mergeWorkspaces(workspace.id, into.id);
+      const renamed = result.renamedStyles > 0 ? ` ${result.renamedStyles} style${result.renamedStyles === 1 ? '' : 's'} got "(from ${workspace.name})" added to the name because "${into.name}" already had one with that name.` : '';
+      if (result.deleted) {
+        onMerged(`Merged "${workspace.name}" into "${into.name}": ${result.moved} item${result.moved === 1 ? '' : 's'} moved.${renamed}`);
+      } else {
+        setError(`${result.moved} moved, but ${result.failed} could not be moved (their files may be in use), so "${workspace.name}" was kept with what is left. Close whatever is using them and merge again.`);
+      }
+      onChanged();
+      if (result.deleted) onDone();
+      else setBusy(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
     }
   }
@@ -82,6 +130,25 @@ function EditPanel({ workspace, onDone, onChanged }: { workspace: WorkspaceSumma
           Delete
         </button>
       </div>
+      {others.length > 0 && (
+        <div className="workspace-edit__merge">
+          <label className="field-label" htmlFor={`ws-merge-${workspace.id}`}>
+            Merge into another workspace
+          </label>
+          <select id={`ws-merge-${workspace.id}`} value={mergeInto} onChange={(e) => setMergeInto(e.target.value)} disabled={busy}>
+            <option value="">Choose one...</option>
+            {others.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+                {w.hidden ? ' (hidden)' : ''}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={merge} disabled={busy || mergeInto === ''}>
+            Merge
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -98,6 +165,7 @@ export default function WorkspaceGrid({ onOpen }: Props) {
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     window.kvgenius
@@ -138,6 +206,7 @@ export default function WorkspaceGrid({ onOpen }: Props) {
         </label>
       </header>
 
+      {notice && <p className="workspace-grid-page__lead">{notice}</p>}
       {error && <p className="workspace-edit__error">{error}</p>}
       {workspaces === null && !error && <p className="workspace-grid-page__lead">Loading...</p>}
 
@@ -145,7 +214,13 @@ export default function WorkspaceGrid({ onOpen }: Props) {
         {workspaces?.map((workspace) => (
           <div key={workspace.id} className={`workspace-card${workspace.hidden ? ' workspace-card--hidden' : ''}`}>
             {editingId === workspace.id ? (
-              <EditPanel workspace={workspace} onDone={() => setEditingId(null)} onChanged={reload} />
+              <EditPanel
+                workspace={workspace}
+                others={workspaces.filter((w) => w.id !== workspace.id)}
+                onDone={() => setEditingId(null)}
+                onChanged={reload}
+                onMerged={setNotice}
+              />
             ) : (
               <>
                 <button type="button" className="workspace-card__open" onClick={() => onOpen(workspace.id)} title={`Open ${workspace.name}`}>
