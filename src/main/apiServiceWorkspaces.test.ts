@@ -68,6 +68,7 @@ before(() => {
     imageSize: () => ({ width: 816, height: 1056 }),
     imagePreviewFallback: async () => null,
     workspaceId: () => currentWorkspace,
+    setFavorite: () => '',
   });
   forge = createWorkspace(db, 'Color Book Forge');
   secret = createWorkspace(db, 'Secret Place');

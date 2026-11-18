@@ -195,7 +195,15 @@ export const TOOLS: ToolDefinition[] = [
         kind: { type: 'string', enum: ['image', 'video', 'audio'] },
         origin: { type: 'string', enum: ['generated', 'imported', 'assembled'] },
         batch: batchProp,
-        limit: { type: 'integer', description: 'Default 50, max 200.' },
+        favorite: { type: 'boolean', description: 'true: only favorites; false: only items not favorited. Applies to generated items (imports and assemblies have no flags and are left out when this is given).' },
+        pinned: { type: 'boolean', description: 'true: only pinned items; false: only unpinned ones. Same scope as `favorite`.' },
+        group_by: {
+          type: 'string',
+          enum: ['prompt', 'batch'],
+          description:
+            'Instead of items, return groups: "prompt" collects generated items with exactly the same prompt (the candidates for one page, say), "batch" collects by batch label. Each group has its count, how many are favorites / pinned, a `cover` item (the pinned one, else a favorite, else the newest), and `item_ids` (newest first, up to 200). The other filters apply to items first. `limit` then counts groups.',
+        },
+        limit: { type: 'integer', description: 'Default 50, max 200 (items, or groups with group_by).' },
         workspace: workspaceProp('Only items in that workspace (without it, items from every workspace are listed).'),
       },
     },
@@ -211,6 +219,20 @@ export const TOOLS: ToolDefinition[] = [
         preview: { type: 'boolean', description: 'Include the preview image. Default true.' },
       },
       required: ['item_id'],
+    },
+  },
+  {
+    name: 'set_item_flags',
+    description:
+      'Favorites and/or pins generated library items, up to 200 ids at once (all checked first; a bad id changes nothing). A favorite is the keeper you picked out of the candidates; a pin marks the picture that stands for its prompt (the example of a look). Both are shown on every item and usable as filters and for group_by in list_library. Only generated items (gen-N) have these flags. Favoriting moves the picture\'s file into the favorites folder, so read the new `path` from the result.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        item_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 200, description: 'Library item ids such as "gen-12".' },
+        favorite: { type: 'boolean', description: 'true to favorite, false to remove the favorite. Leave out to leave it as it is.' },
+        pinned: { type: 'boolean', description: 'true to pin, false to unpin. Leave out to leave it as it is.' },
+      },
+      required: ['item_ids'],
     },
   },
   {

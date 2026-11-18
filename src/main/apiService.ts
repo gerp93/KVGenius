@@ -18,7 +18,8 @@ import { AssemblyManager, AssemblySpec } from './assembly';
 import { FfmpegPaths, MediaInfo, EndBehavior, Transition, makePoster, probeMedia } from './mediaTools';
 import { PromptStyle, combinePrompt, extraWording, styleLabel } from '../shared/styles';
 import { findStyleByName, listStyles } from './styles';
-import { ItemKind, ItemOrigin, ItemView, getItem, kindForExtension, listItems, upsertImport } from './library';
+import { GroupBy, ItemKind, ItemOrigin, ItemView, getItem, groupItems, kindForExtension, listItems, parseItemId, upsertImport } from './library';
+import { setGenerationPinned } from './db';
 import { listWorkspaces } from './workspaces';
 
 /** A problem with the request itself (or the machine's state), reported to the client as-is. */
@@ -44,6 +45,8 @@ export interface ApiServiceDeps {
   /** The workspace the app is in. What a client makes goes there, and the styles it can name are that workspace's - unless the call names
    * another with its `workspace` argument. */
   workspaceId: () => number;
+  /** Favorites or un-favorites a generation the way the app does (its file moves into / out of the favorites folder). Returns the file's path afterwards. */
+  setFavorite: (generationId: number, favorite: boolean) => string;
 }
 
 const FAMILIES: Record<string, { kind: 'image' | 'video'; description: string }> = {
@@ -213,6 +216,8 @@ export class ApiService {
         return this.getItemTool(args);
       case 'get_image_file':
         return this.getImageFileTool(args);
+      case 'set_item_flags':
+        return { data: this.setItemFlags(args) };
       case 'probe_media':
         return { data: await this.probeMediaTool(args) };
       case 'assemble_video':
@@ -634,7 +639,7 @@ export class ApiService {
   }
 
   private listLibrary(args: Args) {
-    const items = listItems(this.deps.db, {
+    const filter = {
       kind: optEnum<ItemKind>(args, 'kind', ['image', 'video', 'audio']),
       origin: optEnum<ItemOrigin>(args, 'origin', ['generated', 'imported', 'assembled']),
       batch: optBatch(args),
@@ -642,8 +647,58 @@ export class ApiService {
       clientOnly: true,
       // Only narrowed when a workspace is named: with none, items from every workspace are listed, as before.
       workspaceId: this.namedWorkspace(args)?.id,
-    });
+      favorite: args.favorite === undefined || args.favorite === null ? undefined : optBool(args, 'favorite', false),
+      pinned: args.pinned === undefined || args.pinned === null ? undefined : optBool(args, 'pinned', false),
+    };
+    const by = optEnum<GroupBy>(args, 'group_by', ['prompt', 'batch']);
+    if (by) {
+      const { groups, truncated } = groupItems(this.deps.db, filter, by);
+      return {
+        group_by: by,
+        count: groups.length,
+        truncated,
+        note: truncated ? 'Only the newest 5000 matching items were grouped; narrow with batch, workspace or the favorite / pinned filters.' : undefined,
+        groups: groups.map((g) => ({
+          [by]: g.key,
+          count: g.count,
+          favorites: g.favorites,
+          pinned: g.pinned,
+          cover: g.cover,
+          item_ids: g.itemIds,
+          item_ids_truncated: g.count > g.itemIds.length,
+        })),
+      };
+    }
+    const items = listItems(this.deps.db, filter);
     return { count: items.length, items };
+  }
+
+  /** Favorites / pins generated items, several at a time. All ids are checked first, so a bad one changes nothing. */
+  private setItemFlags(args: Args) {
+    const raw = args.item_ids;
+    if (!Array.isArray(raw) || raw.length === 0 || raw.some((id) => typeof id !== 'string' || id.trim() === '')) fail('"item_ids" must be a non-empty list of item ids.');
+    if (raw.length > 200) fail('"item_ids" can hold at most 200 ids.');
+    const favorite = args.favorite === undefined || args.favorite === null ? undefined : optBool(args, 'favorite', false);
+    const pinned = args.pinned === undefined || args.pinned === null ? undefined : optBool(args, 'pinned', false);
+    if (favorite === undefined && pinned === undefined) fail('Give `favorite` and/or `pinned` (true or false).');
+    const ids = [...new Set((raw as string[]).map((id) => id.trim()))];
+    const generations = ids.map((id) => {
+      const item = this.item(id);
+      if (!item) throw new ApiError('not_found', `No library item ${id}.`);
+      const ref = parseItemId(id);
+      if (!ref || ref.table !== 'gen') fail(`${id} is an imported or assembled file: only generated items (ids like "gen-12") can be favorited or pinned.`);
+      return { item, generationId: ref.n };
+    });
+    for (const { generationId } of generations) {
+      if (favorite !== undefined) this.deps.setFavorite(generationId, favorite);
+      if (pinned !== undefined) setGenerationPinned(this.deps.db, generationId, pinned);
+    }
+    const items = generations.map(({ item }) => this.item(item.id) as ItemView);
+    return {
+      updated: items.length,
+      items,
+      note: favorite === undefined ? undefined : 'Favoriting moves a picture\'s file into the favorites folder (and un-favoriting moves it back): use the `path` in these results, not an earlier one.',
+    };
   }
 
   private async getItemTool(args: Args): Promise<ToolResult> {

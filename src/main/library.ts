@@ -43,6 +43,9 @@ export interface ItemView {
   prompt?: string;
   family?: string;
   seed?: number;
+  /** Generated items only: kept as a favorite (its file lives in the favorites folder) / pinned as the example of its prompt. */
+  favorite?: boolean;
+  pinned?: boolean;
 }
 
 export const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'];
@@ -75,6 +78,8 @@ interface GenRow {
   image_path: string;
   created_at: string;
   batch: string | null;
+  favorite: number;
+  pinned_at: string | null;
 }
 
 interface ImpRow {
@@ -90,7 +95,7 @@ interface ImpRow {
   created_at: string;
 }
 
-const GEN_SELECT = `SELECT g.id, g.prompt, g.width, g.height, g.seed, g.length, g.model_family, g.image_path, g.created_at, j.batch AS batch
+const GEN_SELECT = `SELECT g.id, g.prompt, g.width, g.height, g.seed, g.length, g.model_family, g.image_path, g.created_at, g.favorite, g.pinned_at, j.batch AS batch
   FROM generations g LEFT JOIN jobs j ON j.generation_id = g.id`;
 
 function genToItem(row: GenRow): ItemView {
@@ -109,6 +114,8 @@ function genToItem(row: GenRow): ItemView {
     prompt: row.prompt,
     family: row.model_family,
     seed: row.seed,
+    favorite: row.favorite === 1,
+    pinned: row.pinned_at !== null,
   };
 }
 
@@ -193,11 +200,18 @@ export interface ItemFilter {
   clientOnly?: boolean;
   /** Only items in this workspace. */
   workspaceId?: number;
+  /** Only favorites (true) or only non-favorites (false). Imports and assemblies have no flags, so any flag filter leaves them out. */
+  favorite?: boolean;
+  /** Only pinned items (true) or only unpinned ones (false); see `favorite`. */
+  pinned?: boolean;
 }
 
 /** Newest first across generated and imported items. */
 export function listItems(db: DatabaseSync, filter: ItemFilter = {}): ItemView[] {
-  const limit = Math.min(Math.max(Math.floor(filter.limit ?? 50) || 0, 1), 200);
+  return collectItems(db, filter, Math.min(Math.max(Math.floor(filter.limit ?? 50) || 0, 1), 200));
+}
+
+function collectItems(db: DatabaseSync, filter: ItemFilter, limit: number): ItemView[] {
   const items: ItemView[] = [];
 
   if ((filter.origin === undefined || filter.origin === 'generated') && filter.kind !== 'audio') {
@@ -220,11 +234,13 @@ export function listItems(db: DatabaseSync, filter: ItemFilter = {}): ItemView[]
       where.push('g.workspace_id = ?');
       args.push(filter.workspaceId);
     }
+    if (filter.favorite !== undefined) where.push(filter.favorite ? 'g.favorite = 1' : 'g.favorite = 0');
+    if (filter.pinned !== undefined) where.push(filter.pinned ? 'g.pinned_at IS NOT NULL' : 'g.pinned_at IS NULL');
     const sql = `${GEN_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY g.id DESC LIMIT ${limit}`;
     items.push(...(db.prepare(sql).all(...args) as unknown as GenRow[]).map(genToItem));
   }
 
-  if (filter.origin !== 'generated') {
+  if (filter.origin !== 'generated' && filter.favorite === undefined && filter.pinned === undefined) {
     const where: string[] = [];
     const args: (string | number)[] = [];
     if (filter.kind) {
@@ -248,4 +264,56 @@ export function listItems(db: DatabaseSync, filter: ItemFilter = {}): ItemView[]
   }
 
   return items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0)).slice(0, limit);
+}
+
+/** The most items grouping will look through; a group list built from more says `truncated`. */
+export const GROUPING_ITEM_CAP = 5000;
+
+export type GroupBy = 'prompt' | 'batch';
+
+export interface ItemGroup {
+  /** The prompt (group_by prompt) or the batch label (null: no batch). */
+  key: string | null;
+  count: number;
+  favorites: number;
+  pinned: number;
+  /** The pinned item if there is one, else a favorite, else the newest - like a stack's cover in the app's Library. */
+  cover: ItemView;
+  /** Every item of the group, newest first (at most `GROUP_ITEM_ID_LIMIT`). */
+  itemIds: string[];
+  newestAt: string;
+}
+
+export const GROUP_ITEM_ID_LIMIT = 200;
+
+/**
+ * The items passing `filter`, collected into groups by identical prompt (generated items only - only they have one) or by batch
+ * label, newest group first. The filter applies to items first, so a group only counts what passes it. Looks through at most
+ * GROUPING_ITEM_CAP items (the newest); `truncated` says it hit that.
+ */
+export function groupItems(db: DatabaseSync, filter: ItemFilter, by: GroupBy): { groups: ItemGroup[]; truncated: boolean } {
+  const base: ItemFilter = by === 'prompt' ? { ...filter, origin: 'generated', limit: undefined } : { ...filter, limit: undefined };
+  const items = collectItems(db, base, GROUPING_ITEM_CAP);
+  const groups = new Map<string, ItemView[]>();
+  for (const item of items) {
+    const key = by === 'prompt' ? (item.prompt ?? '') : (item.batch ?? '\u0000');
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  const rank = (i: ItemView) => (i.pinned ? 2 : i.favorite ? 1 : 0);
+  const out: ItemGroup[] = [...groups.entries()].map(([key, members]) => {
+    // `members` is newest first, so on a tie the earliest element (the newest) wins.
+    const cover = members.reduce((best, m) => (rank(m) > rank(best) ? m : best), members[0]);
+    return {
+      key: by === 'batch' && key === '\u0000' ? null : key,
+      count: members.length,
+      favorites: members.filter((m) => m.favorite).length,
+      pinned: members.filter((m) => m.pinned).length,
+      cover,
+      itemIds: members.slice(0, GROUP_ITEM_ID_LIMIT).map((m) => m.id),
+      newestAt: members[0].createdAt,
+    };
+  });
+  out.sort((a, b) => (a.newestAt < b.newestAt ? 1 : a.newestAt > b.newestAt ? -1 : 0));
+  const limit = Math.min(Math.max(Math.floor(filter.limit ?? 50) || 0, 1), 200);
+  return { groups: out.slice(0, limit), truncated: items.length >= GROUPING_ITEM_CAP };
 }
