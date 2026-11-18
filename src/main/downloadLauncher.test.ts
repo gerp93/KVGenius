@@ -28,7 +28,7 @@ test('the script is saved (and kept, to resume) and a terminal is opened on it',
     if (result.status !== 'launched') return;
     assert.equal(result.scriptPath, path.join(dir, 'downloads', 'download-models.sh'));
     assert.match(fs.readFileSync(result.scriptPath, 'utf8'), /^#!\/bin\/sh/);
-    assert.ok((fs.statSync(result.scriptPath).mode & 0o111) !== 0, 'executable');
+    if (process.platform !== 'win32') assert.ok((fs.statSync(result.scriptPath).mode & 0o111) !== 0, 'executable'); // Windows has no execute bit
     assert.deepEqual(launched, { command: 'xterm', args: ['-e', 'sh', result.scriptPath] });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -84,7 +84,10 @@ test('Windows and macOS scripts get their own names', async () => {
   }
 });
 
-test('a command is found only if it is an executable file on the PATH', () => {
+// These check POSIX behaviour (file permission bits, `sh`): Windows has neither, and the app only uses this code on Linux/macOS.
+const posixOnly = process.platform === 'win32' ? { skip: 'needs POSIX file permissions / a POSIX shell' } : {};
+
+test('a command is found only if it is an executable file on the PATH', posixOnly, () => {
   const dir = temp();
   try {
     const exe = path.join(dir, 'myterm');
