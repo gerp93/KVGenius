@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { CleanupSettings, DEFAULT_CLEANUP_SETTINGS, normalizeCleanupSettings } from '../shared/cleanup';
+import { MAX_PROMPT_SLOTS, PromptSlot, newPromptSlot, sanitizeSlots } from '../shared/promptSlots';
 import { WorkspaceDirs, folderNameFor, workspaceDirs } from './workspaceFolders';
 import {
   DEFAULT_WORKSPACE_NAME,
@@ -24,6 +25,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
   system INTEGER NOT NULL DEFAULT 0,
   cleanup TEXT,
   folder TEXT NOT NULL DEFAULT '',
+  prompt_slots TEXT,
+  active_prompt_slot TEXT,
   created_at TEXT NOT NULL
 );
 `;
@@ -34,10 +37,46 @@ function nextFolderName(db: DatabaseSync, name: string): string {
   return folderNameFor(name, taken);
 }
 
+/** Before tabs belonged to a workspace they were one list for the whole app: the first workspace gets that list (once - only where it has none yet). */
+export function seedPromptSlots(db: DatabaseSync, legacy: { slots: unknown; activeId: string | null } | null): void {
+  if (!legacy) return;
+  const row = db.prepare('SELECT prompt_slots FROM workspaces WHERE id = ?').get(DEFAULT_WORKSPACE_ID) as unknown as { prompt_slots: string | null } | undefined;
+  if (!row || row.prompt_slots !== null) return;
+  saveWorkspacePromptSlots(db, DEFAULT_WORKSPACE_ID, legacy.slots, legacy.activeId);
+}
+
 /** Gives a folder to every workspace made before workspaces had folders of their own. Safe to run on every start. */
 export function assignWorkspaceFolders(db: DatabaseSync): void {
   const rows = db.prepare("SELECT id, name FROM workspaces WHERE folder = '' ORDER BY id").all() as unknown as { id: number; name: string }[];
   for (const row of rows) db.prepare('UPDATE workspaces SET folder = ? WHERE id = ?').run(nextFolderName(db, row.name), row.id);
+}
+
+/** A workspace's Generate tabs (prompt slots) and which one was open. A workspace that never saved any starts with one empty tab. */
+export function getWorkspacePromptSlots(db: DatabaseSync, id: number): { slots: PromptSlot[]; activeId: string | null } {
+  const row = db.prepare('SELECT prompt_slots, active_prompt_slot FROM workspaces WHERE id = ?').get(id) as unknown as
+    | { prompt_slots: string | null; active_prompt_slot: string | null }
+    | undefined;
+  let parsed: unknown;
+  try {
+    parsed = row?.prompt_slots ? JSON.parse(row.prompt_slots) : undefined;
+  } catch {
+    parsed = undefined;
+  }
+  return { slots: sanitizeSlots(parsed), activeId: row?.active_prompt_slot ?? null };
+}
+
+/** Saves a workspace's Generate tabs. A workspace that is gone is ignored (a late save from a window that has already left it). */
+export function saveWorkspacePromptSlots(db: DatabaseSync, id: number, slots: unknown, activeId: string | null): void {
+  db.prepare('UPDATE workspaces SET prompt_slots = ?, active_prompt_slot = ? WHERE id = ?').run(JSON.stringify(sanitizeSlots(slots)), activeId, id);
+}
+
+/** Adds one workspace's tabs after another's (a merge): empty untouched tabs are left out, ids are made new, and the 30-tab limit holds. */
+export function appendWorkspacePromptSlots(db: DatabaseSync, fromId: number, intoId: number): void {
+  const from = getWorkspacePromptSlots(db, fromId).slots.filter((slot) => slot.name !== null || slot.data.prompt.trim() !== '');
+  if (from.length === 0) return;
+  const into = getWorkspacePromptSlots(db, intoId);
+  const added = from.map((slot) => ({ ...slot, id: newPromptSlot().id }));
+  saveWorkspacePromptSlots(db, intoId, [...into.slots, ...added].slice(0, MAX_PROMPT_SLOTS), into.activeId);
 }
 
 /** The folders of a workspace (any, including the app's own). Throws for one that does not exist. */

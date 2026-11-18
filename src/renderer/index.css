@@ -3803,3 +3803,15 @@ button.style-tag:hover:not(:disabled) {
   text-align: center;
   white-space: nowrap;
 }
+
+/* Styles and elements grouped by who can use them (Styles.tsx): the shared ones, then this workspace's own. */
+.style-group {
+  margin-top: 16px;
+}
+
+.style-group .style-group__title {
+  margin: 0 0 8px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}

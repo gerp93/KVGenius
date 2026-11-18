@@ -8,6 +8,7 @@ import { DEFAULT_CLEANUP_SETTINGS } from '../shared/cleanup';
 import { DEFAULT_WORKSPACE_NAME, HIDDEN_WORKSPACE_NAME } from '../shared/workspaces';
 import { countGenerations, findDuplicateGeneration, getGenerationById, initDatabase, insertGeneration, listGenerations, listImageExtensions, listStyleTags } from './db';
 import { insertJob, listJobs } from './jobStore';
+import { newPromptSlot } from '../shared/promptSlots';
 import { listStyles, saveStyle } from './styles';
 import {
   DEFAULT_WORKSPACE_ID,
@@ -16,6 +17,7 @@ import {
   defaultWorkspaceId,
   deleteWorkspace,
   getWorkspace,
+  getWorkspacePromptSlots,
   listWorkspaces,
   saveWorkspaceCleanup,
   setActiveWorkspaceId,
@@ -210,5 +212,20 @@ test('moving an older database into workspaces is done once: a second start chan
   const again = initDatabase(file);
   assert.equal(getGenerationById(again, 1)!.workspaceId, second, 'an item moved since stays where it was put');
   assert.equal(listWorkspaces(again, true).filter((w) => w.name === HIDDEN_WORKSPACE_NAME).length, 1);
+  again.close();
+});
+
+test('the Generate tabs that used to be one list for the whole app become the first workspace\'s, once', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-tabs-')), 'kvgenius.db');
+  const slot = newPromptSlot();
+  slot.data.prompt = 'from before workspaces';
+  const first = initDatabase(file, DEFAULT_CLEANUP_SETTINGS, { slots: [slot], activeId: slot.id });
+  assert.deepEqual(getWorkspacePromptSlots(first, DEFAULT_WORKSPACE_ID).slots.map((s) => s.data.prompt), ['from before workspaces']);
+  assert.equal(getWorkspacePromptSlots(first, createWorkspace(first, 'Other').id).slots[0].data.prompt, '', 'a new workspace does not get them');
+  first.close();
+
+  // A later start with the (still present) old list does not overwrite what the workspace has saved since.
+  const again = initDatabase(file, DEFAULT_CLEANUP_SETTINGS, { slots: [newPromptSlot()], activeId: null });
+  assert.deepEqual(getWorkspacePromptSlots(again, DEFAULT_WORKSPACE_ID).slots.map((s) => s.data.prompt), ['from before workspaces']);
   again.close();
 });

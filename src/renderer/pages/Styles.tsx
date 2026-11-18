@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { styleScopeLabel } from "../../shared/workspaces";
+import { LOCAL_STYLES_LABEL, SHARED_STYLES_LABEL, splitByScope } from "../../shared/styles";
 import {
   MAX_STYLE_NAME_LENGTH,
   MAX_STYLE_TEXT_LENGTH,
@@ -517,10 +518,23 @@ export default function Styles({ onChanged }: Props) {
                     right.
                   </p>
                 ) : (
-                  <div className="style-grid">
-                    {tab === "style" && baselineCard}
-                    {tabItems.map(card)}
-                  </div>
+                  <>
+                    {tab === "style" && <div className="style-grid">{baselineCard}</div>}
+                    {/* A shared style is one thing, listed in every workspace; the workspace's own are listed apart from them. */}
+                    {[
+                      { label: SHARED_STYLES_LABEL, items: splitByScope(tabItems).shared },
+                      { label: LOCAL_STYLES_LABEL, items: splitByScope(tabItems).local },
+                    ]
+                      .filter((group) => group.items.length > 0)
+                      .map((group) => (
+                        <section key={group.label} className="style-group">
+                          <h4 className="style-group__title">
+                            {group.label} ({group.items.length})
+                          </h4>
+                          <div className="style-grid">{group.items.map(card)}</div>
+                        </section>
+                      ))}
+                  </>
                 )}
               </div>
             </section>
