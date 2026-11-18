@@ -45,7 +45,10 @@ test('with nothing known, nothing is planned, and a feature with no fixed files 
   assert.equal(planDownloads([manifestFeature('upscale')!], report({}), '/m').items.length, 0);
 });
 
-test('quoting leaves nothing to expand or run', () => {
+// These check POSIX behaviour (file permission bits, `sh`): Windows has neither, and the app only uses this code on Linux/macOS.
+const posixOnly = process.platform === 'win32' ? { skip: 'needs POSIX file permissions / a POSIX shell' } : {};
+
+test('quoting leaves nothing to expand or run', posixOnly, () => {
   assert.equal(shellQuote("it's"), "'it'\\''s'");
   assert.equal(powershellQuote("it's"), "'it''s'");
   const hostile = `/tmp/a b/$(touch pwned)\`id\`;"x"&|<>%'q`;
@@ -59,8 +62,9 @@ function runScript(script: string): Promise<{ stdout: string; code: number }> {
   });
 }
 
-const hostileDir = fs.mkdtempSync(path.join(os.tmpdir(), "kvg dl $(touch PWNED) `id` ;&|' "));
-test('the POSIX script downloads, resumes past finished files, reports failures, and runs nothing it was not given', async () => {
+test('the POSIX script downloads, resumes past finished files, reports failures, and runs nothing it was not given', posixOnly, async () => {
+  // Made here, not at load: a folder name with these characters cannot exist on Windows, and must not break the whole file there.
+  const hostileDir = fs.mkdtempSync(path.join(os.tmpdir(), "kvg dl $(touch PWNED) `id` ;&|' "));
   const body = Buffer.from('model-bytes'.repeat(1000));
   const server = http.createServer((req, res) => {
     if (req.url === '/missing.safetensors') {
@@ -102,7 +106,7 @@ test('the POSIX script downloads, resumes past finished files, reports failures,
   }
 });
 
-test('the POSIX script is valid shell for any item list', () => {
+test('the POSIX script is valid shell for any item list', posixOnly, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvg-sh-'));
   try {
     for (const items of [[], [{ label: "It's", url: 'https://x/y', folder: 'vae', fileName: 'a', destPath: "/a b/it's" }]]) {

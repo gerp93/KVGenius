@@ -41,7 +41,9 @@ let pending = 0;
 let closed = false;
 
 function maybeExit(): void {
-  if (closed && pending === 0) process.exit(0);
+  // Let the process end on its own once stdin is closed and nothing is in flight, rather than calling process.exit(): on Windows that
+  // can trip a libuv assertion (exit code 0xC0000409) while a keep-alive connection to the app is being torn down.
+  if (closed && pending === 0) process.exitCode = 0;
 }
 
 rl.on('line', (line) => {
