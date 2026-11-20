@@ -42,9 +42,9 @@ import { PromptSlot } from '../shared/promptSlots';
 import { PromptStyleInput } from '../shared/styles';
 import { deleteStyle, getStyle, listStyles, saveStyle } from './styles';
 import {
-  DEFAULT_WORKSPACE_ID,
   createWorkspace,
   currentWorkspaceId,
+  defaultWorkspaceId,
   deleteWorkspace,
   getWorkspace,
   getWorkspacePromptSlots,
@@ -1501,11 +1501,21 @@ app
       // A failure to start the API (say, a locked-down loopback) must not stop the app itself.
       await startApi().catch((error) => logStartupFailure('startApi', error));
     }
-    // Output from before images and videos had folders of their own goes into the first workspace's.
-    const first = dirsOf(DEFAULT_WORKSPACE_ID);
-    moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), first.images, first.videos);
-    // Favorited before the favorites folder existed: move those files into it.
-    syncFavoriteFiles(db, outputDirsOf, videoFamilyList());
+    // The app starts on the grid of workspaces and opens none itself, so nothing here may need a particular workspace to exist
+    // (the first one can have been deleted or merged away). A problem in either tidy-up is logged, never fatal.
+    try {
+      // Output from before images and videos had folders of their own goes into the oldest workspace's.
+      const first = dirsOf(defaultWorkspaceId(startedDb));
+      moveLegacyOutput(db, videoFamilyList(), getLegacyOutputDir(), first.images, first.videos);
+    } catch (error) {
+      logStartupFailure('moveLegacyOutput', error);
+    }
+    try {
+      // Favorited before the favorites folder existed: move those files into it.
+      syncFavoriteFiles(db, outputDirsOf, videoFamilyList());
+    } catch (error) {
+      logStartupFailure('syncFavoriteFiles', error);
+    }
     // The automatic cleanup does nothing unless the user turned it on in Settings (it is off by default).
     startCleanupSchedule({
       getDb: () => db,
