@@ -13,9 +13,13 @@ build/
 # Electron-builder
 electron-builder-effective-config.yaml
 
-# Environment
+# Environment and secrets (KVG_Standards secrets.md)
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
 
 # IDE
 .vscode/
