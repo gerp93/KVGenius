@@ -1,3 +1,5 @@
+import { ElementLora, validateElementLora } from './loras';
+
 /**
  * What a saved snippet of wording is for. A "style" is a general look (anime, oil painting, "1930s movie poster") and a picture uses at most one.
  * An "element" is a reusable piece of the picture itself - a character's outfit, a recurring setting - and any number can be used together.
@@ -26,6 +28,8 @@ export interface PromptStyle {
   createdAt: string;
   /** When the wording (`text`) was last written or changed - a rename or a kind change does not count. */
   textChangedAt: string;
+  /** Elements only: a LoRA file that comes with the element (see shared/loras.ts). Null (or absent) for none, and always none for a style. */
+  lora?: ElementLora | null;
 }
 
 /** What the Styles page sends when saving: a new style (no id) or an edit of an existing one. */
@@ -36,6 +40,8 @@ export interface PromptStyleInput {
   kind?: StyleKind;
   /** Who can use it: 'all' (every workspace) or 'workspace' (only the current one). Chosen when it is made; an edit keeps it unless this is sent. */
   scope?: 'all' | 'workspace';
+  /** Elements only. Null (or no file) means none; absent leaves an existing element's LoRA as it is. A style never has one. */
+  lora?: ElementLora | null;
 }
 
 export const MAX_STYLE_NAME_LENGTH = 60;
@@ -49,7 +55,15 @@ export function validateStyleInput(input: PromptStyleInput): { ok: true; value: 
   if (name.length > MAX_STYLE_NAME_LENGTH) return { ok: false, message: `The name can be at most ${MAX_STYLE_NAME_LENGTH} characters.` };
   if (!text) return { ok: false, message: 'Enter the style text - the words to add to a prompt.' };
   if (text.length > MAX_STYLE_TEXT_LENGTH) return { ok: false, message: `The style text can be at most ${MAX_STYLE_TEXT_LENGTH} characters.` };
-  return { ok: true, value: { name, text, kind: cleanStyleKind(input?.kind), ...(input?.scope === 'workspace' || input?.scope === 'all' ? { scope: input.scope } : {}) } };
+  const kind = cleanStyleKind(input?.kind);
+  let lora: ElementLora | null | undefined;
+  if (kind !== 'element') lora = input?.lora !== undefined ? null : undefined;
+  else if (input?.lora !== undefined) {
+    const checked = validateElementLora(input.lora);
+    if (!checked.ok) return { ok: false, message: checked.message };
+    lora = checked.value;
+  }
+  return { ok: true, value: { name, text, kind, ...(input?.scope === 'workspace' || input?.scope === 'all' ? { scope: input.scope } : {}), ...(lora !== undefined ? { lora } : {}) } };
 }
 
 /**

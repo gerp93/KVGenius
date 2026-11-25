@@ -3447,6 +3447,44 @@ button.button-danger--armed:hover:not(:disabled) {
   color: var(--color-text);
 }
 
+/* Generate / Styles: an element that brings a LoRA - a small tag on its chip, a line saying what loads, and a note when one is left out. */
+.element-chip__lora {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.lora-hint {
+  margin: 0 0 6px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.lora-hint--note {
+  padding-left: 8px;
+  border-left: 3px solid var(--color-accent-red);
+}
+
+.lora-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lora-field__file {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.lora-field__strength {
+  width: 80px;
+}
+
 /* Styles page: the kind of a saved snippet (Style or Element). */
 .styles-page__kind {
   display: inline-block;

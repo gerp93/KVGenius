@@ -89,6 +89,7 @@ import {
   cancelCurrentGeneration,
   generate as comfyGenerate,
   listUpscaleModels,
+  listLoraFiles,
   listInstalledModels,
   getFolderPaths,
   listSamplerChoices,
@@ -700,6 +701,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('listUpscaleModels', () => listUpscaleModels());
+  ipcMain.handle('listLoraFiles', () => listLoraFiles());
 
   ipcMain.handle('convertToGif', async (_event, id: number, options: { fps: number; width: number }) => {
     if (!db) throw new Error('Database not initialized');
@@ -960,6 +962,7 @@ function registerIpcHandlers(): void {
       length: params.length ?? null,
       sourceImagePath: params.sourceImagePath ?? null,
       modelSettings: params.modelSettings ?? null,
+      loras: params.loras ?? null,
       denoise: params.denoise ?? null,
       maskImagePath: params.maskImagePath ?? null,
       outpaint: params.outpaint ?? null,

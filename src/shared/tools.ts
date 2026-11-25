@@ -67,7 +67,7 @@ export const TOOLS: ToolDefinition[] = [
           type: 'array',
           items: { type: 'string' },
           description:
-            'Optional. Names of saved elements (reusable parts of a picture, such as a character\'s outfit; see list_styles, kind "element"). Their wording is added after the prompt, before the style. Any number.',
+            'Optional. Names of saved elements (reusable parts of a picture, such as a character\'s outfit; see list_styles, kind "element"). Their wording is added after the prompt, before the style. Any number. An element can also carry a LoRA (list_styles shows it): with family "flux-dev" its file is loaded at its strength (up to 3 at once); with any other family it is left out and the reply\'s `notes` say so.',
         },
         source: itemIdProp('Optional. A library picture to start from (image to image). The new picture is drawn from it and the prompt, instead of from nothing; width and height then default to its shape'),
         strength: {
@@ -112,7 +112,7 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'list_styles',
     description:
-      'Lists what the user saved in KVGenius to add to prompts: styles (a look, e.g. "1930s movie poster"; one per picture) and elements (reusable parts of a picture, e.g. a character\'s outfit; any number), each with its kind and wording. Pass a style\'s name as `style` and element names as `elements` to generate_image.',
+      'Lists what the user saved in KVGenius to add to prompts: styles (a look, e.g. "1930s movie poster"; one per picture) and elements (reusable parts of a picture, e.g. a character\'s outfit; any number), each with its kind and wording (and, for an element that comes with a LoRA, the LoRA file name and strength). Pass a style\'s name as `style` and element names as `elements` to generate_image.',
     inputSchema: {
       type: 'object',
       properties: {

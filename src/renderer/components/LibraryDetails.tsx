@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DEFAULT_GIF_FPS, DEFAULT_GIF_WIDTH, GIF_FPS_CHOICES, GIF_WIDTHS } from '../../shared/gif';
+import { describeLora } from '../../shared/loras';
 import { UPSCALE_FACTORS, DEFAULT_UPSCALE_FACTOR, UPSCALE_FAMILY, UPSCALE_VIDEO_FAMILY, isUpscaleFamily } from '../../shared/upscale';
 import { FAMILY_KIND, GenerationKind, GenerationRecord, VideoSourceRequest } from '../../shared/types';
 import { isExtendableFamily } from '../../shared/textToVideo';
@@ -486,6 +487,12 @@ export default function LibraryDetails({
               {record.modelName}
               {record.modelSettings.sampler && record.modelSettings.scheduler ? ` - ${record.modelSettings.sampler} / ${record.modelSettings.scheduler}` : ''}
             </dd>
+          </>
+        )}
+        {record.loras && record.loras.length > 0 && (
+          <>
+            <dt>{record.loras.length === 1 ? 'LoRA' : 'LoRAs'}</dt>
+            <dd title="Loaded in this order, each at the strength shown">{record.loras.map(describeLora).join(', ')}</dd>
           </>
         )}
         {record.styleName && (

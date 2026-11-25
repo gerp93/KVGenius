@@ -196,6 +196,7 @@ const api: KVGeniusAPI = {
   openHardpoint: () => ipcRenderer.invoke('openHardpoint'),
   hardpointIsReachable: () => ipcRenderer.invoke('hardpointIsReachable'),
   listUpscaleModels: () => ipcRenderer.invoke('listUpscaleModels'),
+  listLoraFiles: () => ipcRenderer.invoke('listLoraFiles'),
   convertToGif: (id: number, options: { fps: number; width: number }) => ipcRenderer.invoke('convertToGif', id, options),
 };
 
