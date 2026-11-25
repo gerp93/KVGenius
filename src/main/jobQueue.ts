@@ -123,8 +123,8 @@ export class JobQueue {
 
   /** Cancels every job still waiting (not the running one), optionally only those of one batch
    * and/or one source. Returns how many. */
-  cancelQueued(batch?: string, source?: JobSource): number {
-    const waiting = listJobs(this.db, { status: 'queued', batch, source, limit: 500 });
+  cancelQueued(batch?: string, source?: JobSource, excludeWorkspaceIds?: number[]): number {
+    const waiting = listJobs(this.db, { status: 'queued', batch, source, excludeWorkspaceIds, limit: 500 });
     for (const job of waiting) this.settle(job.id, 'cancelled', { error: null });
     return waiting.length;
   }

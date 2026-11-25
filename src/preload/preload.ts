@@ -187,6 +187,7 @@ const api: KVGeniusAPI = {
   openModelsDir: () => ipcRenderer.invoke('openModelsDir'),
   getMcpInfo: () => ipcRenderer.invoke('getMcpInfo'),
   setMcpEnabled: (enabled: boolean) => ipcRenderer.invoke('setMcpEnabled', enabled),
+  setMcpHiddenWorkspaces: (allowed: boolean) => ipcRenderer.invoke('setMcpHiddenWorkspaces', allowed),
   chooseFfmpegPath: () => ipcRenderer.invoke('chooseFfmpegPath'),
   resetFfmpegPath: () => ipcRenderer.invoke('resetFfmpegPath'),
   getAppVersion: () => ipcRenderer.invoke('getAppVersion'),

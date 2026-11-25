@@ -161,7 +161,7 @@ implementation here is exactly the kind of drift it exists to prevent.
   into). The main process holds the window's current workspace (`setActiveWorkspaceId`, `currentWorkspaceId(db)`); the IPC handlers and the
   MCP/API tools read it, so the renderer never passes it for Library calls, and a job stores the workspace it was queued in (`JobRequest.workspaceId`,
   filled by `JobQueue`'s `currentWorkspaceId`), so switching while it runs does not move it. The MCP/API tools also take an optional `workspace` (a name,
-  case-insensitive, hidden ones too, never the system one; an unknown name is an error listing the existing names - the API never creates one),
+  case-insensitive, never the system one and - unless Settings > Integrations > "Let MCP clients see hidden workspaces" is on (off by default) - never a hidden one, which clients cannot list, name, default to, or reach by id; an unknown name is an error listing the visible names - the API never creates one),
   resolved in `ApiService.namedWorkspace()`; `get_image_file` hands a client an image's original bytes (base64 in `images[0]`, 25 MB cap, same
   client-only scope as `get_item`); and `generate_image` snaps z-image sizes to 16 (816x1056 is exact), the other families to 64 - see
   `docs/mcp-plan.md` "As built". **Styles are shared (`styles.workspace_id` NULL) or

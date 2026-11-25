@@ -27,6 +27,8 @@ import {
   getActivePromptSlotId,
   getApiEnabled,
   setApiEnabled,
+  getApiHiddenWorkspaces,
+  setApiHiddenWorkspaces,
   getApiToken,
   getFfmpegOverride,
   setFfmpegOverride,
@@ -467,6 +469,7 @@ async function startApi(): Promise<void> {
         return size.width > 0 && size.height > 0 ? size : null;
       },
       workspaceId: () => currentWorkspaceId(database),
+      allowHiddenWorkspaces: getApiHiddenWorkspaces,
       setFavorite: (generationId, favorite) => applyFavorite(database, generationId, favorite, outputDirsOf, videoFamilyList()).imagePath,
       imagePreviewFallback: async (file) => {
         const image = nativeImage.createFromPath(file);
@@ -512,6 +515,7 @@ function mcpInfo(): McpInfo {
   return {
     enabled: getApiEnabled(),
     running: localApi !== null,
+    hiddenWorkspaces: getApiHiddenWorkspaces(),
     port: localApi?.port ?? null,
     configSnippet: JSON.stringify(snippet, null, 2),
     ffmpeg: { available: ff !== null, path: ff?.ffmpeg ?? null, override: getFfmpegOverride() },
@@ -1337,6 +1341,11 @@ function registerIpcHandlers(): void {
     setApiEnabled(!!enabled);
     if (enabled) await startApi();
     else await stopApi();
+    return mcpInfo();
+  });
+
+  ipcMain.handle('setMcpHiddenWorkspaces', (_event, allowed: boolean) => {
+    setApiHiddenWorkspaces(allowed === true);
     return mcpInfo();
   });
 

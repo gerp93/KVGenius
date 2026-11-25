@@ -50,6 +50,8 @@ export interface JobInfo {
 export interface JobFilter {
   /** Only jobs whose result goes to this workspace. */
   workspaceId?: number;
+  /** Leave out jobs whose result goes to one of these workspaces (the hidden ones, for an outside client). */
+  excludeWorkspaceIds?: number[];
   source?: JobSource;
   batch?: string;
   status?: JobStatus;

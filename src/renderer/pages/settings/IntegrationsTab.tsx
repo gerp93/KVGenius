@@ -20,6 +20,15 @@ export default function IntegrationsTab() {
     }
   }
 
+  async function handleToggleHiddenWorkspaces(allowed: boolean) {
+    setError(null);
+    try {
+      setMcp(await window.kvgenius.setMcpHiddenWorkspaces(allowed));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function handleCopySnippet() {
     if (!mcp) return;
     await navigator.clipboard.writeText(mcp.configSnippet);
@@ -51,6 +60,20 @@ export default function IntegrationsTab() {
           />
           Allow other apps to control KVGenius (MCP)
         </label>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={mcp?.hiddenWorkspaces ?? false}
+            disabled={!mcp}
+            onChange={(e) => handleToggleHiddenWorkspaces(e.target.checked)}
+          />
+          Let MCP clients see hidden workspaces
+        </label>
+        <p className="settings-hint">
+          Off by default: hidden workspaces (and their items, jobs, styles and elements) are invisible to other apps, and
+          a client falls back to a workspace that is not hidden even while you are inside a hidden one. Turn this on only
+          if you want a client to work in them.
+        </p>
         {error && <p className="settings-message settings-message--error">{error}</p>}
         {mcp?.enabled && (
           <>

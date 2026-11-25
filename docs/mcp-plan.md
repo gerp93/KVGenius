@@ -232,16 +232,34 @@ stats, settings and the database have no tool at all. To use an app-made image, 
 
 **Choosing a workspace.** `generate_image`, `generate_video`, `import_folder`, `assemble_video`,
 `list_styles`, `list_jobs` and `list_library` take an optional `workspace` (a workspace's name,
-case-insensitive; hidden workspaces work, the app's own system workspace does not). Without it, work
-goes to the workspace the app is in, as before; with it, the job / import / assembly goes there and
+case-insensitive; neither the app's own system workspace nor - unless the user allowed it, below - a
+hidden one can be named). Without it, work goes to the workspace the app is in (or, when that one is
+hidden from clients, the fallback below); with it, the job / import / assembly goes there and
 `style` / `elements` are looked up among what that workspace can use. For `list_jobs` and
-`list_library` the name only narrows the listing - with none, every workspace is listed, as before.
-A name that matches nothing is a `not_found` error (HTTP 404) that lists the existing names, e.g.
+`list_library` the name only narrows the listing - with none, every workspace a client may use is
+listed. A name that matches nothing is a `not_found` error (HTTP 404) that lists the existing names, e.g.
 `No workspace named "Nope". Existing workspaces: "Color Book Forge", "Default". Workspaces are created
 in the KVGenius app (the workspace grid), never through the API - create it there first, then use its
 name.` The API never creates one. A job keeps the workspace it was queued in. A file that was already
 imported keeps the workspace of its first import. `list_capabilities` reports `workspaces.current`
-and `workspaces.available`. Resolved in `ApiService.namedWorkspace()`.
+and `workspaces.available`. Resolved in `ApiService.namedWorkspace()` / `workspaceFor()`.
+
+**Hidden workspaces are invisible to clients.** A workspace the user has hidden (private content)
+does not exist as far as an MCP client can tell, unless the user turns on **Settings > Integrations >
+"Let MCP clients see hidden workspaces"** (off by default; `apiHiddenWorkspaces` in the config file,
+`ApiServiceDeps.allowHiddenWorkspaces`). While it is off: `list_capabilities` leaves hidden
+workspaces out (and drops the `hidden` flag, since none is shown); naming one is the same `not_found`
+as naming one that does not exist, and the error does not list it; when the app is currently in a
+hidden workspace the default for work and for `list_styles` is the Default workspace if it is visible,
+else the oldest visible one (`ApiService.defaultWorkspace()`), and with no visible workspace at all
+those calls fail with `no_workspace` rather than using a hidden one; `list_jobs` and `list_library`
+(plain or `group_by`) exclude hidden workspaces' jobs and items; and every lookup by id (`get_job`,
+`cancel_job` by job, batch or assembly, `get_item`, `get_image_file`, `probe_media`, `set_item_flags`,
+`get_assembly`, a `source` / `clips` / `audio` item) treats an id in a hidden workspace exactly like one
+that does not exist. `import_folder` skips a file already imported into a hidden workspace (an
+import's path is unique, so it cannot be regrouped or re-shown). Done in SQL
+(`excludeWorkspaceIds` on `getItem`, `ItemFilter`, `JobFilter`; `cancelQueued`) plus
+`ApiService.hiddenIds()`; tested in `apiServiceWorkspaces.test.ts`.
 
 **Getting the picture itself.** `get_image_file` (`{ "item_id": "gen-12" }`, image items only,
 `gen-N` and `imp-N`) returns the original file, byte for byte, base64-encoded in `images[0]` with its

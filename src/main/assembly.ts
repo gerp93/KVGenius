@@ -112,6 +112,12 @@ export class AssemblyManager {
     return this.get(id) as AssemblyView;
   }
 
+  /** The workspace an assembly belongs to, or null when there is no such assembly. */
+  workspaceOf(id: number): number | null {
+    const row = this.db.prepare('SELECT workspace_id FROM assemblies WHERE id = ?').get(id) as unknown as { workspace_id: number } | undefined;
+    return row?.workspace_id ?? null;
+  }
+
   get(id: number): AssemblyView | null {
     const row = this.db.prepare('SELECT * FROM assemblies WHERE id = ?').get(id) as unknown as AssemblyRow | undefined;
     return row ? this.toView(row) : null;
