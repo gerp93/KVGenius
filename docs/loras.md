@@ -34,10 +34,17 @@ Over MCP, `list_styles` shows an element's LoRA file name and strength, and `gen
 FullFantasyLady's **Ancestries Compendium** on Civitai (a Flux.1 dev LoRA; model 1893473), **Twi'lek Mk.1**
 version.
 
-> **Unverified.** The settings below come from search summaries of the model page, not from running it: no
-> generation with this LoRA has been seen. Check the model page and adjust by eye.
+Checked from the downloaded file's header (`FullFantasyLady-Twilek-Mk1.safetensors`, about 18 MB):
+
+- It is a Flux.1 dev LoRA (`modelspec.architecture` = `flux-1-dev/lora`), in kohya format with UNet keys only
+  (no text-encoder keys), so the model-only loader KVGenius uses is the right one. Network dim 2, alpha 16, trained
+  on 141 images.
+- The trigger word is exactly `ffl-twi'lek-mk.1`, the only caption tag it was trained with. Put it in the element
+  text, e.g. `ffl-twi'lek-mk.1, a Twi'lek woman`.
+
+> **Still unverified.** These come from the model page's summary, not from the file or from running it (no
+> generation with this LoRA has been seen in KVGenius). Treat them as starting points and adjust by eye.
 
 - Flux guidance (the CFG box for Flux) about 2.5 to 3.5.
 - LoRA strength about 0.5 to 1.0.
 - About 40 steps.
-- Trigger word reported as `ffl-twi'lek-mk.1`: put it in the element text, e.g. `ffl-twi'lek-mk.1, a Twi'lek woman`.
