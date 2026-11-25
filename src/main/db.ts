@@ -399,10 +399,13 @@ export function insertGeneration(
   const sourceVideoPath = params.sourceVideoPath ?? null;
   const stmt = db.prepare(`
     INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, workspace_id, source_image_path, style_name, model_name, model_settings, loras, denoise, mask_image_path, outpaint, source_video_path, extended_frames, timing_id, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  // NULL means the family's own default negative prompt; text (even '') is what was typed.
+  const negativePrompt = typeof params.negativePrompt === 'string' ? params.negativePrompt : null;
   const result = stmt.run(
     params.prompt,
+    negativePrompt,
     params.width,
     params.height,
     params.seed,
@@ -428,7 +431,7 @@ export function insertGeneration(
   return {
     id: Number(result.lastInsertRowid),
     prompt: params.prompt,
-    negativePrompt: null,
+    negativePrompt,
     width: params.width,
     height: params.height,
     seed: params.seed,
@@ -799,6 +802,8 @@ export interface DuplicateQuery {
   modelSettings?: ModelSettings | null;
   /** Image only: the LoRAs the run would load. Different LoRAs (or strengths) make a different picture. */
   loras?: LoraSpec[] | null;
+  /** Image only: the typed negative prompt ('' for none), or absent for the family's default. A different one makes a different picture. */
+  negativePrompt?: string | null;
 }
 
 /**
@@ -820,7 +825,7 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
     .prepare(
       `${GENERATION_SELECT}
        WHERE g.workspace_id = ? AND g.model_family = ? AND g.trashed_at IS NULL AND TRIM(g.prompt) = ? AND g.width = ? AND g.height = ?
-         AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ? AND g.model_settings IS ? AND g.loras IS ? AND g.denoise IS ? AND g.outpaint IS ?
+         AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ? AND g.model_settings IS ? AND g.loras IS ? AND g.negative_prompt IS ? AND g.denoise IS ? AND g.outpaint IS ?
          ${needsSource ? 'AND g.source_image_path = ?' : ''} ${needsMask ? 'AND g.mask_image_path = ?' : ''} ${needsVideo ? 'AND g.source_video_path = ?' : ''}
        ORDER BY g.id DESC LIMIT 1`
     )
@@ -836,6 +841,7 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
       isVideo ? (query.length as number) : null,
       serializeModelSettings(query.modelSettings),
       serializeLoras(query.loras),
+      typeof query.negativePrompt === 'string' ? query.negativePrompt : null,
       query.denoise ?? null,
       serializeOutpaint(query.outpaint),
       ...(needsSource ? [query.sourceImagePath as string] : []),

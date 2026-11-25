@@ -66,6 +66,9 @@ export interface PromptSlotData {
   /** Image mode only: the face-reference method (a family from shared/faceReference.ts) whose workflow carries the face of `imageSourcePath` into a new picture, or null for none.
    * Absent in older configs - null. */
   faceFamily?: string | null;
+  /** Image mode, families that use a negative prompt only: what the user typed for it, or null for the family's default (see shared/negativePrompt.ts).
+   * Absent in older configs - null. */
+  negativePrompt?: string | null;
   /** The "would repeat the last run" guard - kept per slot so switching away and back doesn't
    * forget it, and it doesn't wrongly carry over between unrelated tabs. */
   lastRunSignature: string | null;
@@ -116,6 +119,7 @@ export function defaultSlotData(mode: GenerationKind = 'image'): PromptSlotData 
     maskImagePath: null,
     outpaint: null,
     faceFamily: null,
+    negativePrompt: null,
     lastRunSignature: null,
   };
 }
@@ -198,6 +202,7 @@ function isValidData(data: unknown): data is PromptSlotData {
     (d.maskImagePath === undefined || d.maskImagePath === null || typeof d.maskImagePath === 'string') &&
     (d.outpaint === undefined || d.outpaint === null || typeof d.outpaint === 'object') &&
     (d.faceFamily === undefined || d.faceFamily === null || typeof d.faceFamily === 'string') &&
+    (d.negativePrompt === undefined || d.negativePrompt === null || typeof d.negativePrompt === 'string') &&
     (d.lastRunSignature === undefined || d.lastRunSignature === null || typeof d.lastRunSignature === 'string')
   );
 }
