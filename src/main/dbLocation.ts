@@ -19,6 +19,8 @@ interface AppConfig {
   activePromptSlotId?: string;
   /** Whether the local control API (for MCP clients) is on. Off unless the user turns it on. */
   apiEnabled?: boolean;
+  /** Off (absent) unless the user turns it on: MCP clients then cannot see or use hidden workspaces. */
+  apiHiddenWorkspaces?: boolean;
   apiToken?: string;
   /** User-chosen ffmpeg binary; empty = use the bundled one or PATH. */
   ffmpegPath?: string;
@@ -238,6 +240,15 @@ export function getApiEnabled(): boolean {
 
 export function setApiEnabled(enabled: boolean): void {
   writeConfig({ ...readConfig(), apiEnabled: enabled });
+}
+
+/** Whether MCP clients may see and use hidden workspaces. Off unless the user turned it on. */
+export function getApiHiddenWorkspaces(): boolean {
+  return readConfig().apiHiddenWorkspaces === true;
+}
+
+export function setApiHiddenWorkspaces(allowed: boolean): void {
+  writeConfig({ ...readConfig(), apiHiddenWorkspaces: allowed });
 }
 
 /** The bearer token clients must present; created the first time it is needed and kept after. */

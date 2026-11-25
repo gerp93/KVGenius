@@ -177,18 +177,33 @@ export function upsertImport(db: DatabaseSync, item: NewImport): ItemView {
 const FROM_CLIENT = "j.source = 'mcp'";
 
 /** `clientOnly`: show only what outside clients created (their generations, imports and assemblies). */
-export function getItem(db: DatabaseSync, id: string, options: { clientOnly?: boolean } = {}): ItemView | null {
+export function getItem(db: DatabaseSync, id: string, options: { clientOnly?: boolean; excludeWorkspaceIds?: number[] } = {}): ItemView | null {
   const ref = parseItemId(id);
   if (!ref) return null;
+  const excluded = options.excludeWorkspaceIds ?? [];
   if (ref.table === 'gen') {
     // Anything in the Trash no longer exists as far as clients are concerned.
     const row = db
-      .prepare(`${GEN_SELECT} WHERE g.id = ? AND g.trashed_at IS NULL${options.clientOnly ? ` AND ${FROM_CLIENT}` : ''}`)
+      .prepare(`${GEN_SELECT} WHERE g.id = ? AND g.trashed_at IS NULL${options.clientOnly ? ` AND ${FROM_CLIENT}` : ''}${notInWorkspaces('g.workspace_id', excluded)}`)
       .get(ref.n) as unknown as GenRow | undefined;
     return row ? genToItem(row) : null;
   }
-  const row = db.prepare('SELECT * FROM imports WHERE id = ?').get(ref.n) as unknown as ImpRow | undefined;
+  const row = db.prepare(`SELECT * FROM imports WHERE id = ?${notInWorkspaces('workspace_id', excluded)}`).get(ref.n) as unknown as ImpRow | undefined;
   return row ? impToItem(row) : null;
+}
+
+/** ` AND <column> NOT IN (...)` for the given workspace ids (they are numbers made by the app, never caller text), or nothing when there are none. */
+function notInWorkspaces(column: string, ids: number[]): string {
+  const safe = ids.filter((n) => Number.isInteger(n));
+  return safe.length ? ` AND ${column} NOT IN (${safe.join(',')})` : '';
+}
+
+/** Whether a path already belongs to an import in one of these workspaces (used to keep a client from touching an import it cannot see). */
+export function importPathInWorkspaces(db: DatabaseSync, file: string, ids: number[]): boolean {
+  if (ids.length === 0) return false;
+  const safe = ids.filter((n) => Number.isInteger(n));
+  if (safe.length === 0) return false;
+  return db.prepare(`SELECT 1 FROM imports WHERE path = ? AND workspace_id IN (${safe.join(',')})`).get(file) !== undefined;
 }
 
 export interface ItemFilter {
@@ -200,6 +215,8 @@ export interface ItemFilter {
   clientOnly?: boolean;
   /** Only items in this workspace. */
   workspaceId?: number;
+  /** Leave out items of these workspaces (the hidden ones, for an outside client). */
+  excludeWorkspaceIds?: number[];
   /** Only favorites (true) or only non-favorites (false). Imports and assemblies have no flags, so any flag filter leaves them out. */
   favorite?: boolean;
   /** Only pinned items (true) or only unpinned ones (false); see `favorite`. */
@@ -234,6 +251,8 @@ function collectItems(db: DatabaseSync, filter: ItemFilter, limit: number): Item
       where.push('g.workspace_id = ?');
       args.push(filter.workspaceId);
     }
+    const genExcluded = notInWorkspaces('g.workspace_id', filter.excludeWorkspaceIds ?? []);
+    if (genExcluded) where.push(genExcluded.slice(' AND '.length));
     if (filter.favorite !== undefined) where.push(filter.favorite ? 'g.favorite = 1' : 'g.favorite = 0');
     if (filter.pinned !== undefined) where.push(filter.pinned ? 'g.pinned_at IS NOT NULL' : 'g.pinned_at IS NULL');
     const sql = `${GEN_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY g.id DESC LIMIT ${limit}`;
@@ -259,6 +278,8 @@ function collectItems(db: DatabaseSync, filter: ItemFilter, limit: number): Item
       where.push('workspace_id = ?');
       args.push(filter.workspaceId);
     }
+    const impExcluded = notInWorkspaces('workspace_id', filter.excludeWorkspaceIds ?? []);
+    if (impExcluded) where.push(impExcluded.slice(' AND '.length));
     const sql = `SELECT * FROM imports ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ${limit}`;
     items.push(...(db.prepare(sql).all(...args) as unknown as ImpRow[]).map(impToItem));
   }

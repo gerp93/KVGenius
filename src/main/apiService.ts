@@ -18,9 +18,9 @@ import { AssemblyManager, AssemblySpec } from './assembly';
 import { FfmpegPaths, MediaInfo, EndBehavior, Transition, makePoster, probeMedia } from './mediaTools';
 import { PromptStyle, combinePrompt, extraWording, styleLabel } from '../shared/styles';
 import { findStyleByName, listStyles } from './styles';
-import { GroupBy, ItemKind, ItemOrigin, ItemView, getItem, groupItems, kindForExtension, listItems, parseItemId, upsertImport } from './library';
+import { GroupBy, importPathInWorkspaces, ItemKind, ItemOrigin, ItemView, getItem, groupItems, kindForExtension, listItems, parseItemId, upsertImport } from './library';
 import { setGenerationPinned } from './db';
-import { listWorkspaces } from './workspaces';
+import { DEFAULT_WORKSPACE_ID, listWorkspaces } from './workspaces';
 
 /** A problem with the request itself (or the machine's state), reported to the client as-is. */
 export class ApiError extends Error {
@@ -45,6 +45,9 @@ export interface ApiServiceDeps {
   /** The workspace the app is in. What a client makes goes there, and the styles it can name are that workspace's - unless the call names
    * another with its `workspace` argument. */
   workspaceId: () => number;
+  /** The user's opt-in (Settings > Integrations) for clients to see and use hidden workspaces. Absent or false: hidden workspaces do not exist
+   * as far as a client can tell - not listed, not nameable, never the default, and nothing in them is reachable by id. */
+  allowHiddenWorkspaces?: () => boolean;
   /** Favorites or un-favorites a generation the way the app does (its file moves into / out of the favorites folder). Returns the file's path afterwards. */
   setFavorite: (generationId: number, favorite: boolean) => string;
 }
@@ -155,20 +158,44 @@ export class ApiService {
   // app is not merely hidden from listings - it is indistinguishable from an id that does not exist.
 
   private item(id: string): ItemView | null {
-    return getItem(this.deps.db, id, { clientOnly: true });
+    return getItem(this.deps.db, id, { clientOnly: true, excludeWorkspaceIds: this.hiddenIds() });
   }
 
   private clientJob(id: number): JobInfo | null {
     const job = this.deps.queue.get(id);
-    return job && job.source === 'mcp' ? job : null;
+    return job && job.source === 'mcp' && !this.hiddenIds().includes(job.workspaceId) ? job : null;
   }
 
-  /** The workspace named by the call's optional `workspace` argument (case-insensitive; hidden ones included), or null when it names none.
-   * A name that matches nothing is an error that lists the workspaces there are - one is never created here. */
+  /** An assembly a client may see: not one in a hidden workspace (which looks the same as one that does not exist). */
+  private assemblyVisible(id: number): boolean {
+    const workspace = this.deps.assemblies.workspaceOf(id);
+    return workspace !== null && !this.hiddenIds().includes(workspace);
+  }
+
+  // Hidden workspaces (a workspace property the user sets for private content) are not visible to clients unless the user opted in: they are
+  // left out of every listing, cannot be named, are never the default, and their jobs, items and assemblies look like ids that do not exist.
+
+  /** Ids of the workspaces a client must not see: the hidden ones, or none when the user allowed them. */
+  private hiddenIds(): number[] {
+    if (this.deps.allowHiddenWorkspaces?.() === true) return [];
+    return listWorkspaces(this.deps.db, true)
+      .filter((w) => w.hidden)
+      .map((w) => w.id);
+  }
+
+  /** The workspaces a client may use or name, alphabetical. */
+  private visibleWorkspaces() {
+    const hidden = this.hiddenIds();
+    return listWorkspaces(this.deps.db, true).filter((w) => !hidden.includes(w.id));
+  }
+
+  /** The workspace named by the call's optional `workspace` argument (case-insensitive), or null when it names none.
+   * A hidden workspace counts as not existing (unless the user allowed clients into them), and the error does not list it. A name that matches
+   * nothing is an error that lists the workspaces there are - one is never created here. */
   private namedWorkspace(args: Args): { id: number; name: string } | null {
     const wanted = optString(args, 'workspace', 200)?.trim();
     if (wanted === undefined) return null;
-    const all = listWorkspaces(this.deps.db, true);
+    const all = this.visibleWorkspaces();
     const found = all.find((w) => w.name.toLowerCase() === wanted.toLowerCase());
     if (!found) {
       const names = all.map((w) => `"${w.name}"`);
@@ -180,9 +207,27 @@ export class ApiService {
     return { id: found.id, name: found.name };
   }
 
-  /** Where a call's work goes: the workspace it names, else the one the app is in. */
+  /** The workspace a call uses when it names none: the one the app is in - unless that one is hidden from clients, then the Default workspace
+   * if it is visible, else the oldest visible one. Null when clients have no workspace at all. */
+  private defaultWorkspace(): number | null {
+    const current = this.deps.workspaceId();
+    if (!this.hiddenIds().includes(current)) return current;
+    const visible = this.visibleWorkspaces().sort((a, b) => a.id - b.id);
+    return (visible.find((w) => w.id === DEFAULT_WORKSPACE_ID) ?? visible[0])?.id ?? null;
+  }
+
+  /** Where a call's work goes: the workspace it names, else the default one (see defaultWorkspace). */
   private workspaceFor(args: Args): number {
-    return this.namedWorkspace(args)?.id ?? this.deps.workspaceId();
+    const named = this.namedWorkspace(args);
+    if (named) return named.id;
+    const fallback = this.defaultWorkspace();
+    if (fallback === null) {
+      throw new ApiError(
+        'no_workspace',
+        'There is no workspace available to MCP clients. Create a workspace that is not hidden in the KVGenius app (the workspace grid), or allow clients to use hidden workspaces in Settings > Integrations.'
+      );
+    }
+    return fallback;
   }
 
   async callTool(name: string, rawArgs: unknown): Promise<ToolResult> {
@@ -233,17 +278,18 @@ export class ApiService {
   private async listCapabilities() {
     const [comfyReachable] = await Promise.all([this.deps.comfyAvailable()]);
     const ff = this.deps.ffmpeg();
-    const currentWorkspace = this.deps.workspaceId();
-    const workspaces = listWorkspaces(this.deps.db, true);
+    const currentWorkspace = this.defaultWorkspace();
+    const workspaces = this.visibleWorkspaces();
+    const showHidden = this.deps.allowHiddenWorkspaces?.() === true;
     return {
       comfyui_reachable: comfyReachable,
       comfyui_note: comfyReachable ? null : 'ComfyUI is not reachable. Generation jobs will fail until it is running (check the address in KVGenius Settings).',
       ffmpeg_available: ff !== null,
       ffmpeg_note: ff ? null : 'ffmpeg was not found: previews of videos, probe_media and assemble_video are unavailable. Set its location in KVGenius Settings.',
       workspaces: {
-        note: 'Every tool that makes or lists work takes an optional `workspace` (a name from this list, case-insensitive). Without it, work goes to the workspace the app is in. An unknown name is an error - workspaces are only created in the app.',
+        note: `Every tool that makes or lists work takes an optional \`workspace\` (a name from this list, case-insensitive). Without it, work goes to the workspace named in \`current\`. An unknown name is an error - workspaces are only created in the app. ${showHidden ? 'Hidden workspaces are included because the user allowed it in Settings.' : 'Only the workspaces listed here are available to you.'}`,
         current: workspaces.find((w) => w.id === currentWorkspace)?.name ?? null,
-        available: workspaces.map((w) => ({ name: w.name, hidden: w.hidden })),
+        available: workspaces.map((w) => (showHidden ? { name: w.name, hidden: w.hidden } : { name: w.name })),
       },
       families: [
         {
@@ -357,7 +403,10 @@ export class ApiService {
     const truncated = files.length > MAX_IMPORT_FILES;
     const ff = this.deps.ffmpeg();
     const items: ItemView[] = [];
+    const hidden = this.hiddenIds();
     for (const file of files.slice(0, MAX_IMPORT_FILES)) {
+      // A path already imported into a hidden workspace belongs to it (an import's path is unique), and it is not the client's to see or regroup.
+      if (importPathInWorkspaces(this.deps.db, file, hidden)) continue;
       const kind = kindForExtension(file) as ItemKind;
       let width: number | null = null;
       let height: number | null = null;
@@ -591,8 +640,9 @@ export class ApiService {
       batch: optBatch(args),
       status: optEnum<JobStatus>(args, 'status', ['queued', 'running', 'done', 'failed', 'cancelled', 'interrupted']),
       limit: optNumber(args, 'limit', 1, 500, true),
-      // Only narrowed when a workspace is named: with none, jobs from every workspace are listed, as before.
+      // Only narrowed when a workspace is named: with none, jobs from every workspace are listed - except hidden ones (see hiddenIds).
       workspaceId: this.namedWorkspace(args)?.id,
+      excludeWorkspaceIds: this.hiddenIds(),
     };
     const jobs = this.deps.queue.list(filter);
     const counts: Record<string, number> = {};
@@ -622,10 +672,10 @@ export class ApiService {
       return { cancelled, job: this.jobView(this.clientJob(jobId) as JobInfo) };
     }
     if (assemblyId !== undefined) {
-      if (!this.deps.assemblies.get(assemblyId)) throw new ApiError('not_found', `No assembly ${assemblyId}.`);
+      if (!this.assemblyVisible(assemblyId)) throw new ApiError('not_found', `No assembly ${assemblyId}.`);
       return { cancelled: this.deps.assemblies.cancel(assemblyId) };
     }
-    return { cancelled_waiting_jobs: this.deps.queue.cancelQueued(batch, 'mcp'), note: 'Only jobs still waiting were cancelled; a running job is cancelled with its job_id.' };
+    return { cancelled_waiting_jobs: this.deps.queue.cancelQueued(batch, 'mcp', this.hiddenIds()), note: 'Only jobs still waiting were cancelled; a running job is cancelled with its job_id.' };
   }
 
   // -- library -----------------------------------------------------------------------------------
@@ -645,8 +695,9 @@ export class ApiService {
       batch: optBatch(args),
       limit: optNumber(args, 'limit', 1, 200, true),
       clientOnly: true,
-      // Only narrowed when a workspace is named: with none, items from every workspace are listed, as before.
+      // Only narrowed when a workspace is named: with none, items from every workspace are listed - except hidden ones (see hiddenIds).
       workspaceId: this.namedWorkspace(args)?.id,
+      excludeWorkspaceIds: this.hiddenIds(),
       favorite: args.favorite === undefined || args.favorite === null ? undefined : optBool(args, 'favorite', false),
       pinned: args.pinned === undefined || args.pinned === null ? undefined : optBool(args, 'pinned', false),
     };
@@ -799,7 +850,7 @@ export class ApiService {
   private async getAssembly(args: Args) {
     const id = optNumber(args, 'assembly_id', 1, Number.MAX_SAFE_INTEGER, true);
     if (id === undefined) fail('"assembly_id" is required.');
-    if (!this.deps.assemblies.get(id)) throw new ApiError('not_found', `No assembly ${id}.`);
+    if (!this.assemblyVisible(id)) throw new ApiError('not_found', `No assembly ${id}.`);
     const wait = (optNumber(args, 'wait_seconds', 0, MAX_WAIT_SECONDS) ?? 0) * 1000;
     return this.deps.assemblies.wait(id, wait);
   }

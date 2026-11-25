@@ -317,6 +317,8 @@ export type ComfyUILaunchResult =
 export interface McpInfo {
   enabled: boolean;
   running: boolean;
+  /** Whether MCP clients may see and use hidden workspaces (off by default). */
+  hiddenWorkspaces: boolean;
   port: number | null;
   /** Ready-to-paste `mcpServers` entry for an MCP client's config (e.g. Claude Desktop). */
   configSnippet: string;
@@ -570,6 +572,7 @@ export interface KVGeniusAPI {
   getMcpInfo: () => Promise<McpInfo>;
   /** Turns the local control API on or off (off by default). */
   setMcpEnabled: (enabled: boolean) => Promise<McpInfo>;
+  setMcpHiddenWorkspaces: (allowed: boolean) => Promise<McpInfo>;
   /** Asks for an ffmpeg binary; resolves the new state, or null if the dialog was cancelled. */
   chooseFfmpegPath: () => Promise<McpInfo | null>;
   resetFfmpegPath: () => Promise<McpInfo>;

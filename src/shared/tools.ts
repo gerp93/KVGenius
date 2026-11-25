@@ -20,7 +20,7 @@ const batchProp = {
 
 const workspaceProp = (what: string) => ({
   type: 'string',
-  description: `Optional. The name of a KVGenius workspace (case-insensitive; hidden ones too). ${what} Without it the workspace the app is currently in is used. An unknown name is an error that lists the existing workspaces - one is never created here; make it in the app's workspace grid first.`,
+  description: `Optional. The name of a KVGenius workspace from list_capabilities (case-insensitive). ${what} Without it the workspace shown as "current" there is used. An unknown name is an error that lists the existing workspaces - one is never created here; make it in the app's workspace grid first.`,
 });
 
 const itemIdProp = (what: string) => ({
@@ -155,7 +155,7 @@ export const TOOLS: ToolDefinition[] = [
         batch: batchProp,
         status: { type: 'string', enum: ['queued', 'running', 'done', 'failed', 'cancelled', 'interrupted'] },
         limit: { type: 'integer', description: 'Default 100, max 500.' },
-        workspace: workspaceProp('Only jobs whose result goes to that workspace (without it, jobs from every workspace are listed).'),
+        workspace: workspaceProp('Only jobs whose result goes to that workspace (without it, jobs from every workspace you can use are listed).'),
       },
     },
   },
@@ -204,7 +204,7 @@ export const TOOLS: ToolDefinition[] = [
             'Instead of items, return groups: "prompt" collects generated items with exactly the same prompt (the candidates for one page, say), "batch" collects by batch label. Each group has its count, how many are favorites / pinned, a `cover` item (the pinned one, else a favorite, else the newest), and `item_ids` (newest first, up to 200). The other filters apply to items first. `limit` then counts groups.',
         },
         limit: { type: 'integer', description: 'Default 50, max 200 (items, or groups with group_by).' },
-        workspace: workspaceProp('Only items in that workspace (without it, items from every workspace are listed).'),
+        workspace: workspaceProp('Only items in that workspace (without it, items from every workspace you can use are listed).'),
       },
     },
   },

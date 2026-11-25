@@ -91,6 +91,8 @@ export function listJobs(db: DatabaseSync, filter: JobFilter = {}): JobInfo[] {
     where.push('workspace_id = ?');
     args.push(filter.workspaceId);
   }
+  const excluded = (filter.excludeWorkspaceIds ?? []).filter((n) => Number.isInteger(n));
+  if (excluded.length > 0) where.push(`workspace_id NOT IN (${excluded.join(',')})`);
   if (filter.source !== undefined) {
     where.push('source = ?');
     args.push(filter.source);
