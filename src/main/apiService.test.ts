@@ -66,7 +66,7 @@ test('unknown tools and non-object arguments are rejected', async () => {
 test('list_capabilities describes every family', async () => {
   const caps = await call('list_capabilities');
   assert.equal(caps.comfyui_reachable, true);
-  assert.deepEqual(caps.families.map((f: any) => f.family), ['z-image', 'qwen-image', 'flux-dev', 'hidream', 'ovis-image', 'wan22-i2v', 'wan22-t2v']);
+  assert.deepEqual(caps.families.map((f: any) => f.family), ['z-image', 'qwen-image', 'flux-dev', 'hidream', 'ovis-image', 'chroma', 'wan22-i2v', 'wan22-t2v']);
   const flux = caps.families.find((f: any) => f.family === 'flux-dev');
   assert.equal(flux.tool, 'generate_image');
   assert.equal(flux.fields.steps.default, 20);
@@ -171,10 +171,10 @@ test('generate_image without a model, or with the built-in one, sends the templa
 test('an unknown model is refused with the saved names, and list_models shows what there is', async () => {
   await assert.rejects(() => call('generate_image', { prompt: 'a red fox', model: 'Nope' }), /No model named "Nope".*"Photoreal"/);
   const listed = await call('list_models', {});
-  assert.deepEqual(listed.models.map((m: { name: string }) => m.name), ['Z Image Turbo', 'Qwen-Image', 'Flux.1 dev', 'HiDream I1 Full', 'Ovis-Image', 'Wan 2.2 image to video', 'Wan 2.2 text to video', 'Photoreal']);
+  assert.deepEqual(listed.models.map((m: { name: string }) => m.name), ['Z Image Turbo', 'Qwen-Image', 'Flux.1 dev', 'HiDream I1 Full', 'Ovis-Image', 'Chroma1-HD', 'Wan 2.2 image to video', 'Wan 2.2 text to video', 'Photoreal']);
   assert.equal(listed.models[0].built_in, true);
   assert.equal(listed.models[2].tool, 'generate_image');
-  assert.equal(listed.models[5].tool, 'generate_video');
+  assert.equal(listed.models[6].tool, 'generate_video');
 });
 
 test('the newer image families: built-in runs use the family\'s own steps and cfg, text to image only, and a named model picks its family', async () => {

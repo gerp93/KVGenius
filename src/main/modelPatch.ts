@@ -52,6 +52,11 @@ export const SLOT_NODES: Record<string, Record<string, { node: string; input: st
     textEncoder: { node: '3', input: 'clip_name' },
     vae: { node: '4', input: 'vae_name' },
   },
+  chroma: {
+    diffusionModel: { node: '2', input: 'unet_name' },
+    textEncoder: { node: '3', input: 'clip_name' },
+    vae: { node: '4', input: 'vae_name' },
+  },
 };
 
 /** The sampler nodes a profile sets (KSampler's sampler_name / scheduler, and the shift node's shift - absent when the graph has none). */
@@ -61,6 +66,7 @@ export const SAMPLER_NODES: Record<string, { sampler: string; shift?: string }> 
   'flux-dev': { sampler: '10' },
   hidream: { sampler: '10', shift: '5' },
   'ovis-image': { sampler: '10', shift: '5' },
+  chroma: { sampler: '10', shift: '5' },
 };
 
 function nodeInputs(workflow: Workflow, node: string): Record<string, unknown> {

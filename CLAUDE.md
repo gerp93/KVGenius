@@ -35,6 +35,10 @@ implementation here is exactly the kind of drift it exists to prevent.
   primitives it selects between, including the CFG=1 feeding the second
   KSampler pass, are left as the template author set them - matching the
   curated-field philosophy below.
+- `chroma` (Chroma1-HD, derived from Flux Schnell, unfiltered; Apache 2.0) uses the same shared layout plus a negative prompt (7, shipped in the
+  template) and a `T5TokenizerOptions` node (12) between its T5-only `CLIPLoader` (type `chroma`) and both prompts; sampler is a plain KSampler with a real
+  CFG (3.5, beta, 26 steps, flow shift 1 - what ComfyUI's bundled Chroma workflow does with `SamplerCustomAdvanced` + `CFGGuider`). Flux LoRAs are not applied
+  to it (`LORA_FAMILIES` is `flux-dev` only). Never run against a real ComfyUI from the build environment.
 - The text-to-image families other than Z-Image (`qwen-image`, `flux-dev`, `hidream`, `ovis-image`) share one node-id
   layout in their templates (2 model, 3 text encoder(s), 4 VAE, 6 prompt, 9 latent, 10 KSampler, 5 shift where there is
   one) - `textToImagePatch.ts` and `modelPatch.ts` hold the maps, and `modelPatch.test.ts` / `textToImagePatch.test.ts`

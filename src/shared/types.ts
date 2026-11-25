@@ -261,6 +261,7 @@ export const FAMILY_KIND: Record<string, 'image' | 'video'> = {
   'flux-dev': 'image',
   hidream: 'image',
   'ovis-image': 'image',
+  chroma: 'image',
   'z-image-i2i': 'image',
   'z-image-inpaint': 'image',
   'z-image-outpaint': 'image',

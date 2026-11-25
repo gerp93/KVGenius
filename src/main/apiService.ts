@@ -59,6 +59,7 @@ const FAMILIES: Record<string, { kind: 'image' | 'video'; description: string }>
   'flux-dev': { kind: 'image', description: 'Text-to-image (Flux.1 dev): high detail and prompt following. Slower than z-image.' },
   hidream: { kind: 'image', description: 'Text-to-image (HiDream I1 Full): a large model with four text encoders. The slowest image family.' },
   'ovis-image': { kind: 'image', description: 'Text-to-image (Ovis-Image): good at rendering text in the picture.' },
+  chroma: { kind: 'image', description: 'Text-to-image (Chroma1-HD): a community model derived from Flux Schnell, trained to be unfiltered. Slower than z-image; Flux LoRAs are not applied to it.' },
   'wan22-i2v': { kind: 'video', description: 'Image-to-video (Wan 2.2): animates a source image into a short clip at 16 fps.' },
   'wan22-t2v': { kind: 'video', description: 'Text-to-video (Wan 2.2): a short clip at 16 fps from a prompt alone.' },
 };

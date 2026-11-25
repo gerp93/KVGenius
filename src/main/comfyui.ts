@@ -11,6 +11,7 @@ import qwenImageTemplate from './templates/qwen-image.json';
 import fluxDevTemplate from './templates/flux-dev.json';
 import hiDreamTemplate from './templates/hidream.json';
 import ovisImageTemplate from './templates/ovis-image.json';
+import chromaTemplate from './templates/chroma.json';
 import wan22I2vTemplate from './templates/wan22-i2v.json';
 import wan22T2vTemplate from './templates/wan22-t2v.json';
 import wan22V2vTemplate from './templates/wan22-v2v.json';
@@ -48,6 +49,7 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
   'flux-dev': fluxDevTemplate,
   hidream: hiDreamTemplate,
   'ovis-image': ovisImageTemplate,
+  chroma: chromaTemplate,
   [I2I_FAMILY]: zImageI2iTemplate,
   [INPAINT_FAMILY]: zImageInpaintTemplate,
   [OUTPAINT_FAMILY]: zImageOutpaintTemplate,

@@ -63,7 +63,7 @@ test('the chosen elements bring their LoRAs in the order picked, for a family th
 });
 
 test('with a family that cannot load LoRAs they are left out with a note, never an error', () => {
-  for (const family of ['z-image', 'qwen-image', 'hidream', 'ovis-image', 'z-image-i2i']) {
+  for (const family of ['z-image', 'qwen-image', 'hidream', 'ovis-image', 'chroma', 'z-image-i2i']) {
     const { applied, notes } = resolveLoras([el('Twi\'lek', twilek)], family);
     assert.deepEqual(applied, [], family);
     assert.equal(notes.length, 1, family);
