@@ -53,6 +53,8 @@ export interface GenerationParams {
   /** Image families that can load one (see shared/loras.ts): LoRA files to chain onto the model, in order, resolved from the chosen elements
    * at submit time - so the job and the Library record hold exactly what runs. Absent or empty means none. */
   loras?: LoraSpec[];
+  /** Families that use a negative prompt only (see shared/negativePrompt.ts): the exact text to avoid, '' for nothing. Absent means the template's own default. */
+  negativePrompt?: string;
 }
 
 export interface GenerationRecord {

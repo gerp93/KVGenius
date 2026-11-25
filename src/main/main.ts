@@ -963,6 +963,7 @@ function registerIpcHandlers(): void {
       sourceImagePath: params.sourceImagePath ?? null,
       modelSettings: params.modelSettings ?? null,
       loras: params.loras ?? null,
+      negativePrompt: typeof params.negativePrompt === 'string' ? params.negativePrompt : null,
       denoise: params.denoise ?? null,
       maskImagePath: params.maskImagePath ?? null,
       outpaint: params.outpaint ?? null,

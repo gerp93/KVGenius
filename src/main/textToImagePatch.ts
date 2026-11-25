@@ -1,4 +1,5 @@
 import type { GenerationParams } from '../shared/types';
+import { NEGATIVE_PROMPT_NODE, usesNegativePrompt } from '../shared/negativePrompt';
 
 type Workflow = Record<string, { inputs: Record<string, unknown> } | undefined>;
 
@@ -36,6 +37,11 @@ function inputsOf(workflow: Workflow, node: string): Record<string, unknown> {
 export function fillTextToImage(workflow: Workflow, family: string, params: GenerationParams): void {
   const nodes = NODE_MAP_FOR[family] ?? Z_IMAGE_TURBO_NODE_MAP;
   inputsOf(workflow, nodes.prompt).text = params.prompt;
+
+  // A negative prompt only exists in the families that use one (and only when the user changed it): the template's own stays otherwise.
+  if (params.negativePrompt !== undefined && usesNegativePrompt(family)) {
+    inputsOf(workflow, NEGATIVE_PROMPT_NODE).text = params.negativePrompt;
+  }
 
   const sampler = inputsOf(workflow, nodes.sampler);
   sampler.seed = params.seed;

@@ -495,6 +495,12 @@ export default function LibraryDetails({
             <dd title="Loaded in this order, each at the strength shown">{record.loras.map(describeLora).join(', ')}</dd>
           </>
         )}
+        {record.negativePrompt !== null && (
+          <>
+            <dt>Negative prompt</dt>
+            <dd title="What this picture was told to avoid">{record.negativePrompt === '' ? 'None' : record.negativePrompt}</dd>
+          </>
+        )}
         {record.styleName && (
           <>
             <dt>Style</dt>

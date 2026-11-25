@@ -54,6 +54,7 @@ export function usePromptSlots(workspaceId: number) {
   const [maskPath, setMaskPath] = useState<string | null>(null);
   const [outpaint, setOutpaint] = useState<OutpaintPadding | null>(null);
   const [faceFamily, setFaceFamily] = useState<string | null>(null);
+  const [negativePrompt, setNegativePrompt] = useState<string | null>(null);
   const [lastRunSignature, setLastRunSignature] = useState<string | null>(null);
 
   function applySnapshot(data: PromptSlotData) {
@@ -88,6 +89,7 @@ export function usePromptSlots(workspaceId: number) {
     setMaskPath(data.maskImagePath ?? null);
     setOutpaint(normalizeOutpaint(data.outpaint));
     setFaceFamily(data.faceFamily && isFaceReferenceFamily(data.faceFamily) ? data.faceFamily : null);
+    setNegativePrompt(data.negativePrompt ?? null);
     setLastRunSignature(data.lastRunSignature ?? null);
   }
 
@@ -152,6 +154,7 @@ export function usePromptSlots(workspaceId: number) {
       maskImagePath: maskPath,
       outpaint,
       faceFamily,
+      negativePrompt,
       lastRunSignature,
     };
   }
@@ -204,6 +207,7 @@ export function usePromptSlots(workspaceId: number) {
     maskPath,
     outpaint,
     faceFamily,
+    negativePrompt,
     lastRunSignature,
   ]);
 
@@ -357,6 +361,8 @@ export function usePromptSlots(workspaceId: number) {
     setOutpaint,
     faceFamily,
     setFaceFamily,
+    negativePrompt,
+    setNegativePrompt,
     lastRunSignature,
     setLastRunSignature,
   };

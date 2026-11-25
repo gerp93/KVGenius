@@ -16,6 +16,7 @@ import { useTemplatedPrompt } from '../hooks/useTemplatedPrompt';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import type { PromptTabsModel } from '../utils/promptTabs';
 import { describeLora, resolveLoras, serializeLoras } from '../../shared/loras';
+import { defaultNegativePrompt, negativePromptForJob, usesNegativePrompt } from '../../shared/negativePrompt';
 import { LOCAL_STYLES_LABEL, PromptStyle, SHARED_STYLES_LABEL, combinePrompt, extraWording, splitByScope, splitStyledPrompt, styleLabel } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { PROFILE_FAMILIES, SAMPLER_LIMITS, profileFamily, profileFamilyKey } from '../../shared/modelFamilies';
@@ -217,6 +218,8 @@ export default function Generate({
     setOutpaint,
     faceFamily,
     setFaceFamily,
+    negativePrompt,
+    setNegativePrompt,
     lastRunSignature,
     setLastRunSignature,
   } = slotState;
@@ -392,6 +395,11 @@ export default function Generate({
   const loraUse = resolveLoras(activeElements, runFamily);
   const loras = loraUse.applied;
   const lorasKey = serializeLoras(loras);
+  // Only the families that run a real CFG take a negative prompt; the field shows the family's default until it is edited, and what is sent is
+  // absent (the template's own) unless the text differs from that default.
+  const usesNegative = mode === 'image' && usesNegativePrompt(runFamily);
+  const negativeText = negativePrompt ?? defaultNegativePrompt(runFamily);
+  const jobNegative = mode === 'image' ? negativePromptForJob(runFamily, negativePrompt) : undefined;
   // The family whose saved models apply (image to image and inpainting share text to image's).
   const modelBase = mode === 'image' ? imageBase : profileFamilyKey(runFamily);
   const modelFamily = profileFamily(modelBase);
@@ -405,6 +413,8 @@ export default function Generate({
    * model only swaps files: its quality comes from the Fast / High choice. */
   function handleModelChange(id: number | null, builtInFamily: string | null = null) {
     setProfileId(id);
+    // A negative prompt typed for one model is not carried to another: each family starts from its own default.
+    setNegativePrompt(null);
     if (mode !== 'image') return;
     const picked = id === null ? undefined : models.find((m) => m.id === id);
     const family = picked?.family ?? builtInFamily ?? FAMILY_FOR_MODE.image;
@@ -429,7 +439,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [runFamily, steps, cfg, serializeModelSettings(modelSettings), lorasKey, startPicture, startPicture ? denoise : null, startMask, padKey, faceReference] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, restyleVideo, restyleVideo ? videoStrength : null, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [runFamily, steps, cfg, serializeModelSettings(modelSettings), lorasKey, jobNegative ?? null, startPicture, startPicture ? denoise : null, startMask, padKey, faceReference] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, restyleVideo, restyleVideo ? videoStrength : null, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -469,6 +479,7 @@ export default function Generate({
           ...(faceReference ? { sourceImagePath: faceReference } : {}),
           ...(modelSettings ? { modelSettings } : {}),
           ...(loras.length > 0 ? { loras } : {}),
+          ...(jobNegative !== undefined ? { negativePrompt: jobNegative } : {}),
         })
         .then((found) => {
           if (!cancelled) setDuplicate(found);
@@ -481,7 +492,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, restyleVideo, videoStrength, startPicture, faceReference, startMask, denoise, padKey, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, needsRestyleVideo, needsPadSize, modelSettings && serializeModelSettings(modelSettings), lorasKey]);
+  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, restyleVideo, videoStrength, startPicture, faceReference, startMask, denoise, padKey, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, needsRestyleVideo, needsPadSize, modelSettings && serializeModelSettings(modelSettings), lorasKey, jobNegative]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -706,6 +717,7 @@ export default function Generate({
       const recalledMode: Mode = FAMILY_KIND[record.modelFamily] === 'video' ? 'video' : 'image';
       setMode(recalledMode);
       restoreStyledPrompt(record, recalledMode === 'image');
+      setNegativePrompt(recalledMode === 'image' ? record.negativePrompt : null);
       // The model it was made with: picked again if a saved model still means exactly that, otherwise the built-in
       // model is picked and the user is told, so a re-run never quietly uses different files.
       // A built-in run of one of the newer families is picked again by its family.
@@ -787,6 +799,7 @@ export default function Generate({
     // A prompt from Library > Prompts already has any style's words in it (see applyRecord).
     setStyleId(null);
     setElementIds([]);
+    setNegativePrompt(null);
     setPrompt(text);
   }
 
@@ -881,6 +894,7 @@ export default function Generate({
       ...(styleLabel(activeElements, activeStyle) ? { styleName: styleLabel(activeElements, activeStyle) as string } : {}),
       ...(activeModel && modelSettings ? { modelName: activeModel.name, modelSettings } : {}),
       ...(loras.length > 0 ? { loras } : {}),
+      ...(jobNegative !== undefined ? { negativePrompt: jobNegative } : {}),
       width,
       height,
       steps: runSteps,
@@ -1296,6 +1310,29 @@ export default function Generate({
               boxStyle={{ flex: 1, minHeight: 220 }}
               style={{ flex: 1, minHeight: 220, resize: 'none' }}
             />
+          )}
+
+          {usesNegative && (
+            <div style={{ marginTop: 12 }}>
+              <div className="styles-page__field-head">
+                <label className="field-label" htmlFor="negative-prompt">
+                  Negative prompt (what to avoid)
+                </label>
+                {negativePrompt !== null && negativePrompt !== defaultNegativePrompt(runFamily) && (
+                  <button type="button" className="field-hint-link" onClick={() => setNegativePrompt(null)}>
+                    Use the default
+                  </button>
+                )}
+              </div>
+              <FindableTextarea
+                id="negative-prompt"
+                value={negativeText}
+                onChange={(value) => setNegativePrompt(value)}
+                placeholder="Things the picture should not have"
+                rows={3}
+              />
+              <p className="lora-hint">This model uses a negative prompt. Describe what you want in the prompt above, and put only what you do not want here.</p>
+            </div>
           )}
 
           {mode === 'image' && (

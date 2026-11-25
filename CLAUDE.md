@@ -39,6 +39,11 @@ implementation here is exactly the kind of drift it exists to prevent.
   template) and a `T5TokenizerOptions` node (12) between its T5-only `CLIPLoader` (type `chroma`) and both prompts; sampler is a plain KSampler with a real
   CFG (3.5, beta, 26 steps, flow shift 1 - what ComfyUI's bundled Chroma workflow does with `SamplerCustomAdvanced` + `CFGGuider`). Flux LoRAs are not applied
   to it (`LORA_FAMILIES` is `flux-dev` only). Never run against a real ComfyUI from the build environment.
+- **Negative prompts exist only where the sampler uses one** (`shared/negativePrompt.ts`): qwen-image, hidream, ovis-image and chroma (a real CFG; node `7` is
+  a `CLIPTextEncode` in each template). Z-Image (CFG 1) and Flux dev (guidance-distilled) zero their negative out, so Generate shows no field for them.
+  `GenerationParams.negativePrompt` is absent for "the template's own" (the field shows `DEFAULT_NEGATIVE_PROMPTS`, which a test pins to the templates;
+  `negativePromptForJob` drops text equal to the default) or the exact text, '' included. It is kept in `generations.negative_prompt` (NULL = default), in the
+  duplicate guard, per Generate tab (`negativePrompt`, null = default) and restored by Re-rack; changing the model resets it. Not available over MCP.
 - The text-to-image families other than Z-Image (`qwen-image`, `flux-dev`, `hidream`, `ovis-image`) share one node-id
   layout in their templates (2 model, 3 text encoder(s), 4 VAE, 6 prompt, 9 latent, 10 KSampler, 5 shift where there is
   one) - `textToImagePatch.ts` and `modelPatch.ts` hold the maps, and `modelPatch.test.ts` / `textToImagePatch.test.ts`
