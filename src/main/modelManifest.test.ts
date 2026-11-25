@@ -6,6 +6,7 @@ import qwenTemplate from './templates/qwen-image.json';
 import fluxTemplate from './templates/flux-dev.json';
 import hiDreamTemplate from './templates/hidream.json';
 import ovisTemplate from './templates/ovis-image.json';
+import chromaTemplate from './templates/chroma.json';
 import wanTemplate from './templates/wan22-i2v.json';
 import wanTextTemplate from './templates/wan22-t2v.json';
 import faceKleinTemplate from './templates/face-klein.json';
@@ -52,6 +53,7 @@ for (const [family, template] of [
   ['flux-dev', fluxTemplate],
   ['hidream', hiDreamTemplate],
   ['ovis-image', ovisTemplate],
+  ['chroma', chromaTemplate],
 ] as const) {
   test(`the manifest lists exactly the files the ${family} template loads`, () => {
     assert.deepEqual(manifestFiles(family), allTemplateFiles(template as Template));

@@ -23,6 +23,7 @@ const NODE_MAP_FOR: Record<string, { prompt: string; sampler: string; latent: st
   'flux-dev': TEXT_TO_IMAGE_NODE_MAP,
   hidream: TEXT_TO_IMAGE_NODE_MAP,
   'ovis-image': TEXT_TO_IMAGE_NODE_MAP,
+  chroma: TEXT_TO_IMAGE_NODE_MAP,
 };
 
 function inputsOf(workflow: Workflow, node: string): Record<string, unknown> {

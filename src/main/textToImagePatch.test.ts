@@ -8,6 +8,7 @@ import qwen from './templates/qwen-image.json';
 import flux from './templates/flux-dev.json';
 import hiDream from './templates/hidream.json';
 import ovis from './templates/ovis-image.json';
+import chroma from './templates/chroma.json';
 
 type Template = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 const templates: Record<string, Template> = {
@@ -16,6 +17,7 @@ const templates: Record<string, Template> = {
   'flux-dev': flux as unknown as Template,
   hidream: hiDream as unknown as Template,
   'ovis-image': ovis as unknown as Template,
+  chroma: chroma as unknown as Template,
 };
 const params: GenerationParams = { prompt: 'a red fox', width: 832, height: 1216, seed: 7, steps: 12, cfg: 2.5 };
 const filled = (family: string): Template => {
@@ -38,7 +40,7 @@ test('every image family gets its prompt, seed, steps and size in the right node
 });
 
 test('CFG is the sampler CFG, except for Flux where it is the FluxGuidance value and the sampler stays at 1', () => {
-  for (const family of ['z-image', 'qwen-image', 'hidream', 'ovis-image']) {
+  for (const family of ['z-image', 'qwen-image', 'hidream', 'ovis-image', 'chroma']) {
     const sampler = Object.values(filled(family)).find((n) => n.class_type === 'KSampler')!;
     assert.equal(sampler.inputs.cfg, 2.5, family);
   }

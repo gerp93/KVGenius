@@ -11,12 +11,13 @@ import qwenTemplate from './templates/qwen-image.json';
 import fluxTemplate from './templates/flux-dev.json';
 import hiDreamTemplate from './templates/hidream.json';
 import ovisTemplate from './templates/ovis-image.json';
+import chromaTemplate from './templates/chroma.json';
 import wanTemplate from './templates/wan22-i2v.json';
 import wanTextTemplate from './templates/wan22-t2v.json';
 import wanVideoTemplate from './templates/wan22-v2v.json';
 
 type Template = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
-const templates: Record<string, Template> = { 'z-image': zImageTemplate as unknown as Template, 'qwen-image': qwenTemplate as unknown as Template, 'flux-dev': fluxTemplate as unknown as Template, hidream: hiDreamTemplate as unknown as Template, 'ovis-image': ovisTemplate as unknown as Template, 'z-image-i2i': i2iTemplate as unknown as Template, 'z-image-inpaint': inpaintTemplate as unknown as Template, 'z-image-outpaint': outpaintTemplate as unknown as Template, 'wan22-i2v': wanTemplate as unknown as Template, 'wan22-t2v': wanTextTemplate as unknown as Template, 'wan22-v2v': wanVideoTemplate as unknown as Template };
+const templates: Record<string, Template> = { 'z-image': zImageTemplate as unknown as Template, 'qwen-image': qwenTemplate as unknown as Template, 'flux-dev': fluxTemplate as unknown as Template, hidream: hiDreamTemplate as unknown as Template, 'ovis-image': ovisTemplate as unknown as Template, chroma: chromaTemplate as unknown as Template, 'z-image-i2i': i2iTemplate as unknown as Template, 'z-image-inpaint': inpaintTemplate as unknown as Template, 'z-image-outpaint': outpaintTemplate as unknown as Template, 'wan22-i2v': wanTemplate as unknown as Template, 'wan22-t2v': wanTextTemplate as unknown as Template, 'wan22-v2v': wanVideoTemplate as unknown as Template };
 
 test('every profile slot is wired to a template node whose current file is the slot default - in every template that uses the family', () => {
   for (const [templateFamily, template] of Object.entries(templates)) {

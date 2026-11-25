@@ -128,6 +128,20 @@ export const OVIS_IMAGE_FAMILY = {
   sampler: { steps: 20, cfg: 5, sampler: 'euler', scheduler: 'simple', shift: 3 },
 } satisfies ProfileFamily;
 
+/** Chroma1-HD: an 8.9B model derived from Flux Schnell, trained to be unfiltered. T5 only (no CLIP-L), and a real CFG with a negative prompt. */
+export const CHROMA_FAMILY = {
+  family: 'chroma',
+  label: 'Chroma1-HD (text to image)',
+  builtInName: 'Chroma1-HD',
+  slots: [
+    { key: 'diffusionModel', label: 'Image model', folder: 'diffusion_models', defaultFile: 'Chroma1-HD-fp8mixed.safetensors' },
+    { key: 'textEncoder', label: 'T5 text encoder', folder: 'text_encoders', defaultFile: 't5xxl_fp8_e4m3fn_scaled.safetensors' },
+    { key: 'vae', label: 'VAE', folder: 'vae', defaultFile: 'ae.safetensors' },
+  ],
+  // ComfyUI's own Chroma workflow: 26 steps at CFG 3.5, beta scheduler, flow shift 1 (the creator's intended value).
+  sampler: { steps: 26, cfg: 3.5, sampler: 'euler', scheduler: 'beta', shift: 1 },
+} satisfies ProfileFamily;
+
 /** What a profile of a family with no app-driven sampler stores in its (never used) sampler columns. */
 export const NO_SAMPLER: SamplerDefaults = { steps: 1, cfg: 0, sampler: '', scheduler: '', shift: 0 };
 
@@ -147,6 +161,7 @@ export const PROFILE_FAMILIES: ProfileFamily[] = [
   FLUX_DEV_FAMILY,
   HIDREAM_FAMILY,
   OVIS_IMAGE_FAMILY,
+  CHROMA_FAMILY,
   WAN_FAMILY,
   WAN_T2V_FAMILY,
 ];

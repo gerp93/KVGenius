@@ -23,7 +23,7 @@ const FULL_MODEL_CFG = 4;
  * Families whose own defaults are those of the full model (the settings of ComfyUI's workflow for it), not of a distilled one - the
  * opposite of Z-Image, whose built-in is Turbo. A file named like a distilled model gets a few steps instead.
  */
-const FULL_DEFAULT_FAMILIES = new Set(['qwen-image', 'flux-dev', 'hidream', 'ovis-image']);
+const FULL_DEFAULT_FAMILIES = new Set(['qwen-image', 'flux-dev', 'hidream', 'ovis-image', 'chroma']);
 
 /** A few steps and little guidance: where a distilled model of a full-default family starts (Lightning LoRAs for Qwen-Image are 4 or 8 steps). */
 const DISTILLED_STEPS = 8;

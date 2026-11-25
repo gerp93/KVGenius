@@ -45,6 +45,7 @@ const WAN_REPO = 'Comfy-Org/Wan_2.2_ComfyUI_Repackaged';
 const QWEN_IMAGE_REPO = 'Comfy-Org/Qwen-Image_ComfyUI';
 const HIDREAM_REPO = 'Comfy-Org/HiDream-I1_ComfyUI';
 const OVIS_REPO = 'Comfy-Org/Ovis-Image';
+const CHROMA_REPO = 'Comfy-Org/Chroma1-HD_repackaged';
 
 export interface ManifestFeature {
   id: string;
@@ -128,6 +129,19 @@ export const MODEL_MANIFEST: ManifestFeature[] = [
     ],
     source: { label: 'Ovis-Image files (Hugging Face)', url: 'https://huggingface.co/Comfy-Org/Ovis-Image' },
     note: 'The VAE is the same file Z Image uses.',
+  },
+  {
+    id: 'chroma',
+    title: 'Images (Chroma1-HD)',
+    summary: 'Text to image. A community model derived from Flux Schnell and trained to be unfiltered; uses a negative prompt.',
+    family: 'chroma',
+    files: [
+      { file: 'Chroma1-HD-fp8mixed.safetensors', folder: 'diffusion_models', role: 'Image model', url: hf(CHROMA_REPO, 'diffusion_models', 'Chroma1-HD-fp8mixed.safetensors') },
+      { file: 't5xxl_fp8_e4m3fn_scaled.safetensors', folder: 'text_encoders', role: 'T5 text encoder', url: 'https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn_scaled.safetensors' },
+      { file: 'ae.safetensors', folder: 'vae', role: 'VAE', url: hf(Z_IMAGE_REPO, 'vae', 'ae.safetensors') },
+    ],
+    source: { label: 'Chroma1-HD files (Hugging Face)', url: 'https://huggingface.co/Comfy-Org/Chroma1-HD_repackaged' },
+    note: 'The T5 encoder and VAE are the same files other families use. Apache 2.0 licence. Flux LoRAs are not applied to it.',
   },
   {
     id: 'wan22-i2v',

@@ -233,7 +233,7 @@ test('z-image keeps 816x1056 exactly (multiples of 16, min 256, max 2048); the o
 });
 
 test('the other image families still snap to 64, and video to 16 with its own limits', async () => {
-  for (const family of ['qwen-image', 'flux-dev', 'hidream', 'ovis-image']) {
+  for (const family of ['qwen-image', 'flux-dev', 'hidream', 'ovis-image', 'chroma']) {
     const job = await call('generate_image', { prompt: 'a page', family, width: 816, height: 1056 });
     assert.deepEqual([job.width, job.height], [832, 1088], family);
   }
@@ -261,7 +261,7 @@ test('list_capabilities reports multiple_of 16 for z-image and 64 for the other 
   const caps = await call('list_capabilities');
   const multiples = Object.fromEntries(caps.families.map((f: any) => [f.family, [f.fields.width.multiple_of, f.fields.height.multiple_of]]));
   assert.deepEqual(multiples['z-image'], [16, 16]);
-  for (const family of ['qwen-image', 'flux-dev', 'hidream', 'ovis-image']) assert.deepEqual(multiples[family], [64, 64], family);
+  for (const family of ['qwen-image', 'flux-dev', 'hidream', 'ovis-image', 'chroma']) assert.deepEqual(multiples[family], [64, 64], family);
   assert.deepEqual(multiples['wan22-i2v'], [16, 16]);
   assert.deepEqual(multiples['wan22-t2v'], [16, 16]);
 });
