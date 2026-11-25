@@ -40,5 +40,10 @@ jobs:
     uses: gerp93/KVG_Standards/.github/workflows/release-electron.yml@main
     with:
       version: ${{ needs.version.outputs.new_tag }}
+      # Tests gate the release (KVG_Standards README "Tests run at release"). Some tests run ffmpeg
+      # for real, and the release workflow installs with --ignore-scripts, so ffmpeg-static's binary
+      # is fetched first; no runner image ships ffmpeg. (Only the test step uses it on macOS - the
+      # macOS package still excludes ffmpeg-static, see package.json.)
+      test_command: node node_modules/ffmpeg-static/install.js && npm test
     permissions:
       contents: write
