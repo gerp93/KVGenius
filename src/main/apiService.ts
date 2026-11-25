@@ -17,6 +17,7 @@ import { JobQueue } from './jobQueue';
 import { AssemblyManager, AssemblySpec } from './assembly';
 import { FfmpegPaths, MediaInfo, EndBehavior, Transition, makePoster, probeMedia } from './mediaTools';
 import { PromptStyle, combinePrompt, extraWording, styleLabel } from '../shared/styles';
+import { resolveLoras } from '../shared/loras';
 import { findStyleByName, listStyles } from './styles';
 import { GroupBy, importPathInWorkspaces, ItemKind, ItemOrigin, ItemView, getItem, groupItems, kindForExtension, listItems, parseItemId, upsertImport } from './library';
 import { setGenerationPinned } from './db';
@@ -443,6 +444,8 @@ export class ApiService {
     // A style's words are added here, so the job (and the Library record) holds the full prompt that is
     // sent. With no style the prompt is passed through untouched.
     const { style, elements } = this.resolveWording(args, workspaceId);
+    // An element's LoRA goes into the job when this family can load one; otherwise it is left out and the reply says so.
+    const lora = resolveLoras(elements, family);
     // With a `source` picture this is image to image: same model, but the sampler starts from that picture.
     const sourceId = optString(args, 'source', 64);
     if ((sourceId !== undefined || (args.extend !== undefined && args.extend !== null)) && family !== Z_IMAGE_FAMILY) {
@@ -475,10 +478,12 @@ export class ApiService {
       steps: samplerDefaults ? (optNumber(args, 'steps', SAMPLER_LIMITS.steps.min, SAMPLER_LIMITS.steps.max, true) ?? samplerDefaults.steps) : (optNumber(args, 'steps', 1, 20, true) ?? 8),
       cfg: samplerDefaults ? (optNumber(args, 'cfg', SAMPLER_LIMITS.cfg.min, SAMPLER_LIMITS.cfg.max) ?? samplerDefaults.cfg) : (optNumber(args, 'cfg', 0.5, 3) ?? 1),
       ...(model ? { modelName: model.name, modelSettings: profileSettings(model) } : {}),
+      ...(lora.applied.length > 0 ? { loras: lora.applied } : {}),
       ...(source && extend ? { sourceImagePath: source.path, outpaint: extend, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max), OUTPAINT_DEFAULT_DENOISE) } : {}),
       ...(source && !extend ? { sourceImagePath: source.path, denoise: clampDenoise(optNumber(args, 'strength', DENOISE_LIMITS.min, DENOISE_LIMITS.max)) } : {}),
     };
-    return this.jobView(this.deps.queue.submit({ family: extend ? OUTPAINT_FAMILY : source ? I2I_FAMILY : family, params, source: 'mcp', batch: optBatch(args), workspaceId }));
+    const job = this.jobView(this.deps.queue.submit({ family: extend ? OUTPAINT_FAMILY : source ? I2I_FAMILY : family, params, source: 'mcp', batch: optBatch(args), workspaceId }));
+    return lora.notes.length > 0 ? { ...job, notes: lora.notes } : job;
   }
 
   /** The saved model named `name`, or null for the built-in one (no name, "default", or its own name). */
@@ -551,11 +556,11 @@ export class ApiService {
   }
 
   private listStylesTool(args: Args) {
-    const styles = listStyles(this.deps.db, this.workspaceFor(args)).map((s) => ({ name: s.name, kind: s.kind, text: s.text }));
+    const styles = listStyles(this.deps.db, this.workspaceFor(args)).map((s) => ({ name: s.name, kind: s.kind, text: s.text, ...(s.lora ? { lora: { file: s.lora.file, strength: s.lora.strength } } : {}) }));
     return {
       styles,
       note: styles.length
-        ? 'A "style" is a look (anime, oil painting): pass its name as `style` to generate_image (one per picture). An "element" is a reusable part of the picture (an outfit, a character): pass any number of names as `elements`. Elements are added after your prompt, then the style, each after a comma.'
+        ? 'A "style" is a look (anime, oil painting): pass its name as `style` to generate_image (one per picture). An "element" is a reusable part of the picture (an outfit, a character): pass any number of names as `elements`. Elements are added after your prompt, then the style, each after a comma. An element with a `lora` also loads that LoRA file at that strength when the family supports it (Flux dev: family "flux-dev"); with another family the LoRA is left out and the reply says so.'
         : 'Nothing saved yet - the user creates styles and elements in the KVGenius Styles tab.',
     };
   }

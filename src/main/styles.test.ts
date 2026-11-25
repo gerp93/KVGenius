@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { initDatabase, insertGeneration, getGenerationById } from './db';
-import { mkdtempSync } from 'node:fs';
+import { initDatabase, insertGeneration, getGenerationById, findDuplicateGeneration } from './db';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -124,4 +124,67 @@ test('a shared name cannot be taken twice, and a shared style cannot take a work
   assert.throws(() => saveStyle(db, { name: 'noir', text: 'y', scope: 'workspace' }, null, other), /already exists/, 'a workspace one cannot repeat a shared name');
   saveStyle(db, { name: 'Piece', text: 'x', kind: 'element' }, null, other);
   assert.throws(() => saveStyle(db, { name: 'PIECE', text: 'y', scope: 'all' }, null, 1), /already exists/, 'a shared one cannot repeat any workspace\'s name');
+});
+
+test('an element can carry a LoRA, which is kept, edited, cleared and never held by a style', () => {
+  const db = initDatabase(':memory:');
+  const lora = { file: 'ffl-twilek.safetensors', strength: 0.8, families: ['flux-dev'] };
+  const twilek = saveStyle(db, { name: "Twi'lek", text: "ffl-twi'lek-mk.1", kind: 'element', lora }, null, 1);
+  assert.deepEqual(twilek.lora, lora);
+  assert.deepEqual(getStyle(db, twilek.id)?.lora, lora);
+  assert.deepEqual(listStyles(db, 1).find((s) => s.id === twilek.id)?.lora, lora);
+  assert.deepEqual(findStyleByName(db, "twi'lek", 1)?.lora, lora);
+
+  // An edit that does not mention the LoRA leaves it alone; a new strength replaces it; null removes it.
+  assert.deepEqual(saveStyle(db, { name: "Twi'lek", text: 'new words', kind: 'element' }, twilek.id, 1).lora, lora);
+  assert.equal(saveStyle(db, { name: "Twi'lek", text: 'new words', kind: 'element', lora: { ...lora, strength: -0.5 } }, twilek.id, 1).lora?.strength, -0.5);
+  assert.equal(saveStyle(db, { name: "Twi'lek", text: 'new words', kind: 'element', lora: null }, twilek.id, 1).lora, null);
+
+  // A style has none even if one is sent, and turning an element into a style drops it.
+  assert.equal(saveStyle(db, { name: 'Noir', text: 'x', kind: 'style', lora }, null, 1).lora, null);
+  const piece = saveStyle(db, { name: 'Piece', text: 'y', kind: 'element', lora }, null, 1);
+  assert.equal(saveStyle(db, { name: 'Piece', text: 'y', kind: 'style' }, piece.id, 1).lora, null);
+  assert.throws(() => saveStyle(db, { name: 'Bad', text: 'z', kind: 'element', lora: { ...lora, strength: 50 } }, null, 1), /strength/i);
+});
+
+test('a database from before element LoRAs gains the columns and keeps its styles and pictures', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kvg-lora-migrate-'));
+  try {
+    const file = join(dir, 'old.db');
+    const first = initDatabase(file);
+    saveStyle(first, { name: 'Red coat', text: 'wearing red', kind: 'element' }, null, 1);
+    insertGeneration(first, params('a fox'), 'flux-dev', '/out/a.png');
+    // Make it look like an older database: no LoRA columns at all.
+    first.exec('ALTER TABLE styles DROP COLUMN lora; ALTER TABLE generations DROP COLUMN loras;');
+    first.close();
+
+    const db = initDatabase(file);
+    const styleColumns = (db.prepare('PRAGMA table_info(styles)').all() as unknown as { name: string }[]).map((c) => c.name);
+    const generationColumns = (db.prepare('PRAGMA table_info(generations)').all() as unknown as { name: string }[]).map((c) => c.name);
+    assert.ok(styleColumns.includes('lora'));
+    assert.ok(generationColumns.includes('loras'));
+    assert.equal(listStyles(db, 1)[0].lora, null, 'an old element has no LoRA');
+    assert.equal(getGenerationById(db, 1)?.loras, null);
+    const edited = saveStyle(db, { name: 'Red coat', text: 'wearing red', kind: 'element', lora: { file: 'a.safetensors', strength: 1, families: ['flux-dev'] } }, 1, 1);
+    assert.equal(edited.lora?.file, 'a.safetensors');
+    // Running it again is harmless.
+    db.close();
+    initDatabase(file).close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a generation records the LoRAs it was made with, and a different LoRA is a different picture to the duplicate guard', () => {
+  const db = initDatabase(':memory:');
+  const loras = [{ file: 'a.safetensors', strength: 0.8 }, { file: 'b.safetensors', strength: 1 }];
+  const made = insertGeneration(db, { ...params('a twi\'lek'), loras }, 'flux-dev', '/out/a.png');
+  assert.deepEqual(made.loras, loras);
+  assert.deepEqual(getGenerationById(db, made.id)?.loras, loras);
+  assert.equal(insertGeneration(db, params('plain'), 'flux-dev', '/out/b.png').loras, null);
+
+  const query = { workspaceId: 1, prompt: "a twi'lek", width: 64, height: 64, seed: 1, steps: 4, cfg: 1 };
+  assert.equal(findDuplicateGeneration(db, 'flux-dev', { ...query, loras })?.id, made.id);
+  assert.equal(findDuplicateGeneration(db, 'flux-dev', query), null, 'the same settings without the LoRAs are not a repeat');
+  assert.equal(findDuplicateGeneration(db, 'flux-dev', { ...query, loras: [{ ...loras[0], strength: 0.5 }, loras[1]] }), null, 'nor with another strength');
 });

@@ -21,6 +21,9 @@ The previous Flet/Python implementation of this app is preserved on the
 [`legacy-flet-app`](https://github.com/gerp93/KVGenius/tree/legacy-flet-app)
 branch for reference.
 
+Elements can carry a LoRA (Flux dev only for now) to get things a model cannot draw from text alone, such as a
+particular species - see [docs/loras.md](docs/loras.md).
+
 ## Using KVGenius from other apps (MCP)
 
 Turn on **Settings → Other Apps (MCP)** and paste the config it shows into an MCP client

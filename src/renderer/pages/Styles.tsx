@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { styleScopeLabel } from "../../shared/workspaces";
+import {
+  LORA_FAMILIES,
+  LORA_STRENGTH,
+  MAX_LORA_FILE_LENGTH,
+  loraFamilyNames,
+} from "../../shared/loras";
 import { LOCAL_STYLES_LABEL, SHARED_STYLES_LABEL, splitByScope } from "../../shared/styles";
 import {
   MAX_STYLE_NAME_LENGTH,
@@ -111,6 +117,12 @@ export default function Styles({ onChanged }: Props) {
   const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [kind, setKind] = useState<StyleKind>(tab);
+  // An element's optional LoRA (see shared/loras.ts): the file ("" for none), its strength as typed, and what ComfyUI says it has
+  // (null while unknown or when ComfyUI cannot be reached - the file is then typed by hand).
+  const [loraFile, setLoraFile] = useState("");
+  const [loraStrength, setLoraStrength] = useState(String(LORA_STRENGTH.default));
+  const [loraFiles, setLoraFiles] = useState<string[] | null>(null);
+  const [loraFilesLoading, setLoraFilesLoading] = useState(false);
   // Who a NEW one is for, chosen when it is made (a saved one keeps what it was made with). Until chosen it follows the kind:
   // a style is shared by every workspace, an element belongs to this one.
   const [scopeChoice, setScopeChoice] = useState<"all" | "workspace" | null>(null);
@@ -150,6 +162,19 @@ export default function Styles({ onChanged }: Props) {
     };
   }, [loadSamples]);
 
+  // The LoRA files ComfyUI has, asked for when an element is being edited (and again on "Refresh"); unreachable means a typed name instead.
+  const refreshLoraFiles = useCallback(() => {
+    setLoraFilesLoading(true);
+    window.kvgenius
+      .listLoraFiles()
+      .then((files) => setLoraFiles(files))
+      .catch(() => setLoraFiles(null))
+      .finally(() => setLoraFilesLoading(false));
+  }, []);
+  useEffect(() => {
+    if (kind === "element") refreshLoraFiles();
+  }, [kind, refreshLoraFiles]);
+
   // Take the saved standard prompt and seed into the form the first time they arrive.
   useEffect(() => {
     if (samples && promptDraft === null) {
@@ -174,9 +199,14 @@ export default function Styles({ onChanged }: Props) {
     [samples],
   );
   const selected = styles?.find((s) => s.id === selectedId) ?? null;
+  const savedLora = selected?.lora ?? null;
+  const loraDirty =
+    kind === "element" &&
+    (loraFile.trim() !== (savedLora?.file ?? "") ||
+      (loraFile.trim() !== "" && Number(loraStrength) !== (savedLora?.strength ?? LORA_STRENGTH.default)));
   const dirty = selected
-    ? name !== selected.name || text !== selected.text || kind !== selected.kind
-    : name.trim() !== "" || text.trim() !== "";
+    ? name !== selected.name || text !== selected.text || kind !== selected.kind || loraDirty
+    : name.trim() !== "" || text.trim() !== "" || loraDirty;
   const settingsDirty =
     samples !== null &&
     promptDraft !== null &&
@@ -189,6 +219,8 @@ export default function Styles({ onChanged }: Props) {
     setName(style?.name ?? "");
     setText(style?.text ?? "");
     setKind(style?.kind ?? newKind);
+    setLoraFile(style?.lora?.file ?? "");
+    setLoraStrength(String(style?.lora?.strength ?? LORA_STRENGTH.default));
     setScopeChoice(null);
     setError(null);
     setNotice(null);
@@ -207,7 +239,21 @@ export default function Styles({ onChanged }: Props) {
     setNotice(null);
     try {
       const saved = await window.kvgenius.saveStyle(
-        { name, text, kind, ...(selectedId === null ? { scope } : {}) },
+        {
+          name,
+          text,
+          kind,
+          ...(selectedId === null ? { scope } : {}),
+          // An empty file means none; a LoRA keeps the families it was saved for (new ones are for every family that can load one).
+          lora:
+            kind === "element" && loraFile.trim() !== ""
+              ? {
+                  file: loraFile.trim(),
+                  strength: loraStrength.trim() === "" ? LORA_STRENGTH.default : Number(loraStrength),
+                  families: selected?.lora?.families ?? [...LORA_FAMILIES],
+                }
+              : null,
+        },
         selectedId,
       );
       setStyles(await window.kvgenius.listStyles());
@@ -216,6 +262,8 @@ export default function Styles({ onChanged }: Props) {
       setName(saved.name);
       setText(saved.text);
       setKind(saved.kind);
+      setLoraFile(saved.lora?.file ?? "");
+      setLoraStrength(String(saved.lora?.strength ?? LORA_STRENGTH.default));
       // Changing its kind moves it to the other tab: follow it.
       if (saved.kind !== tab) {
         setParams(saved.kind === "element" ? { tab: "elements" } : {}, {
@@ -672,6 +720,76 @@ export default function Styles({ onChanged }: Props) {
                 </span>
               )}
             </div>
+
+            {kind === "element" && (
+              <div className="styles-page__field">
+                <div className="styles-page__field-head">
+                  <label className="field-label" htmlFor="element-lora">
+                    LoRA (optional)
+                  </label>
+                  <button
+                    type="button"
+                    className="field-hint-link"
+                    onClick={refreshLoraFiles}
+                    disabled={loraFilesLoading}
+                  >
+                    {loraFilesLoading ? "Asking ComfyUI..." : "Refresh list"}
+                  </button>
+                </div>
+                <div className="lora-field">
+                  {loraFiles !== null ? (
+                    <select
+                      id="element-lora"
+                      className="lora-field__file"
+                      value={loraFile}
+                      onChange={(e) => setLoraFile(e.target.value)}
+                    >
+                      <option value="">None</option>
+                      {loraFile !== "" && !loraFiles.includes(loraFile) && (
+                        <option value={loraFile}>{loraFile} (ComfyUI does not list it)</option>
+                      )}
+                      {loraFiles.map((file) => (
+                        <option key={file} value={file}>
+                          {file}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="element-lora"
+                      type="text"
+                      className="lora-field__file"
+                      value={loraFile}
+                      maxLength={MAX_LORA_FILE_LENGTH}
+                      onChange={(e) => setLoraFile(e.target.value)}
+                      placeholder="File name in ComfyUI's models/loras folder"
+                    />
+                  )}
+                  <input
+                    type="number"
+                    className="lora-field__strength"
+                    aria-label="LoRA strength"
+                    title="Strength"
+                    value={loraStrength}
+                    min={LORA_STRENGTH.min}
+                    max={LORA_STRENGTH.max}
+                    step={0.05}
+                    disabled={loraFile.trim() === ""}
+                    onChange={(e) => setLoraStrength(e.target.value)}
+                  />
+                </div>
+                <span className="styles-page__kind-hint">
+                  {loraFiles === null
+                    ? "ComfyUI could not be reached, so type the file name exactly as it is in its models/loras folder. "
+                    : loraFiles.length === 0
+                      ? "ComfyUI lists no LoRA files - put the file in its models/loras folder, then refresh. "
+                      : ""}
+                  Loaded whenever this element is used. Flux LoRAs only apply to the {loraFamilyNames()} model; with any
+                  other model the LoRA is left out (the element's words still count). Put the LoRA's trigger word in the
+                  element text above. Strength {LORA_STRENGTH.min} to {LORA_STRENGTH.max}, usually 0.5 to 1.
+                </span>
+              </div>
+            )}
 
             <div className="styles-page__preview">
               <span className="field-label">What the example sends</span>

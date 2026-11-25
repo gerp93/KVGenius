@@ -126,6 +126,14 @@ implementation here is exactly the kind of drift it exists to prevent.
   sends the picture it replaces to the Trash (favorites stay); deleting a style trashes its example; an example the user trashed reads as none.
   `styles.text_changed_at` records when the wording last changed (a rename or kind change does not move it) and is shown on the card. The page polls
   every 2 s only while an example is queued or rendering.
+- **An element can carry a LoRA** (`shared/loras.ts`, `main/loraPatch.ts`, `styles.lora` JSON column, `generations.loras`, `docs/loras.md`). The
+  trigger words are just the element's own text; the LoRA (file, strength -2..2, families) is resolved with the other wording *before* the job is
+  queued (`resolveLoras(elements, family)`, in Generate and `ApiService.generateImage`) into `GenerationParams.loras`, so the job, the Library
+  record and the duplicate guard hold exactly what runs. `LORA_FAMILIES` / `LORA_NODE_MAP` say which families can load one (only `flux-dev`); for
+  any other family the LoRA is dropped with a note (Generate shows it, the API replies with `notes`), never an error. The templates contain no LoRA
+  node (ComfyUI validates `lora_name` against its files): `applyLoras` inserts up to 3 `LoraLoaderModelOnly` nodes (`lora-1`...) between the model
+  loader and the sampler only when a job carries LoRAs. File names come from ComfyUI's loader list (`listLoraFiles`), free text when it is unreachable.
+  Style example pictures are made without the element's LoRA (they use Z-Image).
 - **Library cards stay light so a long list scrolls smoothly** (`main/thumbnails.ts`, `mediaProtocol.ts`, `CycleMedia.tsx`, `GeneratedVideo.tsx`, `rowSizeHint`).
   A card loads a small copy of its still picture, not the full file: `window.kvgenius.thumbUrlFor(path)` adds `?w=800` to the `kvimage://` URL, and
   the protocol handler makes (Electron `nativeImage`, JPEG) and keeps a copy in `userData/thumbnails` - keyed by path, size, mtime and width, written

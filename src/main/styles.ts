@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { PromptStyle, PromptStyleInput, cleanStyleKind, validateStyleInput } from '../shared/styles';
+import { parseElementLora, serializeElementLora } from '../shared/loras';
 
 /**
  * User-defined prompt styles (see shared/styles.ts). Names are unique ignoring case, so a client can
@@ -13,7 +14,8 @@ CREATE TABLE IF NOT EXISTS styles (
   kind TEXT NOT NULL DEFAULT 'style',
   workspace_id INTEGER,
   created_at TEXT NOT NULL,
-  text_changed_at TEXT NOT NULL DEFAULT ''
+  text_changed_at TEXT NOT NULL DEFAULT '',
+  lora TEXT
 );
 `;
 
@@ -32,10 +34,21 @@ interface StyleRow {
   workspace_id?: number | null;
   created_at: string;
   text_changed_at?: string | null;
+  lora?: string | null;
 }
 
 function rowToStyle(row: StyleRow): PromptStyle {
-  return { id: row.id, name: row.name, text: row.text, kind: cleanStyleKind(row.kind), workspaceId: row.workspace_id ?? null, createdAt: row.created_at, textChangedAt: row.text_changed_at || row.created_at };
+  const kind = cleanStyleKind(row.kind);
+  return {
+    id: row.id,
+    name: row.name,
+    text: row.text,
+    kind,
+    workspaceId: row.workspace_id ?? null,
+    createdAt: row.created_at,
+    textChangedAt: row.text_changed_at || row.created_at,
+    lora: kind === 'element' ? parseElementLora(row.lora) : null,
+  };
 }
 
 function isNameTaken(err: unknown): boolean {
@@ -88,14 +101,18 @@ export function saveStyle(db: DatabaseSync, input: PromptStyleInput, id: number 
       const owner = forWorkspace ? workspaceId : null;
       if (nameClashes(db, name, owner, null)) throw new Error(`A style or element named "${name}" already exists.`);
       const result = db
-        .prepare('INSERT INTO styles (name, text, kind, workspace_id, created_at, text_changed_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(name, text, kind ?? 'style', owner, now, now);
+        .prepare('INSERT INTO styles (name, text, kind, workspace_id, created_at, text_changed_at, lora) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(name, text, kind ?? 'style', owner, now, now, serializeElementLora(checked.value.lora));
       return getStyle(db, Number(result.lastInsertRowid)) as PromptStyle;
     }
     const before = getStyle(db, id);
     if (before && nameClashes(db, name, before.workspaceId, id)) throw new Error(`A style or element named "${name}" already exists.`);
     const changedAt = before && before.text === text ? before.textChangedAt : now;
-    const result = db.prepare('UPDATE styles SET name = ?, text = ?, kind = ?, text_changed_at = ? WHERE id = ?').run(name, text, kind ?? 'style', changedAt, id);
+    // A LoRA that is not part of the input stays as it was - except that only an element can have one.
+    const lora = checked.value.lora !== undefined ? checked.value.lora : kind === 'element' ? (before?.lora ?? null) : null;
+    const result = db
+      .prepare('UPDATE styles SET name = ?, text = ?, kind = ?, text_changed_at = ?, lora = ? WHERE id = ?')
+      .run(name, text, kind ?? 'style', changedAt, serializeElementLora(lora), id);
     if (Number(result.changes) === 0) throw new Error('That style no longer exists.');
     return getStyle(db, id) as PromptStyle;
   } catch (err) {

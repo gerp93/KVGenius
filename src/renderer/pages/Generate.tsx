@@ -15,6 +15,7 @@ import { usePromptSlots } from '../hooks/usePromptSlots';
 import { useTemplatedPrompt } from '../hooks/useTemplatedPrompt';
 import { MAX_PROMPT_SLOTS } from '../../shared/promptSlots';
 import type { PromptTabsModel } from '../utils/promptTabs';
+import { describeLora, resolveLoras, serializeLoras } from '../../shared/loras';
 import { LOCAL_STYLES_LABEL, PromptStyle, SHARED_STYLES_LABEL, combinePrompt, extraWording, splitByScope, splitStyledPrompt, styleLabel } from '../../shared/styles';
 import { Link } from 'react-router-dom';
 import { PROFILE_FAMILIES, SAMPLER_LIMITS, profileFamily, profileFamilyKey } from '../../shared/modelFamilies';
@@ -387,6 +388,10 @@ export default function Generate({
   // Extending a video: the source image is its last frame and the finished clip is joined onto it (only while that picture is still the source).
   const activeExtendId = videoStartPicture !== null ? extendFromId : null;
   const runFamily = mode === 'image' ? (faceFamily ?? imageFamilyFor(imageBase, startPicture !== null, startMask !== null, startPad !== null)) : videoFamilyFor(videoFromPicture, videoFromVideo);
+  // The LoRAs the chosen elements bring, for the model this picture uses (see shared/loras.ts); the ones it cannot use are explained, not dropped silently.
+  const loraUse = resolveLoras(activeElements, runFamily);
+  const loras = loraUse.applied;
+  const lorasKey = serializeLoras(loras);
   // The family whose saved models apply (image to image and inpainting share text to image's).
   const modelBase = mode === 'image' ? imageBase : profileFamilyKey(runFamily);
   const modelFamily = profileFamily(modelBase);
@@ -424,7 +429,7 @@ export default function Generate({
       width,
       height,
       seedValue,
-      mode === 'image' ? [runFamily, steps, cfg, serializeModelSettings(modelSettings), startPicture, startPicture ? denoise : null, startMask, padKey, faceReference] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, restyleVideo, restyleVideo ? videoStrength : null, serializeModelSettings(modelSettings)],
+      mode === 'image' ? [runFamily, steps, cfg, serializeModelSettings(modelSettings), lorasKey, startPicture, startPicture ? denoise : null, startMask, padKey, faceReference] : [runFamily, secondsToFrames(lengthSeconds), videoQuality, videoStartPicture, activeExtendId, restyleVideo, restyleVideo ? videoStrength : null, serializeModelSettings(modelSettings)],
     ]);
   }
   const repeatsLastRun = seedLocked && lastRunSignature === runSignature(seed);
@@ -463,6 +468,7 @@ export default function Generate({
           ...(startPicture ? { sourceImagePath: startPicture, ...(startPad ? { outpaint: startPad, denoise } : { denoise, ...(startMask ? { maskImagePath: startMask } : {}) }) } : {}),
           ...(faceReference ? { sourceImagePath: faceReference } : {}),
           ...(modelSettings ? { modelSettings } : {}),
+          ...(loras.length > 0 ? { loras } : {}),
         })
         .then((found) => {
           if (!cancelled) setDuplicate(found);
@@ -475,7 +481,7 @@ export default function Generate({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, restyleVideo, videoStrength, startPicture, faceReference, startMask, denoise, padKey, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, needsRestyleVideo, needsPadSize, modelSettings && serializeModelSettings(modelSettings)]);
+  }, [seedLocked, mode, runFamily, finalPrompt, prompt, width, height, seed, runSteps, runCfg, lengthSeconds, videoStartPicture, restyleVideo, videoStrength, startPicture, faceReference, startMask, denoise, padKey, finishedRuns, libraryChanges, needsStartPicture, needsVideoPicture, needsRestyleVideo, needsPadSize, modelSettings && serializeModelSettings(modelSettings), lorasKey]);
   const blocked = repeatsLastRun || duplicate !== null;
 
   function handleModeChange(newMode: Mode) {
@@ -874,6 +880,7 @@ export default function Generate({
       prompt: finalPrompt,
       ...(styleLabel(activeElements, activeStyle) ? { styleName: styleLabel(activeElements, activeStyle) as string } : {}),
       ...(activeModel && modelSettings ? { modelName: activeModel.name, modelSettings } : {}),
+      ...(loras.length > 0 ? { loras } : {}),
       width,
       height,
       steps: runSteps,
@@ -1301,8 +1308,9 @@ export default function Generate({
               {activeElements.length > 0 && (
                 <div className="element-chips">
                   {activeElements.map((element) => (
-                    <span key={element.id} className="element-chip" title={element.text}>
+                    <span key={element.id} className="element-chip" title={element.lora ? `${element.text}\n\nLoRA: ${describeLora(element.lora)}` : element.text}>
                       {element.name}
+                      {element.lora && <span className="element-chip__lora">LoRA</span>}
                       <button
                         type="button"
                         className="element-chip__remove"
@@ -1315,6 +1323,16 @@ export default function Generate({
                   ))}
                 </div>
               )}
+              {loras.length > 0 && (
+                <p className="lora-hint">
+                  Loads {loras.length === 1 ? 'LoRA' : 'LoRAs'}: {loras.map(describeLora).join(', ')}
+                </p>
+              )}
+              {loraUse.notes.map((note) => (
+                <p key={note} className="lora-hint lora-hint--note">
+                  {note}
+                </p>
+              ))}
               <select
                 id="element-select"
                 value=""

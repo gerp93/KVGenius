@@ -19,6 +19,7 @@ import { T2V_FAMILY } from '../shared/textToVideo';
 import { V2V_FAMILY } from '../shared/videoToVideo';
 import { MODEL_PROFILES_SCHEMA } from './modelProfiles';
 import { ModelSettings, parseModelSettings, serializeModelSettings } from '../shared/modelProfiles';
+import { LoraSpec, parseLoras, serializeLoras } from '../shared/loras';
 import { CleanupSettings, DEFAULT_CLEANUP_SETTINGS } from '../shared/cleanup';
 import { DEFAULT_WORKSPACE_ID, WORKSPACES_SCHEMA, assignWorkspaceFolders, migrateToWorkspaces, seedPromptSlots } from './workspaces';
 
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS generations (
   style_name TEXT,
   model_name TEXT,
   model_settings TEXT,
+  loras TEXT,
   denoise REAL,
   mask_image_path TEXT,
   outpaint TEXT,
@@ -73,7 +75,15 @@ function migrateSchema(db: DatabaseSync): void {
     db.exec("ALTER TABLE styles ADD COLUMN text_changed_at TEXT NOT NULL DEFAULT '';");
     db.exec("UPDATE styles SET text_changed_at = created_at WHERE text_changed_at = '';");
   }
+  // An element can carry a LoRA (file, strength, families as JSON - see shared/loras.ts); every one made before has none.
+  if (styleColumns.length > 0 && !styleColumns.some((c) => c.name === 'lora')) {
+    db.exec('ALTER TABLE styles ADD COLUMN lora TEXT;');
+  }
   const columns = db.prepare('PRAGMA table_info(generations)').all() as unknown as ColumnInfo[];
+  // The LoRAs a picture was made with (a JSON list of file and strength), so a result can be reproduced; null for none.
+  if (!columns.some((c) => c.name === 'loras')) {
+    db.exec('ALTER TABLE generations ADD COLUMN loras TEXT;');
+  }
   if (!columns.some((c) => c.name === 'length')) {
     db.exec('ALTER TABLE generations ADD COLUMN length INTEGER;');
   }
@@ -296,6 +306,7 @@ interface GenerationRow {
   style_name: string | null;
   model_name?: string | null;
   model_settings?: string | null;
+  loras?: string | null;
   denoise?: number | null;
   mask_image_path?: string | null;
   outpaint?: string | null;
@@ -346,6 +357,7 @@ function rowToRecord(row: GenerationRow): GenerationRecord {
     extendedFrames: row.extended_frames ?? null,
     modelName: row.model_name ?? null,
     modelSettings: parseModelSettings(row.model_settings),
+    loras: parseLoras(row.loras),
     createdAt: row.created_at,
     timing:
       row.t_actual_ms == null
@@ -381,12 +393,13 @@ export function insertGeneration(
   const styleName = params.styleName?.trim() || null;
   const modelName = params.modelSettings ? params.modelName?.trim() || null : null;
   const modelSettings = serializeModelSettings(params.modelSettings);
+  const loras = serializeLoras(params.loras);
   const denoise = params.denoise ?? null;
   const outpaint = serializeOutpaint(params.outpaint);
   const sourceVideoPath = params.sourceVideoPath ?? null;
   const stmt = db.prepare(`
-    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, workspace_id, source_image_path, style_name, model_name, model_settings, denoise, mask_image_path, outpaint, source_video_path, extended_frames, timing_id, created_at)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO generations (prompt, negative_prompt, width, height, seed, steps, cfg, length, model_family, image_path, workspace_id, source_image_path, style_name, model_name, model_settings, loras, denoise, mask_image_path, outpaint, source_video_path, extended_frames, timing_id, created_at)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     params.prompt,
@@ -403,6 +416,7 @@ export function insertGeneration(
     styleName,
     modelName,
     modelSettings,
+    loras,
     denoise,
     maskImagePath,
     outpaint,
@@ -436,6 +450,7 @@ export function insertGeneration(
     extendedFrames,
     modelName,
     modelSettings: params.modelSettings ?? null,
+    loras: parseLoras(loras),
     createdAt,
     timing: null,
   };
@@ -782,6 +797,8 @@ export interface DuplicateQuery {
   sourceVideoPath?: string | null;
   /** Image only: the model settings the run would use (none: the shipped template). A different model makes a different picture. */
   modelSettings?: ModelSettings | null;
+  /** Image only: the LoRAs the run would load. Different LoRAs (or strengths) make a different picture. */
+  loras?: LoraSpec[] | null;
 }
 
 /**
@@ -803,7 +820,7 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
     .prepare(
       `${GENERATION_SELECT}
        WHERE g.workspace_id = ? AND g.model_family = ? AND g.trashed_at IS NULL AND TRIM(g.prompt) = ? AND g.width = ? AND g.height = ?
-         AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ? AND g.model_settings IS ? AND g.denoise IS ? AND g.outpaint IS ?
+         AND g.seed = ? AND g.steps = ? AND ABS(g.cfg - ?) < 0.000001 AND g.length IS ? AND g.model_settings IS ? AND g.loras IS ? AND g.denoise IS ? AND g.outpaint IS ?
          ${needsSource ? 'AND g.source_image_path = ?' : ''} ${needsMask ? 'AND g.mask_image_path = ?' : ''} ${needsVideo ? 'AND g.source_video_path = ?' : ''}
        ORDER BY g.id DESC LIMIT 1`
     )
@@ -818,6 +835,7 @@ export function findDuplicateGeneration(db: DatabaseSync, modelFamily: string, q
       query.cfg,
       isVideo ? (query.length as number) : null,
       serializeModelSettings(query.modelSettings),
+      serializeLoras(query.loras),
       query.denoise ?? null,
       serializeOutpaint(query.outpaint),
       ...(needsSource ? [query.sourceImagePath as string] : []),

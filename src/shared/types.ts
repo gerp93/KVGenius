@@ -7,6 +7,7 @@ import type { ModelProfile, ModelProfileInput, ModelSettings } from './modelProf
 import type { ModelStatusReport } from './modelStatus';
 import type { ModelTraits } from './modelTraits';
 import type { OutpaintPadding } from './imageToImage';
+import type { LoraSpec } from './loras';
 import type { OriginKind } from './origin';
 import type { PromptSlot } from './promptSlots';
 import type { PromptStyle, PromptStyleInput } from './styles';
@@ -49,6 +50,9 @@ export interface GenerationParams {
   /** Image families only: the profile resolved at submit time - which files to load and how to sample. Absent
    * means the template exactly as shipped. (steps and cfg above are always the values to use.) */
   modelSettings?: ModelSettings;
+  /** Image families that can load one (see shared/loras.ts): LoRA files to chain onto the model, in order, resolved from the chosen elements
+   * at submit time - so the job and the Library record hold exactly what runs. Absent or empty means none. */
+  loras?: LoraSpec[];
 }
 
 export interface GenerationRecord {
@@ -89,6 +93,8 @@ export interface GenerationRecord {
   modelName: string | null;
   /** The exact files and sampler it was made with, or null for the shipped template. */
   modelSettings: ModelSettings | null;
+  /** The LoRAs it was made with (see GenerationParams.loras), or null for none. */
+  loras: LoraSpec[] | null;
   createdAt: string;
   /** How long this took vs what was predicted. Lives in its own table (see TimingStatRow) and is
    * null for generations made before timing was tracked. */
@@ -587,6 +593,8 @@ export interface KVGeniusAPI {
 
   /** Upscale models installed in ComfyUI (its models/upscale_models folder). Rejects if ComfyUI is unreachable. */
   listUpscaleModels: () => Promise<string[]>;
+  /** The LoRA files ComfyUI offers (its LoRA loader's own list). Rejects when ComfyUI cannot be reached - the editor then falls back to a typed name. */
+  listLoraFiles: () => Promise<string[]>;
 
   /** Converts a Library video to a GIF (ffmpeg, no audio) and saves it as a new Library image. */
   convertToGif: (id: number, options: { fps: number; width: number }) => Promise<GenerateResult>;

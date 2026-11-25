@@ -32,6 +32,7 @@ import { FACE_KLEIN_FAMILY, FACE_QWEN_FAMILY, isFaceReferenceFamily } from '../s
 import { V2V_FAMILY } from '../shared/videoToVideo';
 import { applyModelSettings } from './modelPatch';
 import { fillTextToImage } from './textToImagePatch';
+import { applyLoras } from './loraPatch';
 import { FOLDER_LOADERS, MODEL_FOLDERS } from '../shared/modelManifest';
 import { emptyInstalled, InstalledModels, parseChoiceList } from '../shared/modelStatus';
 
@@ -159,6 +160,11 @@ async function listLoaderChoices(node: string, input: string): Promise<string[]>
 /** Upscale models ComfyUI can load. */
 export function listUpscaleModels(): Promise<string[]> {
   return listLoaderChoices(FOLDER_LOADERS.upscale_models.node, FOLDER_LOADERS.upscale_models.input);
+}
+
+/** LoRA files ComfyUI can load (its LoRA loader's own list of choices, so exactly the names a workflow may use). */
+export function listLoraFiles(): Promise<string[]> {
+  return listLoaderChoices(FOLDER_LOADERS.loras.node, FOLDER_LOADERS.loras.input);
 }
 
 /** The sampler and scheduler names this ComfyUI offers (KSampler's own choice lists). */
@@ -350,6 +356,9 @@ async function patchTemplate(
 
   // A model profile swaps the loader files and sampler values inside this same graph.
   if (params.modelSettings) applyModelSettings(workflow, canonicalFamily(family), params.modelSettings);
+
+  // LoRAs from the chosen elements (a family that cannot load one leaves the graph untouched).
+  applyLoras(workflow, canonicalFamily(family), params.loras);
 
   return workflow;
 }
